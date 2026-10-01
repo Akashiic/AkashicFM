@@ -6,7 +6,7 @@
 		"description": "Rádio de internet para Minecraft 1.7.10: estado autoritativo no servidor, relay Opus sincronizado e áudio 3D com oclusão.",
 		"version": "${modVersion}",
 		"mcversion": "${minecraftVersion}",
-		"url": "https://github.com/Akashiic",
+		"url": "https://github.com/Akashiic/AkashicFM",
 		"updateUrl": "",
 		"authorList": ["Akashiic"],
 		"credits": "Inspirado no OpenFM (PC-Logix, MIT) e no Dragon's Radio Mod. Codecs: Concentus (BSD-3), JLayer (LGPL-2.1), JOrbis (LGPL-2.0), JAAD (domínio público).",

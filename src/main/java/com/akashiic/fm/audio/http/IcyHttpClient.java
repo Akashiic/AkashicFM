@@ -114,7 +114,7 @@ public final class IcyHttpClient {
                 + "Host: "
                 + hostHeader
                 + "\r\n"
-                + "User-Agent: AkashiFM/"
+                + "User-Agent: AkashicFM/"
                 + Tags.VERSION
                 + " (Minecraft radio)\r\n"
                 + "Accept: */*\r\n"

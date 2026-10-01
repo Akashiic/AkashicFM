@@ -1,4 +1,4 @@
-# Plano: rework do OpenFM para o ecossistema GTNH (nome provisório: **AkashiFM**)
+# Plano: rework do OpenFM para o ecossistema GTNH: **AkashicFM**
 
 ## Contexto
 
@@ -22,7 +22,7 @@ O OpenFM entra só como referência e crédito (MIT). Nenhum código legado é r
 - transporte híbrido (relay + direto);
 - mod novo, sem compatibilidade de mundo;
 - MVP = núcleo seguro + áudio 3D + oclusão (inclui reverb e caixas estéreo L/R);
-- repositório novo dedicado. O usuário cria `akashiic/<nome>`; a sessão anexa com `add_repo` (push) antes da Fase 0.
+- repositório dedicado: [Akashiic/AkashicFM](https://github.com/Akashiic/AkashicFM).
 
 ## Ambiente alvo
 

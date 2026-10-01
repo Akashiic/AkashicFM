@@ -1,10 +1,10 @@
-# AkashiFM (nome provisório)
+# AkashicFM
 
 Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor público e construída sobre a stack GTNH (GTNHLib, UniMixins). É uma reescrita inspirada no [OpenFM](https://github.com/PC-Logix/OpenFM), que é MIT: nenhum código dele foi reaproveitado, só a ideia.
 
 ## O que muda em relação ao OpenFM
 
-| Problema no OpenFM 1.7.10 | Como o AkashiFM resolve |
+| Problema no OpenFM 1.7.10 | Como o AkashicFM resolve |
 |---|---|
 | Servidor repassa qualquer pacote do cliente sem validar, e o handler carrega chunks pela thread de rede | Estado autoritativo no servidor; o cliente só manda intenções, validadas no tick principal (distância, dono, rate limit, limites) |
 | Som continua tocando a 1000 blocos (stream órfão quando o chunk descarrega) | Quem decide quem ouve é o servidor (audiência por distância), com watchdog no cliente |
@@ -52,7 +52,7 @@ Para rodar a sonda de rádios reais (precisa de internet), use a classe `com.aka
 java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream.radioparadise.com/mp3-128
 ```
 
-## Config (`config/akashifm.cfg`)
+## Config (`config/akashicfm.cfg`)
 
 | Categoria | Opções |
 |---|---|
@@ -63,7 +63,7 @@ java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream
 
 ## Licenças
 
-O AkashiFM é MIT (ver [`LICENSE`](LICENSE)). Bibliotecas embutidas e relocadas no jar:
+O AkashicFM é MIT (ver [`LICENSE`](LICENSE)). Bibliotecas embutidas e relocadas no jar:
 - [Concentus](https://github.com/jaredmdobson/concentus): Opus, BSD-3-Clause;
 - [JLayer](https://github.com/umjammer/jlayer): MP3, LGPL-2.1;
 - [JOrbis](http://www.jcraft.com/jorbis/): OGG/Vorbis, LGPL-2.0;

@@ -13,7 +13,7 @@ import org.lwjgl.openal.AL11;
 import org.lwjgl.openal.ALC10;
 import org.lwjgl.openal.EFX10;
 
-import com.akashiic.fm.AkashiFM;
+import com.akashiic.fm.AkashicFM;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -22,7 +22,7 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 /**
  * Spike 0a: descobre o que o OpenAL do cliente suporta (fonte posicional, EFX low-pass e reverb,
  * fontes livres) dentro do contexto de áudio do próprio Minecraft. Roda uma vez, só com a variável
- * de ambiente AKASHIFM_PROBE_AUDIO=1, e escreve o resultado no log com o prefixo "[Spike 0a]".
+ * de ambiente AKASHICFM_PROBE_AUDIO=1, e escreve o resultado no log com o prefixo "[Spike 0a]".
  */
 public final class AlCapabilityProbe {
 
@@ -31,11 +31,11 @@ public final class AlCapabilityProbe {
     private boolean done;
 
     public static void registerIfRequested() {
-        if ("1".equals(System.getenv("AKASHIFM_PROBE_AUDIO"))) {
+        if ("1".equals(System.getenv("AKASHICFM_PROBE_AUDIO"))) {
             FMLCommonHandler.instance()
                 .bus()
                 .register(new AlCapabilityProbe());
-            AkashiFM.LOG.info("[Spike 0a] sonda de OpenAL agendada");
+            AkashicFM.LOG.info("[Spike 0a] sonda de OpenAL agendada");
         }
     }
 
@@ -48,7 +48,7 @@ public final class AlCapabilityProbe {
         try {
             run();
         } catch (Throwable t) {
-            AkashiFM.LOG.error("[Spike 0a] a sonda falhou", t);
+            AkashicFM.LOG.error("[Spike 0a] a sonda falhou", t);
         }
     }
 
@@ -176,6 +176,6 @@ public final class AlCapabilityProbe {
     }
 
     private static void log(String fmt, Object... args) {
-        AkashiFM.LOG.info("[Spike 0a] " + String.format(fmt, args));
+        AkashicFM.LOG.info("[Spike 0a] " + String.format(fmt, args));
     }
 }

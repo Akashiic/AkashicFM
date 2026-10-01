@@ -17,10 +17,10 @@ public class CommonProxy {
             ConfigurationManager.registerConfig(FmConfig.Policy.class);
             ConfigurationManager.registerConfig(FmConfig.Limits.class);
         } catch (ConfigException e) {
-            throw new RuntimeException("AkashiFM: falha ao registrar o config", e);
+            throw new RuntimeException("AkashicFM: falha ao registrar o config", e);
         }
-        AkashiFM.LOG.info(
-            "AkashiFM {} carregado (relay={}, direto={})",
+        AkashicFM.LOG.info(
+            "AkashicFM {} carregado (relay={}, direto={})",
             Tags.VERSION,
             FmConfig.Relay.enabled,
             FmConfig.Direct.enabled);

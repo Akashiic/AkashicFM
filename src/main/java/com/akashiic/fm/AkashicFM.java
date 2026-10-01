@@ -10,15 +10,15 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
 @Mod(
-    modid = AkashiFM.MODID,
-    name = AkashiFM.NAME,
+    modid = AkashicFM.MODID,
+    name = AkashicFM.NAME,
     version = Tags.VERSION,
     acceptedMinecraftVersions = "[1.7.10]",
     dependencies = "required-after:gtnhlib")
-public class AkashiFM {
+public class AkashicFM {
 
-    public static final String MODID = "akashifm";
-    public static final String NAME = "AkashiFM";
+    public static final String MODID = "akashicfm";
+    public static final String NAME = "AkashicFM";
     public static final Logger LOG = LogManager.getLogger(NAME);
 
     @SidedProxy(clientSide = "com.akashiic.fm.ClientProxy", serverSide = "com.akashiic.fm.CommonProxy")

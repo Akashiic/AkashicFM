@@ -1,14 +1,14 @@
 package com.akashiic.fm.common;
 
-import com.akashiic.fm.AkashiFM;
+import com.akashiic.fm.AkashicFM;
 import com.gtnewhorizon.gtnhlib.config.Config;
 
-/** Config do servidor e do cliente (config/akashifm.cfg). Uma classe por categoria. */
+/** Config do servidor e do cliente (config/akashicfm.cfg). Uma classe por categoria. */
 public final class FmConfig {
 
     private FmConfig() {}
 
-    @Config(modid = AkashiFM.MODID, category = "relay")
+    @Config(modid = AkashicFM.MODID, category = "relay")
     public static final class Relay {
 
         @Config.Comment("O servidor baixa cada estação uma vez e retransmite em Opus para quem está no alcance. Sincronia real e privacidade para os jogadores.")
@@ -36,7 +36,7 @@ public final class FmConfig {
         public static int latencyTargetMs;
     }
 
-    @Config(modid = AkashiFM.MODID, category = "direct")
+    @Config(modid = AkashicFM.MODID, category = "direct")
     public static final class Direct {
 
         @Config.Comment("Permite o modo direto: cada cliente baixa o stream sozinho. Não gasta banda do servidor, mas expõe o IP dos jogadores à URL e a sincronia é aproximada.")
@@ -44,7 +44,7 @@ public final class FmConfig {
         public static boolean enabled;
     }
 
-    @Config(modid = AkashiFM.MODID, category = "policy")
+    @Config(modid = AkashicFM.MODID, category = "policy")
     public static final class Policy {
 
         @Config.Comment("Domínios permitidos para as URLs (subdomínios incluídos). Vazio = qualquer host público. Endereços internos são sempre recusados.")
@@ -56,7 +56,7 @@ public final class FmConfig {
         public static boolean allowHighPorts;
     }
 
-    @Config(modid = AkashiFM.MODID, category = "limits")
+    @Config(modid = AkashicFM.MODID, category = "limits")
     public static final class Limits {
 
         @Config.Comment("Máximo de rádios por jogador.")

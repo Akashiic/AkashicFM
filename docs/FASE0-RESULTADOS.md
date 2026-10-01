@@ -63,13 +63,13 @@ A allowlist recusa domínio parecido (`evil-radioparadise.com`) e aceita subdom�
 ## Build e smoke test do mod
 - **Build:** `./gradlew build` passa (spotless, checkstyle, compilação, **39 testes JUnit sem rede** e jar reobfuscado).
 - **Jar:** 1,3 MB. Os 4 codecs estão relocados em `com.akashiic.fm.shadow.*`, nenhuma classe do mod referencia os pacotes originais e não há `META-INF/services` (conferido com `javap`). A tabela `sfd.ser` do JLayer está no jar.
-- **Servidor:** `./gradlew runServer21` (Java 21 + lwjgl3ify 3.0.33 + Hodgepodge 2.7.206 + GTNHLib 0.11.52 + UniMixins) sobe limpo: `AkashiFM ... carregado (relay=true, direto=false)` e `Done (0.659s)!`.
-- **Config:** o `config/akashifm.cfg` é gerado com as 4 categorias, os comentários em pt-BR e os limites de cada opção.
+- **Servidor:** `./gradlew runServer21` (Java 21 + lwjgl3ify 3.0.33 + Hodgepodge 2.7.206 + GTNHLib 0.11.52 + UniMixins) sobe limpo: `AkashicFM ... carregado (relay=true, direto=false)` e `Done (0.659s)!`.
+- **Config:** o `config/akashicfm.cfg` é gerado com as 4 categorias, os comentários em pt-BR e os limites de cada opção.
 - **Nota do ambiente:** o Maven Central limitou (HTTP 429) o IP do container algumas vezes. Com retries, o build passou.
 
 ## 0a: OpenAL posicional + EFX dentro do cliente
 
-A sonda é `com.akashiic.fm.client.audio.AlCapabilityProbe` e roda dentro do contexto de áudio do próprio Minecraft quando `AKASHIFM_PROBE_AUDIO=1`. Os clientes de dev rodaram sob Xvfb, com Mesa por software e OpenAL Soft no backend `null` (`ALSOFT_DRIVERS=null`).
+A sonda é `com.akashiic.fm.client.audio.AlCapabilityProbe` e roda dentro do contexto de áudio do próprio Minecraft quando `AKASHICFM_PROBE_AUDIO=1`. Os clientes de dev rodaram sob Xvfb, com Mesa por software e OpenAL Soft no backend `null` (`ALSOFT_DRIVERS=null`).
 
 | | Java 21 + lwjgl3ify 3.0.33 + Hodgepodge | Java 8 + LWJGL 2.9.4 |
 |---|---|---|
@@ -96,7 +96,7 @@ A sonda é `com.akashiic.fm.client.audio.AlCapabilityProbe` e roda dentro do con
 Para rodar o cliente headless foi preciso instalar `libegl1` e `libegl-mesa0` (o GLFW do lwjgl3ify usa EGL) e `x11-xserver-utils` (o LWJGL2 chama o `xrandr`). Os comandos foram:
 
 ```bash
-AKASHIFM_PROBE_AUDIO=1 ALSOFT_DRIVERS=null LIBGL_ALWAYS_SOFTWARE=1 \
+AKASHICFM_PROBE_AUDIO=1 ALSOFT_DRIVERS=null LIBGL_ALWAYS_SOFTWARE=1 \
   xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClient21   # ou runClient (Java 8)
 ```
 

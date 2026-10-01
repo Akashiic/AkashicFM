@@ -1,5 +1,5 @@
 /*
- * Dependências do AkashiFM. Configurações suportadas pelo buildscript GTNH:
+ * Dependências do AkashicFM. Configurações suportadas pelo buildscript GTNH:
  * api, implementation, compileOnly, runtimeOnlyNonPublishable, devOnlyNonPublishable,
  * shadowImplementation (embutida no jar com pacote renomeado) e test*.
  */
