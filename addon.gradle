@@ -1,0 +1,10 @@
+// O JAAD declara um AudioFileReader do Java Sound em META-INF/services. Registrado globalmente,
+// ele passa a responder por qualquer áudio da JVM e quebra o som de outros mods (problema
+// conhecido do OpenFM). Os decoders são chamados direto, então o arquivo de serviço sai do jar.
+tasks.named("shadowJar").configure {
+    exclude("META-INF/services/javax.sound.sampled.spi.*")
+}
+
+tasks.named("test").configure {
+    useJUnitPlatform()
+}

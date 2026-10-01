@@ -1,0 +1,19 @@
+/*
+ * Dependências do AkashiFM. Configurações suportadas pelo buildscript GTNH:
+ * api, implementation, compileOnly, runtimeOnlyNonPublishable, devOnlyNonPublishable,
+ * shadowImplementation (embutida no jar com pacote renomeado) e test*.
+ */
+dependencies {
+    // Config com GUI automática, @EventBusSubscriber, Brigadier e Teams nas próximas fases
+    api("com.github.GTNewHorizons:GTNHLib:0.11.52:dev")
+
+    // Codecs embutidos e relocados. Nenhum SPI do Java Sound é registrado (ver addon.gradle).
+    shadowImplementation("io.github.jaredmdobson:concentus:1.0.2") // Opus, BSD-3-Clause
+    shadowImplementation("javazoom:jlayer:1.0.1")                // MP3, LGPL-2.1
+    shadowImplementation("org.jcraft:jorbis:0.0.17")             // OGG/Vorbis, LGPL-2.0
+    shadowImplementation("de.sfuhrm:jaad:0.8.7")                 // AAC/HE-AAC, domínio público
+
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
