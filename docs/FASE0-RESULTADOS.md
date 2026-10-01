@@ -67,10 +67,38 @@ A allowlist recusa domínio parecido (`evil-radioparadise.com`) e aceita subdom�
 - **Config:** o `config/akashifm.cfg` é gerado com as 4 categorias, os comentários em pt-BR e os limites de cada opção.
 - **Nota do ambiente:** o Maven Central limitou (HTTP 429) o IP do container algumas vezes. Com retries, o build passou.
 
-## 0a: OpenAL posicional + EFX (pendente, precisa do jogo rodando)
-Este spike não roda no container, porque não há placa de som nem tela. Ele precisa de dois clientes de teste:
-- **Java 8 (LWJGL2):** criar uma fonte AL com `AL_POSITION`, conferir `alcIsExtensionPresent("ALC_EXT_EFX")` e aplicar um `AL_FILTER_LOWPASS`.
-- **Java 21 com lwjgl3ify:** o mesmo teste. É aqui que se decide se a oclusão usa low-pass ou só ganho.
+## 0a: OpenAL posicional + EFX dentro do cliente
+
+A sonda é `com.akashiic.fm.client.audio.AlCapabilityProbe` e roda dentro do contexto de áudio do próprio Minecraft quando `AKASHIFM_PROBE_AUDIO=1`. Os clientes de dev rodaram sob Xvfb, com Mesa por software e OpenAL Soft no backend `null` (`ALSOFT_DRIVERS=null`).
+
+| | Java 21 + lwjgl3ify 3.0.33 + Hodgepodge | Java 8 + LWJGL 2.9.4 |
+|---|---|---|
+| OpenAL | OpenAL Soft 1.25.2 | OpenAL Soft 1.15.1 (vem com o LWJGL2) |
+| Fonte com `AL_POSITION` em coordenadas do mundo | OK | OK |
+| Streaming mono 48 kHz em fila | OK (`AL_PLAYING`) | OK (`AL_PLAYING`) |
+| `ALC_EXT_EFX` | sim, 4 sends auxiliares | sim, 4 sends auxiliares |
+| Low-pass na fonte (oclusão) | OK | OK |
+| Reverb em aux slot + send | OK | OK |
+| Fontes livres para o mod | 184 | 224 |
+
+**Conclusão:** oclusão com low-pass e reverb EFX funcionam nos dois caminhos, então o fallback "só ganho" fica para casos raros. O limite de 24 fontes do `SourcePool` tem folga grande.
+
+### Achados que mudam detalhes do plano
+- **O sound system reinicia durante o startup** (o paulscode faz "shutting down / starting up" uma vez no carregamento). As fontes do mod precisam ser recriadas quando o contexto AL muda; os hooks de reload do `SoundManager` são obrigatórios, não opcionais.
+- **O Hodgepodge instala a própria biblioteca de som OpenAL** e loga "OpenAL source routing: stereo spatialization, direct UI/music channels, mono panning". A engine do mod usa fontes próprias e não passa pelo paulscode, mas precisa ser testada junto com essa biblioteca. A curva de volume ao quadrado (`LOGARITHMIC_VOLUME_CONTROL`) continua valendo.
+- **HRTF:** o lwjgl3ify já tem `openalcontext.enableHRTF` no `config/lwjgl3ify.cfg`. O mod não precisa ligar HRTF por código; basta documentar a opção.
+- **Categoria de som própria:** o lwjgl3ify torna `net.minecraft.client.audio.SoundCategory` extensível (`config/lwjgl3ify-early.json`). Dá para ter um slider "Rádio" separado do de Jukebox, pelo menos no caminho lwjgl3ify.
+- **Riscos que ficam:**
+  - **macOS com Java 8:** o LWJGL2 usa o OpenAL da Apple, que não tem EFX. É o caso do fallback só com ganho.
+  - **Dispositivos de áudio reais:** podem ter um teto de fontes diferente do backend `null`. A contagem é feita em runtime de qualquer forma.
+
+### Ambiente de teste sem tela nem placa de som
+Para rodar o cliente headless foi preciso instalar `libegl1` e `libegl-mesa0` (o GLFW do lwjgl3ify usa EGL) e `x11-xserver-utils` (o LWJGL2 chama o `xrandr`). Os comandos foram:
+
+```bash
+AKASHIFM_PROBE_AUDIO=1 ALSOFT_DRIVERS=null LIBGL_ALWAYS_SOFTWARE=1 \
+  xvfb-run -a -s "-screen 0 1280x720x24" ./gradlew runClient21   # ou runClient (Java 8)
+```
 
 ## Notas para a implementação
 - **JAAD:** usamos `de.sfuhrm:jaad:0.8.7`, que está no Maven Central, é domínio público e é bytecode Java 8. Os três streams AAC/HE-AAC foram revalidados com ele. Ele registra `META-INF/services/javax.sound.sampled.spi.AudioFileReader`; o `addon.gradle` **exclui** esse arquivo do jar para não sequestrar o Java Sound de outros mods.

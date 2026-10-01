@@ -22,13 +22,14 @@ Feito:
 - CI;
 - pipeline do relay validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus);
 - custo medido: cerca de **2% de um núcleo por estação**;
-- testes da política anti-SSRF e do decoder OGG.
+- testes da política anti-SSRF e do decoder OGG;
+- OpenAL posicional, low-pass e reverb EFX validados dentro do cliente, em Java 8 (LWJGL2) e em Java 21 (lwjgl3ify).
 
 Os detalhes estão em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md) e o plano completo em [`docs/PLANO.md`](docs/PLANO.md).
 
 | Fase | Entrega |
 |---|---|
-| 0 | Base, CI e spikes ✅ (falta o 0a: OpenAL/EFX, que precisa de cliente com áudio) |
+| 0 | Base, CI e spikes ✅ (0a, 0b e 0c concluídos) |
 | 1 | Núcleo seguro: blocos, estado, rede validada, GUI, modo direto |
 | 2 | Áudio 3D: fontes posicionais, caixas de som, estéreo L/R |
 | 3 | Relay e sincronia: Opus, audiência, relógio, jitter buffer |

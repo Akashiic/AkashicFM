@@ -158,7 +158,7 @@ com.akashiic.fm/
 | 7 | Admin completo (`/fm`, permissões e claims do ServerUtilities, logs, mute por jogador), API OC/CC com fila e rate limit, playlists | |
 
 **Riscos:**
-- EFX/HRTF sob lwjgl3ify não estão documentados (o spike 0a decide; o fallback é oclusão só no ganho).
+- ~~EFX/HRTF sob lwjgl3ify não estão documentados~~. **Resolvido no spike 0a:** EFX (low-pass + reverb) funciona em Java 8/LWJGL2 e em Java 21/lwjgl3ify, e o HRTF é uma opção do próprio lwjgl3ify. Fica o fallback só com ganho para o macOS com Java 8.
 - CPU e banda do relay (há tetos e fallback DIRECT; se o Concentus pesar demais, a alternativa é passar os frames comprimidos sem transcodificar).
 - Retransmitir rádios de terceiros pelo servidor é redistribuição de conteúdo. O admin decide a lista de domínios permitidos.
 
