@@ -3,6 +3,7 @@ package com.akashiic.fm.server;
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.server.relay.RelayService;
 
 /** Regras do servidor derivadas do config. */
 public final class ServerPolicy {
@@ -35,9 +36,12 @@ public final class ServerPolicy {
         }
     }
 
-    /** Transporte para uma rádio que vai começar a tocar agora. */
-    public static Transport chooseTransport() {
-        if (FmConfig.Relay.enabled && relayAvailable) return Transport.RELAY;
+    /**
+     * Transporte para uma rádio tocar {@code url}: o relay se está ligado, disponível e a URL cabe no limite de
+     * estações; senão o modo direto, se o admin permite; senão nenhum.
+     */
+    public static Transport chooseTransport(String url) {
+        if (FmConfig.Relay.enabled && relayAvailable && RelayService.canRelay(url)) return Transport.RELAY;
         if (FmConfig.Direct.enabled) return Transport.DIRECT;
         return Transport.NONE;
     }

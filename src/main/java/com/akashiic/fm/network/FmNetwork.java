@@ -25,6 +25,10 @@ public final class FmNetwork {
         CHANNEL.registerMessage(C2SRadioAction.Handler.class, C2SRadioAction.class, id++, Side.SERVER);
         CHANNEL.registerMessage(S2CRadioNotice.Handler.class, S2CRadioNotice.class, id++, Side.CLIENT);
         CHANNEL.registerMessage(S2CRadioPerms.Handler.class, S2CRadioPerms.class, id++, Side.CLIENT);
+        CHANNEL.registerMessage(S2CListen.Handler.class, S2CListen.class, id++, Side.CLIENT);
+        CHANNEL.registerMessage(S2CAudio.Handler.class, S2CAudio.class, id++, Side.CLIENT);
+        CHANNEL.registerMessage(C2SClockPing.Handler.class, C2SClockPing.class, id++, Side.SERVER);
+        CHANNEL.registerMessage(S2CClockPong.Handler.class, S2CClockPong.class, id++, Side.CLIENT);
     }
 
     public static void sendTo(IMessage message, EntityPlayerMP player) {

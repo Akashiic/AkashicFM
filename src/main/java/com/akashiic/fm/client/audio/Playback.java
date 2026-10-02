@@ -11,6 +11,8 @@ import java.util.List;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.openal.AL10;
 
+import com.akashiic.fm.client.relay.ClockSync;
+
 /**
  * Uma estação sendo ouvida: um {@link AudioFeed} e uma {@link Voice} por fonte (rádio em estéreo, caixas).
  * Todas as vozes recebem o mesmo bloco de PCM, com o mesmo número de sequência, e começam juntas
@@ -31,6 +33,12 @@ final class Playback {
     /** Blocos recentes guardados para uma voz nova entrar alinhada (cobre a fila inteira com folga). */
     static final int HISTORY_CHUNKS = Voice.POOL_SIZE + 2;
     private static final long RETRY_AFTER_FAILURE_NANOS = 2_000_000_000L;
+    /** Sincronia (feeds com relógio): erro a partir do qual a reprodução pula/espera de uma vez. */
+    static final double RESYNC_ERROR_MS = 250;
+    /** Correção máxima de velocidade (±0,2%: 3,5 cents, inaudível), ou seja, até 2 ms de erro por segundo. */
+    static final double MAX_PITCH_DELTA = 0.002;
+    /** Erro (ms) abaixo do qual não corrige (o offset do OpenAL é quantizado no ciclo do mixer). */
+    static final double DEADBAND_MS = 2;
 
     enum State {
         WAITING,
@@ -58,6 +66,11 @@ final class Playback {
     int underruns;
     int starts;
     int joins;
+    int resyncs;
+    /** Erro de sincronia suavizado (ms; positivo = tocando adiantado), NaN se não sincroniza. */
+    double syncErrorMs = Double.NaN;
+    private boolean errInit;
+    private float pitch = 1f;
 
     private final short[] stereo = new short[CHUNK_FRAMES * 2];
     private final ShortBuffer mono = BufferUtils.createShortBuffer(CHUNK_FRAMES);
@@ -67,12 +80,15 @@ final class Playback {
     private final short[][] history = new short[HISTORY_CHUNKS][CHUNK_FRAMES * 2];
     private final int[] historyFrames = new int[HISTORY_CHUNKS];
     private final long[] historySeq = new long[HISTORY_CHUNKS];
+    /** PTS (ms, relógio do servidor) do primeiro frame de cada bloco do histórico (feeds com relógio). */
+    private final double[] historyPts = new double[HISTORY_CHUNKS];
     private long nextSeq;
 
     Playback(String key, AudioFeed feed) {
         this.key = key;
         this.feed = feed;
         Arrays.fill(historySeq, -1);
+        Arrays.fill(historyPts, Double.NaN);
     }
 
     State state() {
@@ -152,12 +168,13 @@ final class Playback {
 
         if (!paused) {
             if (state == State.WAITING) {
-                int need = PREBUFFER_CHUNKS * CHUNK_FRAMES;
-                if (feed.available() >= need || (feed.producerDone() && feed.available() > 0)) {
+                if (feed.timed() ? readyToStartTimed() : readyToStart()) {
                     fill();
                     AL10.alSourcePlay(vector());
                     state = State.PLAYING;
                     starts++;
+                    errInit = false;
+                    setPitch(1f);
                 }
             } else {
                 fill();
@@ -166,10 +183,72 @@ final class Playback {
                     for (Voice v : voices) v.resetQueue();
                     state = State.WAITING;
                     underruns++;
+                } else if (feed.timed()) {
+                    correctDrift();
                 }
             }
         }
         for (Voice v : voices) v.applyParams(dtSeconds);
+    }
+
+    private boolean readyToStart() {
+        int need = PREBUFFER_CHUNKS * CHUNK_FRAMES;
+        return feed.available() >= need || (feed.producerDone() && feed.available() > 0);
+    }
+
+    /**
+     * Feed com relógio: começa quando o próximo frame é o devido agora ({@code relógio do servidor − latência}),
+     * igual em todos os clientes. Dado atrasado é pulado com precisão de amostra; dado do futuro espera.
+     */
+    private boolean readyToStartTimed() {
+        if (!ClockSync.ready()) return false;
+        double due = ClockSync.serverNowMs() - feed.latencyMs();
+        for (int guard = 0; guard < 8; guard++) {
+            double p = feed.ptsAtReadPosition();
+            if (Double.isNaN(p)) return false;
+            if (p >= due - 0.5) break;
+            int frames = (int) Math.ceil((due - p) * AudioFeed.SAMPLE_RATE / 1000.0);
+            frames = Math.min(frames, Math.max(1, feed.framesUntilDiscontinuity()));
+            if (feed.skip(frames) == 0) return false;
+        }
+        double p = feed.ptsAtReadPosition();
+        if (Double.isNaN(p) || p > due + 1.0) return false;
+        return feed.available() >= PREBUFFER_CHUNKS * CHUNK_FRAMES;
+    }
+
+    /**
+     * Mede a posição real tocada (PTS do bloco na frente da fila + offset do OpenAL) contra a devida e corrige
+     * a velocidade de todas as vozes juntas; erro grande demais ressincroniza.
+     */
+    private void correctDrift() {
+        Voice ref = voices.get(0);
+        long[] seqs = ref.queuedSeqs();
+        if (seqs.length == 0) return;
+        int slot = historySlot(seqs[0]);
+        if (slot < 0 || Double.isNaN(historyPts[slot])) return;
+        double playing = historyPts[slot] + ref.sampleOffset() * 1000.0 / AudioFeed.SAMPLE_RATE;
+        double err = playing - (ClockSync.serverNowMs() - feed.latencyMs());
+        syncErrorMs = errInit ? syncErrorMs + 0.1 * (err - syncErrorMs) : err;
+        errInit = true;
+        if (Math.abs(err) > RESYNC_ERROR_MS && Math.abs(syncErrorMs) > RESYNC_ERROR_MS / 2) {
+            for (Voice v : voices) v.resetQueue();
+            state = State.WAITING;
+            resyncs++;
+            setPitch(1f);
+            return;
+        }
+        double target = Math.abs(syncErrorMs) < DEADBAND_MS ? 1.0
+            : 1.0 - Math.max(-MAX_PITCH_DELTA, Math.min(MAX_PITCH_DELTA, syncErrorMs / 10_000.0));
+        if (Math.abs(target - pitch) > 1e-5) setPitch((float) target);
+    }
+
+    private void setPitch(float p) {
+        pitch = p;
+        for (Voice v : voices) v.setPitch(p);
+    }
+
+    float pitch() {
+        return pitch;
     }
 
     /** Tira as vozes que não são mais desejadas e cria as que faltam (entrando alinhadas se já está tocando). */
@@ -199,6 +278,7 @@ final class Playback {
                 break;
             }
             voices.add(v);
+            v.setPitch(pitch);
             if (reference != null) joinAligned(v, reference);
         }
         membershipChanged = retryPending;
@@ -237,12 +317,20 @@ final class Playback {
 
     /** Enfileira blocos em todas as vozes até o alvo ou até acabar o PCM disponível. */
     private void fill() {
+        boolean timed = feed.timed();
         while (maxQueued() < TARGET_CHUNKS) {
             int avail = feed.available();
             int frames;
             if (avail >= CHUNK_FRAMES) frames = CHUNK_FRAMES;
             else if (feed.producerDone() && avail > 0) frames = avail; // último pedaço do arquivo
             else return;
+            double chunkPts = Double.NaN;
+            if (timed) {
+                // Um bloco nunca atravessa uma descontinuidade: o PTS de cada amostra fica exato.
+                int until = feed.framesUntilDiscontinuity();
+                if (until > 0 && until < frames) frames = until;
+                chunkPts = feed.ptsAtReadPosition();
+            }
             int got = feed.read(stereo, frames);
             if (got <= 0) return;
             framesQueued += got;
@@ -251,6 +339,7 @@ final class Playback {
             System.arraycopy(stereo, 0, history[slot], 0, got * 2);
             historyFrames[slot] = got;
             historySeq[slot] = seq;
+            historyPts[slot] = chunkPts;
             for (Voice v : voices) {
                 fillMono(v, stereo, got);
                 if (!v.queue(mono, AudioFeed.SAMPLE_RATE, seq)) return;

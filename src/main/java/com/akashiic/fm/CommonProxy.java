@@ -9,11 +9,16 @@ import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.dev.DevE2E;
 import com.akashiic.fm.dev.E2EServer;
 import com.akashiic.fm.network.FmNetwork;
+import com.akashiic.fm.network.S2CAudio;
+import com.akashiic.fm.network.S2CClockPong;
+import com.akashiic.fm.network.S2CListen;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 import com.akashiic.fm.network.ServerActionQueue;
 import com.akashiic.fm.server.ServerEvents;
+import com.akashiic.fm.server.ServerPolicy;
 import com.akashiic.fm.server.ServerRadioRegistry;
+import com.akashiic.fm.server.relay.RelayService;
 import com.gtnewhorizon.gtnhlib.config.ConfigException;
 import com.gtnewhorizon.gtnhlib.config.ConfigurationManager;
 
@@ -58,9 +63,12 @@ public class CommonProxy {
 
     public void serverStarting(FMLServerStartingEvent event) {
         if (DevE2E.enabled()) E2EServer.register();
+        ServerPolicy.setRelayAvailable(FmConfig.Relay.enabled);
     }
 
     public void serverStopped(FMLServerStoppedEvent event) {
+        ServerPolicy.setRelayAvailable(false);
+        RelayService.shutdown();
         ServerRadioRegistry.clear();
         ServerActionQueue.clear();
     }
@@ -81,4 +89,13 @@ public class CommonProxy {
     public void onRadioNotice(S2CRadioNotice notice) {}
 
     public void onRadioPerms(S2CRadioPerms perms) {}
+
+    /** Thread de rede do cliente. */
+    public void onRelayListen(S2CListen message) {}
+
+    /** Thread de rede do cliente. */
+    public void onRelayAudio(S2CAudio message) {}
+
+    /** Thread de rede do cliente; {@code t3} carimbado na chegada (µs). */
+    public void onClockPong(S2CClockPong message, long t3) {}
 }

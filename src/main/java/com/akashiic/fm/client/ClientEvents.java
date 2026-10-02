@@ -6,6 +6,8 @@ import net.minecraftforge.event.world.WorldEvent;
 
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
+import com.akashiic.fm.client.relay.ClockSync;
+import com.akashiic.fm.client.relay.RelayClient;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -26,6 +28,7 @@ public final class ClientEvents {
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase == TickEvent.Phase.START) {
             ClientTaskQueue.drain();
+            ClockSync.tick(Minecraft.getMinecraft());
         } else {
             RadioAudioController.tick(Minecraft.getMinecraft());
         }
@@ -46,9 +49,11 @@ public final class ClientEvents {
 
     @SubscribeEvent
     public void onDisconnect(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
-        // Chega pela thread de rede: o trabalho vai para a thread principal.
-        // Se já houver um mundo novo quando a tarefa rodar (reconexão rápida), as rádios dele ficam.
+        // O relay é thread-safe: encerra já. O resto vai para a thread principal; se já houver um mundo novo
+        // quando a tarefa rodar (reconexão rápida), as rádios dele ficam.
+        RelayClient.clear();
         ClientTaskQueue.add(() -> {
+            ClockSync.reset();
             World current = Minecraft.getMinecraft().theWorld;
             ClientRadioRegistry.retainWorld(current);
             if (current == null) AudioEngine.INSTANCE.stopAll();

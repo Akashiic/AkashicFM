@@ -35,4 +35,30 @@ public interface AudioFeed {
 
     /** Para tudo e libera rede/threads. Idempotente e seguro de chamar de qualquer thread. */
     void close();
+
+    // ---- Feeds com relógio (relay): o PCM tem PTS no tempo do servidor e a reprodução sincroniza por ele ----
+
+    default boolean timed() {
+        return false;
+    }
+
+    /** PTS (ms, relógio do servidor) do próximo frame a ser lido, ou NaN. */
+    default double ptsAtReadPosition() {
+        return Double.NaN;
+    }
+
+    /** Frames até a próxima descontinuidade do PTS. */
+    default int framesUntilDiscontinuity() {
+        return Integer.MAX_VALUE;
+    }
+
+    /** Descarta até {@code frames} frames sem ler. Devolve quantos descartou. */
+    default int skip(int frames) {
+        return 0;
+    }
+
+    /** Atraso fixo entre o PTS e a reprodução, igual para todos os clientes (ms). */
+    default int latencyMs() {
+        return 0;
+    }
 }

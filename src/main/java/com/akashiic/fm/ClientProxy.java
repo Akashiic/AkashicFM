@@ -13,10 +13,15 @@ import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.ClientTaskQueue;
 import com.akashiic.fm.client.audio.AlCapabilityProbe;
 import com.akashiic.fm.client.gui.GuiRadio;
+import com.akashiic.fm.client.relay.ClockSync;
+import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.render.TileRadioRenderer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.dev.DevE2E;
 import com.akashiic.fm.dev.E2EClient;
+import com.akashiic.fm.network.S2CAudio;
+import com.akashiic.fm.network.S2CClockPong;
+import com.akashiic.fm.network.S2CListen;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 
@@ -95,6 +100,21 @@ public class ClientProxy extends CommonProxy {
         if (DevE2E.enabled() && E2EClient.INSTANCE != null) E2EClient.INSTANCE.onPerms(perms);
         GuiRadio gui = openGuiFor(perms.x, perms.y, perms.z);
         if (gui != null) gui.onPerms(perms);
+    }
+
+    @Override
+    public void onRelayListen(S2CListen message) {
+        RelayClient.onListen(message);
+    }
+
+    @Override
+    public void onRelayAudio(S2CAudio message) {
+        RelayClient.onAudio(message);
+    }
+
+    @Override
+    public void onClockPong(S2CClockPong message, long t3) {
+        ClockSync.onPong(message, t3);
     }
 
     private static GuiRadio openGuiFor(int x, int y, int z) {

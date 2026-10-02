@@ -21,6 +21,12 @@ akashicfm.notice.url_invalid=Invalid URL. Use http:// or https:// followed by a 
 akashicfm.notice.no_permission=You don't have permission to do that on this radio.
 akashicfm.notice.no_transport=This server has radio audio turned off (relay unavailable and direct mode disabled).
 akashicfm.notice.stations_full=Favorites are full (maximum %s).
+akashicfm.notice.relay_full=The server is already relaying the maximum number of stations (%s).
+
+# Station status (relay)
+akashicfm.status.reconnecting=Station reconnecting...
+akashicfm.status.error=Station error: %s (press Play to retry)
+akashicfm.status.ended=Station ended (press Play to restart)
 
 # URL policy (reason the server refused a URL)
 akashicfm.policy.empty=URL rejected: empty.
@@ -81,7 +87,7 @@ akashicfm.gui.transport.DIRECT=Direct
 akashicfm.gui.status.checking=Checking permissions...
 akashicfm.gui.status.stopped=Stopped
 akashicfm.gui.status.no_transport=no audio transport
-akashicfm.gui.status.relay_unavailable=relay not supported by this client yet
+akashicfm.gui.status.relay_waiting=waiting for the server relay (out of range?)
 akashicfm.gui.status.audio_disabled=radio audio is off in your config
 akashicfm.gui.status.direct_disabled=direct streams are off in your config
 akashicfm.gui.status.muted=muted (Master, Jukebox/Note Blocks or radio volume at 0)
@@ -90,5 +96,6 @@ akashicfm.gui.status.connecting=connecting...
 akashicfm.gui.status.reconnecting=reconnecting...
 akashicfm.gui.status.buffering=buffering...
 akashicfm.gui.status.playing=playing
+akashicfm.gui.status.playing_synced=playing in sync (%s ms)
 akashicfm.gui.status.ended=finished
 akashicfm.gui.status.error=error: %s

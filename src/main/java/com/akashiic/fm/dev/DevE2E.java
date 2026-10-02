@@ -27,6 +27,12 @@ public final class DevE2E {
         return s;
     }
 
+    /** Transporte testado: "relay" (padrão) ou "direct" (variável AKASHICFM_E2E_TRANSPORT). */
+    public static String transport() {
+        String t = System.getenv("AKASHICFM_E2E_TRANSPORT");
+        return "direct".equals(t) ? "direct" : "relay";
+    }
+
     public static boolean enabled() {
         return SCENARIO != null;
     }

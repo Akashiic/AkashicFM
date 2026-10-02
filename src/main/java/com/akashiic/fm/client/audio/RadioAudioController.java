@@ -2,9 +2,12 @@ package com.akashiic.fm.client.audio;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.SoundCategory;
@@ -14,6 +17,8 @@ import net.minecraft.world.World;
 
 import com.akashiic.fm.audio.dsp.GainModel;
 import com.akashiic.fm.client.ClientRadioRegistry;
+import com.akashiic.fm.client.relay.RelayClient;
+import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioState;
@@ -46,19 +51,37 @@ public final class RadioAudioController {
 
     private RadioAudioController() {}
 
+    /** Uma reprodução possível: uma rádio em modo direto, ou uma estação do relay com as rádios dela. */
     private static final class Candidate {
 
-        final TileRadio radio;
         final String key;
         final List<EmitterSpec> emitters;
         final double nearest;
+        final Supplier<AudioFeed> feed;
 
-        Candidate(TileRadio radio, String key, List<EmitterSpec> emitters, double nearest) {
-            this.radio = radio;
+        Candidate(String key, List<EmitterSpec> emitters, double nearest, Supplier<AudioFeed> feed) {
             this.key = key;
             this.emitters = emitters;
             this.nearest = nearest;
+            this.feed = feed;
         }
+    }
+
+    /** Rádios em RELAY que tocam a mesma estação viram uma reprodução só (com as fontes de todas): sincronia exata. */
+    private static final class RelayGroup {
+
+        final RelayFeed feed;
+        final List<EmitterSpec> emitters = new ArrayList<>();
+        double nearest = Double.MAX_VALUE;
+
+        RelayGroup(RelayFeed feed) {
+            this.feed = feed;
+        }
+    }
+
+    /** Chave da reprodução de uma estação do relay neste cliente (uma por estação, não por rádio). */
+    public static String relayKey(RelayFeed feed) {
+        return "relay:" + feed.stationId();
     }
 
     /** Chave da reprodução: muda quando a sessão muda (play, troca de URL ou de transporte). */
@@ -93,18 +116,42 @@ public final class RadioAudioController {
         double lx = player.posX, ly = player.posY, lz = player.posZ;
 
         List<Candidate> candidates = new ArrayList<>();
+        Map<String, RelayGroup> relayGroups = new HashMap<>();
         for (TileRadio radio : ClientRadioRegistry.snapshot()) {
             if (radio.isInvalid() || radio.getWorldObj() != world) continue;
             RadioState s = radio.state;
-            if (!s.playing || s.url.isEmpty() || s.transport != Transport.DIRECT) continue;
-            if (!FmConfig.Client.allowDirectStreams) continue;
+            if (!s.playing || s.url.isEmpty()) continue;
+            if (s.transport == Transport.DIRECT && !FmConfig.Client.allowDirectStreams) continue;
+            RelayFeed relay = null;
+            if (s.transport == Transport.RELAY) {
+                relay = RelayClient.feedForUrl(s.url);
+                if (relay == null) continue; // o servidor não está mandando esta estação para nós
+            } else if (s.transport != Transport.DIRECT) {
+                continue;
+            }
             // Só conta o que soa de verdade: caixas em chunk que este cliente não tem não entram.
             List<EmitterSpec> emitters = emittersFor(world, radio, lx, ly, lz, records, clientVolume);
             double nearest = Double.MAX_VALUE;
             for (EmitterSpec e : emitters) nearest = Math.min(nearest, Math.sqrt(distSq(e, lx, ly, lz)));
-            String key = keyFor(radio);
+            String key = relay != null ? relayKey(relay) : keyFor(radio);
             double limit = s.range + (engine.has(key) ? HYSTERESIS : 0);
-            if (nearest <= limit) candidates.add(new Candidate(radio, key, emitters, nearest));
+            if (nearest > limit) continue;
+            if (relay != null) {
+                RelayGroup g = relayGroups.computeIfAbsent(key, k -> new RelayGroup(RelayClient.feedForUrl(s.url)));
+                g.emitters.addAll(emitters);
+                g.nearest = Math.min(g.nearest, nearest);
+            } else {
+                final String url = s.url;
+                final String threadName = "AkashicFM-Direct-" + radio.xCoord + "," + radio.yCoord + "," + radio.zCoord;
+                candidates.add(new Candidate(key, emitters, nearest, () -> new DirectFeed(url, threadName).start()));
+            }
+        }
+        for (Map.Entry<String, RelayGroup> e : relayGroups.entrySet()) {
+            RelayGroup g = e.getValue();
+            List<EmitterSpec> emitters = g.emitters.size() <= MAX_VOICES_PER_RADIO ? g.emitters
+                : new ArrayList<>(nearestFirst(g.emitters, lx, ly, lz).subList(0, MAX_VOICES_PER_RADIO));
+            final RelayFeed feed = g.feed;
+            candidates.add(new Candidate(e.getKey(), emitters, g.nearest, () -> feed));
         }
         Collections.sort(candidates, (a, b) -> Double.compare(a.nearest, b.nearest));
         int max = Math.max(1, FmConfig.Client.maxSimultaneousRadios);
@@ -117,10 +164,7 @@ public final class RadioAudioController {
             List<EmitterSpec> emitters = c.emitters.size() <= budget ? c.emitters
                 : nearestFirst(c.emitters, lx, ly, lz).subList(0, budget);
             budget -= emitters.size();
-            TileRadio radio = c.radio;
-            final String url = radio.state.url;
-            final String threadName = "AkashicFM-Direct-" + radio.xCoord + "," + radio.yCoord + "," + radio.zCoord;
-            engine.touch(c.key, () -> new DirectFeed(url, threadName).start(), emitters);
+            engine.touch(c.key, c.feed, emitters);
             keep.add(c.key);
         }
         engine.retainOnly(keep);

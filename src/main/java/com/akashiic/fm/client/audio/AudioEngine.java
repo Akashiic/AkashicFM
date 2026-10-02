@@ -165,7 +165,10 @@ public final class AudioEngine {
                 p.framesQueued,
                 p.underruns,
                 p.starts,
-                p.joins);
+                p.joins,
+                p.resyncs,
+                p.syncErrorMs,
+                p.pitch());
         } finally {
             lock.unlock();
         }
@@ -334,9 +337,14 @@ public final class AudioEngine {
         public final int starts;
         /** Vozes que entraram alinhadas com a reprodução em andamento. */
         public final int joins;
+        /** Ressincronizações (feeds com relógio). */
+        public final int resyncs;
+        /** Erro de sincronia suavizado, ms (positivo = adiantado); NaN sem relógio. */
+        public final double syncErrorMs;
+        public final float pitch;
 
         PlaybackInfo(boolean playing, boolean done, AudioFeed.Status feedStatus, String detail, int voices,
-            long framesQueued, int underruns, int starts, int joins) {
+            long framesQueued, int underruns, int starts, int joins, int resyncs, double syncErrorMs, float pitch) {
             this.playing = playing;
             this.done = done;
             this.feedStatus = feedStatus;
@@ -346,6 +354,9 @@ public final class AudioEngine {
             this.underruns = underruns;
             this.starts = starts;
             this.joins = joins;
+            this.resyncs = resyncs;
+            this.syncErrorMs = syncErrorMs;
+            this.pitch = pitch;
         }
     }
 }

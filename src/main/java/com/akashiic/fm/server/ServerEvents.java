@@ -11,6 +11,7 @@ import com.akashiic.fm.common.Permissions;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.network.ServerActionQueue;
+import com.akashiic.fm.server.relay.RelayService;
 
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -27,12 +28,15 @@ public final class ServerEvents {
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.START) return;
         ServerActionQueue.drain();
+        RelayService.tick();
         if (++tickCounter % MAINTENANCE_INTERVAL_TICKS == 0) SpeakerLinks.maintain();
     }
 
     @SubscribeEvent
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        if (event.player != null) ServerActionQueue.LIMITER.forget(event.player.getUniqueID());
+        if (event.player == null) return;
+        ServerActionQueue.LIMITER.forget(event.player.getUniqueID());
+        RelayService.forget(event.player.getUniqueID());
     }
 
     /**

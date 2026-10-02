@@ -37,12 +37,12 @@ class RadioLogicTest {
 
     @Test
     void transportePreferidoERelaySeDisponivel() {
-        assertEquals(Transport.DIRECT, ServerPolicy.chooseTransport());
+        assertEquals(Transport.DIRECT, ServerPolicy.chooseTransport("http://stream.example.com/live"));
         ServerPolicy.setRelayAvailable(true);
-        assertEquals(Transport.RELAY, ServerPolicy.chooseTransport());
+        assertEquals(Transport.RELAY, ServerPolicy.chooseTransport("http://stream.example.com/live"));
         FmConfig.Relay.enabled = false;
         FmConfig.Direct.enabled = false;
-        assertEquals(Transport.NONE, ServerPolicy.chooseTransport());
+        assertEquals(Transport.NONE, ServerPolicy.chooseTransport("http://stream.example.com/live"));
     }
 
     @Test

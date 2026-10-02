@@ -168,6 +168,11 @@ final class Voice {
         AL10.alSourcei(source, AL11.AL_SAMPLE_OFFSET, offset);
     }
 
+    /** Velocidade (correção de deriva da sincronia). */
+    void setPitch(float pitch) {
+        AL10.alSourcef(source, AL10.AL_PITCH, pitch);
+    }
+
     /** Mesma fonte física (posição e canal) que a spec, ignorando o ganho. */
     boolean matches(EmitterSpec spec) {
         return spec.channel == channel && Math.abs(spec.x - x) < 1e-3

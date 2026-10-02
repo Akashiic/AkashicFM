@@ -14,11 +14,14 @@ import org.lwjgl.input.Keyboard;
 
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
+import com.akashiic.fm.client.relay.RelayClient;
+import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TextSanitizer;
+import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.C2SRadioAction.Action;
@@ -514,7 +517,8 @@ public final class GuiRadio extends GuiScreen {
         }
         fontRendererObj.drawString(fontRendererObj.trimStringToWidth(line, width), lx, top + 205, color);
 
-        String second = !s.status.isEmpty() ? s.status : !s.nowPlaying.isEmpty() ? "♪ " + s.nowPlaying : "";
+        String second = !s.status.isEmpty() ? translateStatus(s.status)
+            : !s.nowPlaying.isEmpty() ? "\u266A " + s.nowPlaying : "";
         if (!second.isEmpty()) {
             fontRendererObj.drawString(fontRendererObj.trimStringToWidth(second, width), lx, top + 215, 0xFFB8C8FF);
         }
@@ -528,20 +532,25 @@ public final class GuiRadio extends GuiScreen {
     }
 
     private String playbackStatus(TileRadio radio, RadioState s) {
-        switch (s.transport) {
-            case DIRECT:
-                break;
-            case RELAY:
-                return I18n.format("akashicfm.gui.status.relay_unavailable");
-            default:
-                return I18n.format("akashicfm.gui.status.no_transport");
+        if (s.transport != Transport.DIRECT && s.transport != Transport.RELAY) {
+            return I18n.format("akashicfm.gui.status.no_transport");
         }
         if (!FmConfig.Client.enableAudio) return I18n.format("akashicfm.gui.status.audio_disabled");
-        if (!FmConfig.Client.allowDirectStreams) return I18n.format("akashicfm.gui.status.direct_disabled");
+        if (s.transport == Transport.DIRECT && !FmConfig.Client.allowDirectStreams) {
+            return I18n.format("akashicfm.gui.status.direct_disabled");
+        }
         if (mc.gameSettings.getSoundLevel(SoundCategory.MASTER) <= 0f
             || mc.gameSettings.getSoundLevel(SoundCategory.RECORDS) <= 0f
             || FmConfig.Client.radioVolume <= 0) return I18n.format("akashicfm.gui.status.muted");
-        AudioEngine.PlaybackInfo info = AudioEngine.INSTANCE.info(RadioAudioController.keyFor(radio));
+        String key;
+        if (s.transport == Transport.RELAY) {
+            RelayFeed relay = RelayClient.feedForUrl(s.url);
+            if (relay == null) return I18n.format("akashicfm.gui.status.relay_waiting");
+            key = RadioAudioController.relayKey(relay);
+        } else {
+            key = RadioAudioController.keyFor(radio);
+        }
+        AudioEngine.PlaybackInfo info = AudioEngine.INSTANCE.info(key);
         if (info == null) return I18n.format("akashicfm.gui.status.not_here");
         switch (info.feedStatus) {
             case CONNECTING:
@@ -557,7 +566,18 @@ public final class GuiRadio extends GuiScreen {
             default:
                 break;
         }
-        return I18n.format(info.playing ? "akashicfm.gui.status.playing" : "akashicfm.gui.status.buffering");
+        if (!info.playing) return I18n.format("akashicfm.gui.status.buffering");
+        if (!Double.isNaN(info.syncErrorMs)) {
+            return I18n.format("akashicfm.gui.status.playing_synced", String.format("%+.0f", info.syncErrorMs));
+        }
+        return I18n.format("akashicfm.gui.status.playing");
+    }
+
+    /** Status vindo do servidor: chave de tradução, com argumento opcional depois de '|'. */
+    static String translateStatus(String status) {
+        if (!status.startsWith("akashicfm.")) return status;
+        int bar = status.indexOf('|');
+        return bar < 0 ? I18n.format(status) : I18n.format(status.substring(0, bar), status.substring(bar + 1));
     }
 
     // ---- Utilidades ----

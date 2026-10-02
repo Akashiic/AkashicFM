@@ -21,6 +21,7 @@ import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
+import com.akashiic.fm.server.relay.RelayService;
 
 /**
  * Aplica as ações dos jogadores nas rádios. Roda na thread principal do servidor. Ordem das checagens:
@@ -187,9 +188,13 @@ public final class RadioActionHandler {
     static PlayResult applyPlay(RadioState s) {
         if (s.url.isEmpty()) return PlayResult.NO_URL;
         if (ServerPolicy.rejection(s.url) != null) return PlayResult.REJECTED;
-        Transport t = ServerPolicy.chooseTransport();
+        Transport t = ServerPolicy.chooseTransport(s.url);
         if (t == Transport.NONE) return PlayResult.NO_TRANSPORT;
-        if (s.playing && s.transport == t) return PlayResult.UNCHANGED;
+        if (s.playing && s.transport == t) {
+            // Já tocando: se a estação do relay morreu (erro ou fim), "tocar" de novo tenta outra conexão.
+            if (t == Transport.RELAY) RelayService.retryIfFailed(s.url);
+            return PlayResult.UNCHANGED;
+        }
         s.playing = true;
         s.transport = t;
         s.session++;
@@ -214,7 +219,17 @@ public final class RadioActionHandler {
                 return false;
             }
             case NO_TRANSPORT:
-                notice(player, radio, true, "akashicfm.notice.no_transport", "");
+                if (FmConfig.Relay.enabled && ServerPolicy.isRelayAvailable()
+                    && !RelayService.canRelay(radio.state.url)) {
+                    notice(
+                        player,
+                        radio,
+                        true,
+                        "akashicfm.notice.relay_full",
+                        String.valueOf(FmConfig.Relay.maxStations));
+                } else {
+                    notice(player, radio, true, "akashicfm.notice.no_transport", "");
+                }
                 return false;
             case CHANGED:
                 radio.markStateChanged();

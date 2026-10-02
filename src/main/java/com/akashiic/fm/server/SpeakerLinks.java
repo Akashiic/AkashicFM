@@ -118,7 +118,7 @@ public final class SpeakerLinks {
                 changed = true;
             }
             if (s.playing) {
-                Transport wanted = ServerPolicy.chooseTransport();
+                Transport wanted = ServerPolicy.chooseTransport(s.url);
                 if (wanted != s.transport) {
                     if (wanted == Transport.NONE) {
                         s.playing = false;

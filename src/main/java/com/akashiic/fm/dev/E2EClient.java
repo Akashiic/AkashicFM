@@ -23,6 +23,9 @@ import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.gui.FmConfigGui;
 import com.akashiic.fm.client.gui.GuiRadio;
+import com.akashiic.fm.client.relay.ClockSync;
+import com.akashiic.fm.client.relay.RelayClient;
+import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.SpeakerChannel;
@@ -192,7 +195,33 @@ public final class E2EClient {
 
     private AudioEngine.PlaybackInfo info() {
         TileRadio r = radio();
-        return r == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.keyFor(r));
+        if (r == null) return null;
+        if (r.state.transport == Transport.RELAY) {
+            RelayFeed feed = RelayClient.feedForUrl(r.state.url);
+            return feed == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.relayKey(feed));
+        }
+        return AudioEngine.INSTANCE.info(RadioAudioController.keyFor(r));
+    }
+
+    private static boolean relayMode() {
+        return !"direct".equals(DevE2E.transport());
+    }
+
+    private static Transport expectedTransport() {
+        return relayMode() ? Transport.RELAY : Transport.DIRECT;
+    }
+
+    /** Respostas "e2e-result relay bytes=N at=T" recebidas do servidor: pares {bytes, ms}. */
+    private List<long[]> relayResults() {
+        List<long[]> out = new ArrayList<>();
+        for (String line : chat) {
+            int i = line.indexOf("e2e-result relay bytes=");
+            if (i < 0) continue;
+            String[] parts = line.substring(i)
+                .split(" ");
+            out.add(new long[] { Long.parseLong(parts[2].substring(6)), Long.parseLong(parts[3].substring(3)) });
+        }
+        return out;
     }
 
     private void send(Action action, int intArg, String strArg) {
@@ -208,12 +237,13 @@ public final class E2EClient {
         return false;
     }
 
+    /** Threads de áudio do mod vivas (modo direto e decoders do relay). */
     private static int liveDirectThreads() {
         int n = 0;
         for (Thread th : Thread.getAllStackTraces()
             .keySet()) {
-            if (th.isAlive() && th.getName()
-                .startsWith("AkashicFM-Direct-")) n++;
+            String name = th.getName();
+            if (th.isAlive() && (name.startsWith("AkashicFM-Direct-") || name.startsWith("AkashicFM-RelayFeed-"))) n++;
         }
         return n;
     }
@@ -488,14 +518,14 @@ public final class E2EClient {
                 return bothChecked && notices.contains("akashicfm.policy.internal") ? "" : null;
             }
         });
-        steps.add(new Step("tocar-modo-direto", 20) {
+        steps.add(new Step("tocar-" + (relayMode() ? "relay" : "modo-direto"), 20) {
 
             @Override
             String tick(int t) {
                 if (t == 50) send(Action.PLAY, 0, url); // espera o limitador de ações recarregar
                 if (notices.contains("akashicfm.notice.no_transport")) return "servidor sem transporte";
                 TileRadio r = radio();
-                return r != null && r.state.playing && r.state.transport == Transport.DIRECT ? "" : null;
+                return r != null && r.state.playing && r.state.transport == expectedTransport() ? "" : null;
             }
         });
         steps.add(audioPlaying("audio-comeca", 45));
@@ -543,6 +573,42 @@ public final class E2EClient {
                 return "";
             }
         });
+        if (relayMode()) {
+            steps.add(syncCheck("sincronia-do-relay"));
+            steps.add(new Step("banda-do-relay", 20) {
+
+                int seen, phase;
+                long b0, t0;
+
+                @Override
+                void start() {
+                    seen = relayResults().size();
+                    say("e2e:relay-stats");
+                }
+
+                @Override
+                String tick(int t) {
+                    List<long[]> res = relayResults();
+                    if (res.size() <= seen) return null;
+                    long[] last = res.get(res.size() - 1);
+                    seen = res.size();
+                    if (phase == 0) {
+                        b0 = last[0];
+                        t0 = last[1];
+                        phase = 1;
+                        say("e2e:relay-stats"); // a resposta chega depois de mais áudio enviado
+                        return null;
+                    }
+                    if (last[1] - t0 < 3000) { // ainda cedo: pede de novo
+                        say("e2e:relay-stats");
+                        return null;
+                    }
+                    double rate = (last[0] - b0) * 1000.0 / (last[1] - t0);
+                    DevE2E.log("relay: {} bytes/s para este jogador (Opus 64 kbps = 8000 B/s)", Math.round(rate));
+                    return rate > 6000 && rate < 14000 ? "" : "taxa fora do esperado: " + Math.round(rate) + " B/s";
+                }
+            });
+        }
         steps.add(new Step("tela-da-radio-com-texto", 15) {
 
             @Override
@@ -741,6 +807,33 @@ public final class E2EClient {
                 return null;
             }
         });
+        if (relayMode()) {
+            steps.add(new Step("relay-para-de-enviar-fora-do-alcance", 15) {
+
+                int seen;
+                long first = -1;
+
+                @Override
+                String tick(int t) {
+                    // Espera a audiência do servidor (a cada 10 ticks) perceber que saímos do alcance.
+                    if (t == 40 || t == 120) {
+                        seen = relayResults().size();
+                        say("e2e:relay-stats");
+                    }
+                    List<long[]> res = relayResults();
+                    if (t > 40 && first < 0 && res.size() > seen) first = res.get(res.size() - 1)[0];
+                    if (t <= 120 || res.size() <= seen || first < 0) return null;
+                    long second = res.get(res.size() - 1)[0];
+                    DevE2E.log(
+                        "relay fora do alcance: bytes {} -> {}, estações neste cliente={}",
+                        first,
+                        second,
+                        RelayClient.activeStations());
+                    if (second != first) return "o servidor continuou mandando " + (second - first) + " bytes";
+                    return RelayClient.activeStations() == 0 ? "" : "o cliente ainda tem estação aberta";
+                }
+            });
+        }
         steps.add(new Step("voltar-e-ouvir-de-novo", 5) {
 
             @Override
@@ -795,6 +888,30 @@ public final class E2EClient {
         steps.add(audioPlaying("ouvir-depois-de-reconectar", 45));
         cleanupIndex = steps.size();
         steps.add(disconnect("desconectar-final"));
+    }
+
+    /** O relay toca em sincronia: erro suavizado abaixo de 15 ms por 2 s seguidos (dois clientes: < 30 ms entre si). */
+    private Step syncCheck(String name) {
+        return new Step(name, 30) {
+
+            int okTicks;
+
+            @Override
+            String tick(int t) {
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null || !i.playing || Double.isNaN(i.syncErrorMs)) return null;
+                okTicks = Math.abs(i.syncErrorMs) < 15 ? okTicks + 1 : 0;
+                if (okTicks < 40) return null;
+                DevE2E.log(
+                    "sincronia: erro={} ms pitch={} ressincronizações={} menor RTT={} ms",
+                    String.format("%.2f", i.syncErrorMs),
+                    String.format("%.5f", i.pitch),
+                    i.resyncs,
+                    String.format("%.2f", ClockSync.bestRttMs()));
+                say("e2e:sync " + String.format("%.2f", i.syncErrorMs));
+                return "";
+            }
+        };
     }
 
     private Step soundReload(String name) {
@@ -978,6 +1095,7 @@ public final class E2EClient {
                 return r;
             }
         });
+        if (relayMode()) steps.add(syncCheck("peer-sincronia-do-relay"));
         steps.add(new Step("peer-permissoes", 10) {
 
             @Override

@@ -10,6 +10,7 @@ import net.minecraftforge.event.ServerChatEvent;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.network.ServerActionQueue;
 import com.akashiic.fm.server.ServerRadioRegistry;
+import com.akashiic.fm.server.relay.RelayService;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
@@ -21,14 +22,32 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 public final class E2EServer {
 
     public static void register() {
-        FmConfig.Direct.enabled = true;
+        boolean direct = "direct".equals(DevE2E.transport());
+        FmConfig.Relay.enabled = !direct;
+        FmConfig.Direct.enabled = direct;
         MinecraftForge.EVENT_BUS.register(new E2EServer());
-        DevE2E.log("servidor pronto (modo direto ligado)");
+        DevE2E.log("servidor pronto (transporte {})", direct ? "direto" : "relay");
     }
 
     @SubscribeEvent
     public void onChat(ServerChatEvent event) {
         if (event.message == null || !event.message.startsWith("e2e:")) return;
+        if (event.message.startsWith("e2e:relay-stats") && event.player != null) {
+            long bytes = RelayService.bytesSentTo(event.player.getUniqueID());
+            DevE2E.log(
+                "relay: {} recebeu {} bytes; estações={} ouvintes={}",
+                event.username,
+                bytes,
+                RelayService.stationCount(),
+                RelayService.listenerCount());
+            event.player.addChatMessage(
+                new ChatComponentText(
+                    "e2e-result relay bytes=" + bytes
+                        + " at="
+                        + System.nanoTime() / 1_000_000L
+                        + " stations="
+                        + RelayService.stationCount()));
+        }
         if (event.message.startsWith("e2e:check-unloaded ") && event.player != null) {
             // Responde ao cliente se o chunk da coordenada está carregado (chunkExists nunca carrega).
             String[] a = event.message.split(" ");
