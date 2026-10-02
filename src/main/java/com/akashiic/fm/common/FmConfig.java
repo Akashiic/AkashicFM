@@ -73,5 +73,63 @@ public final class FmConfig {
         @Config.DefaultInt(32)
         @Config.RangeInt(min = 1, max = 128)
         public static int maxSpeakerDistance;
+
+        @Config.Comment("Máximo de rádios num mesmo chunk.")
+        @Config.DefaultInt(4)
+        @Config.RangeInt(min = 1, max = 64)
+        public static int maxRadiosPerChunk;
+
+        @Config.Comment("Alcance máximo, em blocos, que um jogador pode escolher para a rádio.")
+        @Config.DefaultInt(48)
+        @Config.RangeInt(min = 4, max = 128)
+        public static int maxRange;
+
+        @Config.Comment("Ações por segundo que cada jogador pode mandar às rádios (o excesso é descartado).")
+        @Config.DefaultInt(10)
+        @Config.RangeInt(min = 1, max = 100)
+        public static int actionsPerSecond;
+    }
+
+    @Config(modid = AkashicFM.MODID, category = "protection")
+    public static final class Protection {
+
+        @Config.Comment("Impede que outros jogadores (e máquinas) quebrem rádios e caixas privadas. Ops sempre podem.")
+        @Config.DefaultBoolean(true)
+        public static boolean protectPrivateBlocks;
+
+        @Config.Comment("Ops controlam qualquer rádio, mesmo privada.")
+        @Config.DefaultBoolean(true)
+        public static boolean opsBypass;
+    }
+
+    @Config(modid = AkashicFM.MODID, category = "recipes")
+    public static final class Recipes {
+
+        @Config.Comment("Registra as receitas padrão (desligue se o modpack define as próprias).")
+        @Config.DefaultBoolean(true)
+        @Config.RequiresMcRestart
+        public static boolean registerDefaultRecipes;
+    }
+
+    @Config(modid = AkashicFM.MODID, category = "client")
+    public static final class Client {
+
+        @Config.Comment("Liga o áudio das rádios neste cliente.")
+        @Config.DefaultBoolean(true)
+        public static boolean enableAudio;
+
+        @Config.Comment("Quantas rádios podem tocar ao mesmo tempo para você (as mais próximas ganham).")
+        @Config.DefaultInt(4)
+        @Config.RangeInt(min = 1, max = 16)
+        public static int maxSimultaneousRadios;
+
+        @Config.Comment("Permite que este cliente baixe streams sozinho quando o servidor usa o modo direto. Desligado, rádios em modo direto ficam mudas para você.")
+        @Config.DefaultBoolean(true)
+        public static boolean allowDirectStreams;
+
+        @Config.Comment("Volume geral das rádios para você, de 0 a 100 (multiplica o slider de Jukebox/Discos do Minecraft).")
+        @Config.DefaultInt(100)
+        @Config.RangeInt(min = 0, max = 100)
+        public static int radioVolume;
     }
 }
