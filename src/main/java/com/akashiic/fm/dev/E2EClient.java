@@ -7,8 +7,14 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.multiplayer.GuiConnecting;
+import net.minecraft.item.ItemStack;
+import net.minecraft.network.play.client.C0BPacketEntityAction;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ScreenShotHelper;
+import net.minecraft.util.Vec3;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.common.MinecraftForge;
 
@@ -18,8 +24,11 @@ import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
+import com.akashiic.fm.common.SpeakerChannel;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.content.ItemTuner;
 import com.akashiic.fm.content.TileRadio;
+import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.C2SRadioAction.Action;
 import com.akashiic.fm.network.FmNetwork;
@@ -56,6 +65,9 @@ public final class E2EClient {
     private int rx, ry, rz;
     private final List<String> notices = new CopyOnWriteArrayList<>();
     private final List<String> chat = new CopyOnWriteArrayList<>();
+    /** Chaves de tradução das mensagens de chat recebidas (respostas do sintonizador etc.). */
+    private final List<String> chatKeys = new CopyOnWriteArrayList<>();
+    private int sx, sy, sz;
     private volatile S2CRadioPerms lastPerms;
 
     private E2EClient(String scenario) {
@@ -85,7 +97,11 @@ public final class E2EClient {
 
     @SubscribeEvent
     public void onChat(ClientChatReceivedEvent event) {
-        if (event.message != null) chat.add(event.message.getUnformattedText());
+        if (event.message == null) return;
+        chat.add(event.message.getUnformattedText());
+        if (event.message instanceof ChatComponentTranslation) {
+            chatKeys.add(((ChatComponentTranslation) event.message).getKey());
+        }
     }
 
     public void onNotice(S2CRadioNotice notice) {
@@ -200,6 +216,43 @@ public final class E2EClient {
         return n;
     }
 
+    /** Clique direito de verdade: o cliente manda o pacote de uso e o servidor processa (sintonizador). */
+    private static void rightClick(int x, int y, int z) {
+        mc().playerController.onPlayerRightClick(
+            mc().thePlayer,
+            mc().theWorld,
+            mc().thePlayer.getHeldItem(),
+            x,
+            y,
+            z,
+            1,
+            Vec3.createVectorHelper(x + 0.5, y + 1.0, z + 0.5));
+    }
+
+    /**
+     * O segundo jogador nasce com a dispersão de spawn do 1.7.10 (até ~10 blocos) e não é op: o principal o
+     * traz para perto da rádio, dentro do alcance de uso (8 blocos). Antes de ele entrar, o comando só falha.
+     */
+    private void bringPeer() {
+        say("/tp Player2 " + (rx + 0.5) + " " + ry + " " + (rz - 1.5));
+    }
+
+    private static void sneak(boolean on) {
+        mc().getNetHandler()
+            .addToSendQueue(new C0BPacketEntityAction(mc().thePlayer, on ? 1 : 2));
+    }
+
+    private TileSpeaker speaker() {
+        TileEntity te = mc().theWorld.getTileEntity(sx, sy, sz);
+        return te instanceof TileSpeaker ? (TileSpeaker) te : null;
+    }
+
+    private boolean voicesAre(int expected) {
+        AudioEngine.PlaybackInfo i = info();
+        return i != null && i.voices == expected
+            && AudioEngine.INSTANCE.playingSources() == AudioEngine.INSTANCE.totalVoices();
+    }
+
     /** Captura do último frame (dev): conferir visualmente a GUI e a tela da rádio. */
     private static void screenshot(String name) {
         try {
@@ -255,14 +308,18 @@ public final class E2EClient {
     private Step reconnect() {
         return new Step("reconectar", 120) {
 
-            @Override
-            void start() {
-                mc().displayGuiScreen(new GuiConnecting(new GuiMainMenu(), mc(), "127.0.0.1", 25565));
-            }
+            int attempts;
 
             @Override
             String tick(int t) {
-                return inWorld() && t > 60 ? "" : null;
+                // Espera o servidor encerrar a sessão anterior. Sem o Hodgepodge (cliente Java 8 de dev), o FML
+                // 1.7.10 tem uma corrida no login ao reconectar com o mesmo nome; por isso há uma 2ª tentativa.
+                if (t == 100 || (t == 900 && !inWorld())) {
+                    attempts++;
+                    DevE2E.log("conectando (tentativa {})", attempts);
+                    mc().displayGuiScreen(new GuiConnecting(new GuiMainMenu(), mc(), "127.0.0.1", 25565));
+                }
+                return inWorld() && t > 160 ? "" : null;
             }
         };
     }
@@ -291,6 +348,23 @@ public final class E2EClient {
 
     private void buildMain(boolean expectPeer) {
         steps.add(join());
+        steps.add(new Step("ir-para-o-spawn", 5) {
+
+            @Override
+            void start() {
+                // O mundo de teste é persistente: sem isto, a posição salva deriva a cada rodada e a rádio pode
+                // acabar fora do alcance de uso (8 blocos) do segundo jogador, que nasce no spawn.
+                ChunkCoordinates spawn = mc().theWorld.getSpawnPoint();
+                say("/tp " + (spawn.posX + 0.5) + " " + spawn.posY + " " + (spawn.posZ + 0.5));
+            }
+
+            @Override
+            String tick(int t) {
+                ChunkCoordinates spawn = mc().theWorld.getSpawnPoint();
+                double dx = mc().thePlayer.posX - (spawn.posX + 0.5), dz = mc().thePlayer.posZ - (spawn.posZ + 0.5);
+                return t > 10 && dx * dx + dz * dz < 1 ? "" : null;
+            }
+        });
         steps.add(new Step("colocar-radio", 15) {
 
             @Override
@@ -362,6 +436,7 @@ public final class E2EClient {
 
             @Override
             String tick(int t) {
+                bringPeer();
                 say("e2e:main radio-playing");
                 return "";
             }
@@ -444,13 +519,98 @@ public final class E2EClient {
                 return ok ? "" : "permissões não chegaram ou op sem admin";
             }
         });
+        steps.add(new Step("pegar-sintonizador", 10) {
+
+            @Override
+            void start() {
+                say("/give " + mc().thePlayer.getCommandSenderName() + " akashicfm:tuner");
+            }
+
+            @Override
+            String tick(int t) {
+                for (int slot = 0; slot < 9; slot++) {
+                    ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+                    if (st != null && st.getItem() instanceof ItemTuner) {
+                        mc().thePlayer.inventory.currentItem = slot;
+                        return "";
+                    }
+                }
+                return null;
+            }
+        });
+        steps.add(new Step("colocar-caixa", 10) {
+
+            @Override
+            void start() {
+                sx = rx + 3;
+                sy = ry;
+                sz = rz;
+                say("/setblock " + sx + " " + sy + " " + sz + " air");
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 5) say("/setblock " + sx + " " + sy + " " + sz + " akashicfm:speaker 3");
+                return t > 5 && speaker() != null ? "" : null;
+            }
+        });
+        steps.add(new Step("ligar-caixa-com-sintonizador", 10) {
+
+            @Override
+            String tick(int t) {
+                if (t == 2) rightClick(sx, sy, sz); // seleciona a caixa
+                if (t == 12) rightClick(rx, ry, rz); // liga na rádio
+                TileRadio r = radio();
+                boolean linked = r != null && r.state.speakers.contains(new Pos(sx, sy, sz));
+                return linked && chatKeys.contains("akashicfm.tuner.linked") ? "" : null;
+            }
+        });
+        steps.add(new Step("caixa-toca-junto", 10) {
+
+            @Override
+            String tick(int t) {
+                // Rádio em estéreo (2 fontes) + caixa em MIX (1 fonte).
+                return voicesAre(3) ? "" : null;
+            }
+        });
+        steps.add(new Step("trocar-canal-agachado-ate-estereo", 15) {
+
+            @Override
+            String tick(int t) {
+                // MIX -> LEFT -> RIGHT -> STEREO: três cliques agachado.
+                if (t == 1) sneak(true);
+                if (t == 4 || t == 14 || t == 24) rightClick(sx, sy, sz);
+                if (t == 30) sneak(false);
+                TileSpeaker sp = speaker();
+                if (t < 30 || sp == null || sp.channel != SpeakerChannel.STEREO) return null;
+                return voicesAre(4) ? "" : null; // caixa em estéreo vira duas fontes
+            }
+        });
+        steps.add(new Step("desvincular-caixas", 10) {
+
+            @Override
+            void start() {
+                send(Action.UNLINK_ALL_SPEAKERS, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                TileSpeaker sp = speaker();
+                boolean clean = r != null && r.state.speakers.isEmpty() && sp != null && sp.linkedRadio == null;
+                return clean && voicesAre(2) ? "" : null;
+            }
+        });
         if (expectPeer) {
             steps.add(new Step("esperar-segundo-jogador", 600) {
 
                 @Override
                 String tick(int t) {
                     // Repete o anúncio: o segundo cliente pode ter entrado depois da primeira mensagem.
-                    if (t % 100 == 0) say("e2e:main radio-playing");
+                    if (t % 100 == 0) {
+                        bringPeer();
+                        say("e2e:main radio-playing");
+                    }
                     return chatSaw("e2e:peer ready") ? "" : null;
                 }
             });
