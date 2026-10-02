@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: Fase 1
+## Estado atual: Fase 2
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -30,6 +30,13 @@ Feito:
   - verificação em jogo com servidor e dois clientes reais, em Java 8 e Java 21.
   
   Detalhes em [`docs/FASE1-RESULTADOS.md`](docs/FASE1-RESULTADOS.md).
+- **Fase 2:**
+  - caixas entram, saem e trocam de canal sem cortar o som (vozes reconciliadas por identidade e alinhadas por amostra);
+  - o recarregamento do sistema de som (F3+T, troca de dispositivo) retoma a reprodução sozinho;
+  - tela de config dentro do jogo;
+  - soak de 10 min sem nenhum vazamento de objeto OpenAL, sem underruns e com heap estável.
+  
+  Detalhes em [`docs/FASE2-RESULTADOS.md`](docs/FASE2-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -37,7 +44,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 |---|---|
 | 0 | Base, CI e spikes ✅ |
 | 1 | Núcleo seguro: blocos, estado, rede validada, GUI, engine de áudio, modo direto ✅ |
-| 2 | Áudio 3D completo: recarregamento do som (F3+T), convivência com Hodgepodge/ArchaicFix, teste longo |
+| 2 | Áudio 3D completo: caixas sem cortes, recarregamento do som (F3+T), convivência com o Hodgepodge, soak ✅ |
 | 3 | Relay e sincronia: Opus, audiência, relógio, jitter buffer |
 | 4 | Oclusão e reverb |
 | 5+ | Now playing, visual, frequências e torres, admin completo |
