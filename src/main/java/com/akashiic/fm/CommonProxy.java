@@ -17,7 +17,10 @@ import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 import com.akashiic.fm.network.ServerActionQueue;
+import com.akashiic.fm.server.AuditLog;
+import com.akashiic.fm.server.FmCommand;
 import com.akashiic.fm.server.FrequencyService;
+import com.akashiic.fm.server.Moderation;
 import com.akashiic.fm.server.PortableSources;
 import com.akashiic.fm.server.ServerEvents;
 import com.akashiic.fm.server.ServerPolicy;
@@ -73,6 +76,8 @@ public class CommonProxy {
     public void serverStarting(FMLServerStartingEvent event) {
         if (DevE2E.enabled()) E2EServer.register();
         ServerPolicy.setRelayAvailable(FmConfig.Relay.enabled);
+        FmCommand.markServerThread();
+        event.registerServerCommand(new FmCommand());
     }
 
     public void serverStopped(FMLServerStoppedEvent event) {
@@ -80,6 +85,9 @@ public class CommonProxy {
         RelayService.shutdown();
         FrequencyService.clear();
         PortableSources.clear();
+        Moderation.clear();
+        FmCommand.clear();
+        AuditLog.close();
         ServerRadioRegistry.clear();
         ServerActionQueue.clear();
     }

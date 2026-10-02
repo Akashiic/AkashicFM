@@ -28,6 +28,7 @@ akashicfm.notice.no_permission=Você não tem permissão para fazer isso aqui.
 akashicfm.notice.no_transport=O áudio das rádios está desligado neste servidor (relay indisponível e modo direto desativado).
 akashicfm.notice.stations_full=As favoritas estão cheias (máximo %s).
 akashicfm.notice.relay_full=O servidor já está retransmitindo o máximo de estações (%s).
+akashicfm.notice.blocked=Um admin bloqueou você de usar rádios neste servidor.
 akashicfm.notice.no_energy=O transmissor está sem energia: entra no ar assim que receber EU ou RF.
 
 # Status da estação (relay)
@@ -156,3 +157,24 @@ akashicfm.gui.portable.title=Rádio Portátil
 akashicfm.gui.portable.headphones=com fone: só você ouve
 akashicfm.gui.portable.speaker=sem fone: quem está perto também ouve
 akashicfm.gui.portable.hint=Toca de qualquer slot do inventário. Use o fone (capacete ou slot do Baubles) para ouvir sozinho.
+
+# /fm (admin)
+akashicfm.cmd.usage=/fm <list [radios|transmitters|portables] [página] | info [x y z] | stop [x y z] | stopall | reload | purge [player <nome>] | block <jogador> | unblock <jogador> | blocked>
+akashicfm.cmd.list.radios=Rádios tocando (carregadas): %s · página %s/%s
+akashicfm.cmd.list.transmitters=Transmissores (índice, carregados ou não): %s · página %s/%s
+akashicfm.cmd.list.portables=Rádios portáteis tocando: %s · página %s/%s
+akashicfm.cmd.no_target=Não há rádio nem transmissor aí (olhe para um a até 8 blocos, ou informe x y z).
+akashicfm.cmd.not_loaded=Esse chunk não está carregado (o comando nunca carrega chunk).
+akashicfm.cmd.unknown_player=Jogador desconhecido: %s
+akashicfm.cmd.stopped=Parado.
+akashicfm.cmd.stopall=Parados: %s rádios, %s transmissores e %s rádios portáteis.
+akashicfm.cmd.reloaded=Config do servidor recarregado (a latência do relay só muda ao reiniciar).
+akashicfm.cmd.reload_failed=Falhou recarregar o config de: %s (veja o log do servidor).
+akashicfm.cmd.purged=Removidos do índice: %s transmissores e %s rádios sem bloco (só em chunks carregados).
+akashicfm.cmd.purged_player=Removidas %s entradas do índice de %s (as de bloco carregado agora ficam; as outras voltam quando o chunk carregar, se o bloco ainda existir).
+akashicfm.cmd.blocked=%s agora está bloqueado: rádios, transmissores e portáteis dele ficam mudos.
+akashicfm.cmd.unblocked=%s não está mais bloqueado.
+akashicfm.cmd.already_blocked=%s já está bloqueado.
+akashicfm.cmd.not_blocked=%s não está bloqueado.
+akashicfm.cmd.blocked_list=Jogadores bloqueados: %s
+akashicfm.cmd.queued=O servidor está ocupado: o comando roda no próximo tick (o resultado vai para o log de auditoria).

@@ -28,6 +28,7 @@ public final class ServerEvents {
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.START) return;
+        FmCommand.runQueued(); // /fm que chegou pelo RCON
         ServerActionQueue.drain();
         FrequencyService.tick(); // antes do relay: a audiência já vê a URL sintonizada neste tick
         PortableSources.tick(); // idem: o relay já vê quem precisa das estações dos portáteis

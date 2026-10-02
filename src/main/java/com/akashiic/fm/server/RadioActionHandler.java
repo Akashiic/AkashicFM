@@ -4,7 +4,6 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
-import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Frequency;
@@ -54,8 +53,10 @@ public final class RadioActionHandler {
             return;
         }
         RadioState s = radio.state;
-        boolean control = Permissions.canControl(s, player);
-        boolean admin = Permissions.canAdmin(s, player);
+        // Bloqueado por um admin (/fm block): só pode olhar.
+        boolean blocked = Moderation.isBlocked(player);
+        boolean control = !blocked && Permissions.canControl(s, player);
+        boolean admin = !blocked && Permissions.canAdmin(s, player);
 
         switch (msg.action) {
             case REQUEST_PERMS:
@@ -76,12 +77,7 @@ public final class RadioActionHandler {
                 return;
             case STOP:
                 if (!control) break;
-                if (s.playing) {
-                    s.playing = false;
-                    s.status = "";
-                    clearTuning(s);
-                    radio.markStateChanged();
-                }
+                if (applyStop(s)) radio.markStateChanged();
                 return;
             case SET_URL:
                 if (!control) break;
@@ -186,7 +182,7 @@ public final class RadioActionHandler {
             default:
                 return;
         }
-        notice(player, radio, true, "akashicfm.notice.no_permission", "");
+        notice(player, radio, true, blocked ? "akashicfm.notice.blocked" : "akashicfm.notice.no_permission", "");
     }
 
     /**
@@ -240,6 +236,15 @@ public final class RadioActionHandler {
     /** Depois de ligar: no modo de frequência, sintoniza já (sem esperar o próximo ciclo do serviço). */
     static void afterPlay(TileRadio radio) {
         if (radio.state.mode == TuneMode.FREQUENCY && radio.state.playing) FrequencyService.retune(radio);
+    }
+
+    /** Para a rádio (jogador ou admin): esquece status e transmissor ouvido. Devolve false se já estava parada. */
+    static boolean applyStop(RadioState s) {
+        if (!s.playing) return false;
+        s.playing = false;
+        s.status = "";
+        clearTuning(s);
+        return true;
     }
 
     /** Esquece o transmissor ouvido (parou, trocou de modo). */
@@ -337,13 +342,11 @@ public final class RadioActionHandler {
                 s.status = "";
             }
             radio.markStateChanged();
-            AkashicFM.LOG.info(
-                "[audit] {} ({}) mudou a URL da rádio em dim {} [{}] para {}",
+            AuditLog.log(
                 player.getCommandSenderName(),
                 player.getUniqueID(),
-                radio.dimension(),
-                radio.pos(),
-                url);
+                "radio.url",
+                "dim " + radio.dimension() + " " + radio.pos() + " -> " + url);
         }
         return true;
     }

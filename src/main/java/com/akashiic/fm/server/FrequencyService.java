@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.function.BooleanSupplier;
 
 import net.minecraft.world.World;
 import net.minecraft.world.gen.ChunkProviderServer;
@@ -80,11 +81,20 @@ public final class FrequencyService {
         List<FrequencyResolver.Transmitter> out = new ArrayList<>();
         for (TransmitterIndex.Entry e : TransmitterIndex.get(world)
             .inDimension(dim)) {
-            if (!e.active) continue;
-            if (e.needsLoadedChunk && !chunkLoaded(world, e.pos)) continue;
-            out.add(new FrequencyResolver.Transmitter(e.pos, e.frequency, e.range, e.url, e.name, true));
+            if (eligible(e, Moderation.isBlocked(e.owner), () -> chunkLoaded(world, e.pos))) {
+                out.add(new FrequencyResolver.Transmitter(e.pos, e.frequency, e.range, e.url, e.name, true));
+            }
         }
         return out;
+    }
+
+    /**
+     * O transmissor do índice conta: ativo, dono não bloqueado por um admin e, se exige energia, com o chunk
+     * carregado (só consultado quando precisa).
+     */
+    static boolean eligible(TransmitterIndex.Entry e, boolean ownerBlocked, BooleanSupplier chunkLoaded) {
+        if (!e.active || ownerBlocked) return false;
+        return !e.needsLoadedChunk || chunkLoaded.getAsBoolean();
     }
 
     private static boolean chunkLoaded(World world, Pos p) {

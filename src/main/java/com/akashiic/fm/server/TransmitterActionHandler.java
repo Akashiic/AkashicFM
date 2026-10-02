@@ -2,7 +2,6 @@ package com.akashiic.fm.server;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 
-import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.Permissions;
@@ -34,8 +33,9 @@ public final class TransmitterActionHandler {
             return;
         }
         TransmitterState s = t.state;
-        boolean control = Permissions.canControl(s.owner, s.access, player);
-        boolean admin = Permissions.canAdmin(s.owner, player);
+        boolean blocked = Moderation.isBlocked(player);
+        boolean control = !blocked && Permissions.canControl(s.owner, s.access, player);
+        boolean admin = !blocked && Permissions.canAdmin(s.owner, player);
 
         switch (msg.action) {
             case REQUEST_PERMS:
@@ -65,7 +65,7 @@ public final class TransmitterActionHandler {
                 if (f != s.frequency) {
                     s.frequency = f;
                     t.markStateChanged();
-                    audit(player, t, "a frequência", Frequency.format(f));
+                    audit(player, t, "frequency", Frequency.format(f));
                 }
                 return;
             case SET_SCREEN_TEXT:
@@ -97,7 +97,7 @@ public final class TransmitterActionHandler {
             default:
                 return; // ações só da rádio (volume, favoritas, caixas): não se aplicam
         }
-        notice(player, t, true, "akashicfm.notice.no_permission", "");
+        notice(player, t, true, blocked ? "akashicfm.notice.blocked" : "akashicfm.notice.no_permission", "");
     }
 
     /**
@@ -151,7 +151,7 @@ public final class TransmitterActionHandler {
         if (!url.equals(s.url)) {
             s.url = url;
             t.markStateChanged();
-            audit(player, t, "a URL", url);
+            audit(player, t, "url", url);
         }
         return true;
     }
@@ -182,14 +182,11 @@ public final class TransmitterActionHandler {
     }
 
     private static void audit(EntityPlayerMP player, TileTransmitter t, String what, String value) {
-        AkashicFM.LOG.info(
-            "[audit] {} ({}) mudou {} do transmissor em dim {} [{}] para {}",
+        AuditLog.log(
             player.getCommandSenderName(),
             player.getUniqueID(),
-            what,
-            t.dimension(),
-            t.pos(),
-            value);
+            "transmitter." + what,
+            "dim " + t.dimension() + " " + t.pos() + " -> " + value);
     }
 
     static void notice(EntityPlayerMP player, TileTransmitter t, boolean error, String key, String arg) {

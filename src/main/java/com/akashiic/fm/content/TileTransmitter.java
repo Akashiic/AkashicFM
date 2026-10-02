@@ -50,9 +50,7 @@ public class TileTransmitter extends TileEntity implements IEnergySink, IEnergyR
     private static Boolean ic2Loaded, energyApiPresent;
 
     public final TransmitterState state = new TransmitterState();
-    private final EnergyBuffer buffer = new EnergyBuffer(
-        Math.max(100, FmConfig.Transmitter.energyCapacity),
-        Math.max(1, FmConfig.Transmitter.maxInputPerTick));
+    private final EnergyBuffer buffer = new EnergyBuffer(capacityConfig(), maxInputConfig());
     private boolean ic2Registered;
     private int ticks;
     private int syncedEnergy = -1;
@@ -96,6 +94,7 @@ public class TileTransmitter extends TileEntity implements IEnergySink, IEnergyR
     @Override
     public void updateEntity() {
         if (worldObj == null || worldObj.isRemote) return;
+        buffer.configure(capacityConfig(), maxInputConfig()); // o /fm reload pode ter mudado
         buffer.startTick();
         if (!ic2Registered && ic2Loaded()) registerIc2();
         ticks++;
@@ -147,6 +146,14 @@ public class TileTransmitter extends TileEntity implements IEnergySink, IEnergyR
         }
         if (changed) syncedEnergy = state.energy;
         return changed;
+    }
+
+    private static int capacityConfig() {
+        return Math.max(100, FmConfig.Transmitter.energyCapacity);
+    }
+
+    private static int maxInputConfig() {
+        return Math.max(1, FmConfig.Transmitter.maxInputPerTick);
     }
 
     private static int perTick() {

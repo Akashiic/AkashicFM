@@ -7,14 +7,23 @@ package com.akashiic.fm.common;
  */
 public final class EnergyBuffer {
 
-    private final double capacity;
-    private final double maxInputPerTick;
+    private double capacity;
+    private double maxInputPerTick;
     private double stored;
     private double inputThisTick;
 
     public EnergyBuffer(double capacity, double maxInputPerTick) {
+        configure(capacity, maxInputPerTick);
+    }
+
+    /**
+     * Capacidade e entrada por tick (do config, que o {@code /fm reload} pode mudar com o servidor rodando). Com a
+     * capacidade menor, o que passar dela se perde.
+     */
+    public void configure(double capacity, double maxInputPerTick) {
         this.capacity = Math.max(0, capacity);
         this.maxInputPerTick = Math.max(0, maxInputPerTick);
+        if (stored > this.capacity) stored = this.capacity;
     }
 
     /** Começo de um tick: zera o que entrou. */

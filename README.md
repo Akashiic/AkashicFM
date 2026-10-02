@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: Fase 6
+## Estado atual: Fase 7
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -69,6 +69,12 @@ Feito:
   - **mesma estação, mesma reprodução:** portátil e rádios tocando a mesma estação ficam sincronizados.
   
   Detalhes em [`docs/FASE6-RESULTADOS.md`](docs/FASE6-RESULTADOS.md).
+- **Fase 7a:**
+  - **`/fm` para admins:** listar, inspecionar e parar rádios, transmissores e portáteis, recarregar o config, limpar o índice e bloquear jogadores, sem carregar chunk nenhum, e seguro pelo RCON e por pontes de chat;
+  - **log de auditoria** em `logs/akashicfm-audit.log`: trocas de URL e frequência e toda ação de admin, em UTC;
+  - **bloqueio:** o jogador bloqueado não controla nada, e os transmissores e o portátil dele ficam mudos.
+  
+  Guia em [`docs/ADMIN.md`](docs/ADMIN.md); detalhes em [`docs/FASE7-RESULTADOS.md`](docs/FASE7-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -82,7 +88,9 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 5 | Tocando agora (tela, GUI, aviso, WAILA), espectro e cone animado ✅ |
 | 6a | Frequências, transmissor, antenas e energia opcional (EU/RF) ✅ |
 | 6b | Rádio portátil e fone (com Baubles opcional) ✅ |
-| 7 | Admin completo (`/fm`), integrações e release |
+| 7a | Admin (`/fm`), log de auditoria e bloqueio de jogador ✅ |
+| 7b | Mute no cliente e playlist |
+| 7c | OpenComputers (opcional), revisão final e release 1.0.0 |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
 
@@ -101,6 +109,20 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 - **Fone:** use no slot de capacete (ou, com o Baubles Expanded, nos slots de cabeça ou de brinco). Com ele o portátil toca só para você, em estéreo e sem o reverb da sala.
 - **Rádio no modo FM:** na tela da rádio, o botão "URL/FM" troca o modo. No FM, « ‹ › » giram a frequência (±1,0 e ±0,1 MHz; as setas ← → do teclado também) e a rádio toca o transmissor mais forte daquela frequência que alcança o lugar. A tela mostra "Sinal 73% · estação"; sem cobertura, "sem sinal".
 - **No cliente:** volume geral das rádios, limite de rádios simultâneas, a opção de recusar streams diretos, oclusão, reverb, aviso "tocando agora" e visualizador ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
+
+## Admin (`/fm`, op)
+
+| Comando | O que faz |
+|---|---|
+| `/fm list [radios\|transmitters\|portables] [página]` | Rádios tocando (carregadas), transmissores (índice, carregados ou não) ou portáteis tocando |
+| `/fm info [x y z]` | Detalhes da rádio ou do transmissor (sem coordenadas: o bloco que você olha) |
+| `/fm stop [x y z]` | Para a rádio ou tira o transmissor do ar |
+| `/fm stopall` | Para todas as rádios e transmissores carregados e desliga os portáteis de quem está online |
+| `/fm reload` | Relê do disco o config do servidor (menos a latência do relay, que só muda ao reiniciar) |
+| `/fm purge` / `/fm purge player <nome>` | Tira do índice o que não tem mais bloco (só em chunk carregado) / as entradas de um jogador que não dá para confirmar (as de bloco existente voltam quando o chunk carregar) |
+| `/fm block <jogador>` / `unblock` / `blocked` | Bloqueia um jogador: não controla rádio, transmissor nem portátil, e os dele ficam mudos |
+
+Nenhum comando carrega chunk. Toda ação que muda algo (trocas de URL e frequência, comandos de admin) vai para `logs/akashicfm-audit.log`, uma linha por evento em UTC. Detalhes em [`docs/ADMIN.md`](docs/ADMIN.md).
 
 ## Compilar e testar
 

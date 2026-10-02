@@ -5,7 +5,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 
-import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.PortableState;
@@ -35,6 +34,10 @@ public final class PortableActionHandler {
         if (player == null || player.isDead || player.playerNetServerHandler == null) return;
         ItemStack stack = portableAt(player, msg.slot);
         if (stack == null) return;
+        if (Moderation.isBlocked(player)) {
+            notice(player, true, "akashicfm.notice.blocked", "");
+            return;
+        }
         PortableState s = ItemPortableRadio.state(stack);
         // Outro portátil no slot (a tela via um, o slot tem outro): ignora em vez de mexer no errado.
         if (s.id != 0 && s.id != msg.id) return;
@@ -48,6 +51,10 @@ public final class PortableActionHandler {
     public static void toggle(EntityPlayerMP player, int slot) {
         ItemStack stack = portableAt(player, slot);
         if (stack == null) return;
+        if (Moderation.isBlocked(player)) {
+            notice(player, true, "akashicfm.notice.blocked", "");
+            return;
+        }
         PortableState s = ItemPortableRadio.state(stack);
         boolean assigned = s.id == 0;
         if (assigned) s.id = newId();
@@ -131,11 +138,7 @@ public final class PortableActionHandler {
         s.url = url;
         if (s.on && s.mode == TuneMode.URL) s.session++; // troca de estação ao vivo
         if (player != null) {
-            AkashicFM.LOG.info(
-                "[audit] {} ({}) mudou a URL do rádio portátil para {}",
-                player.getCommandSenderName(),
-                player.getUniqueID(),
-                url);
+            AuditLog.log(player.getCommandSenderName(), player.getUniqueID(), "portable.url", url);
         }
         return true;
     }

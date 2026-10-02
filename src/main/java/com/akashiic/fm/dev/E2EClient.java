@@ -899,6 +899,7 @@ public final class E2EClient {
         }
         addFrequencySteps(expectPeer);
         addPortableSteps(expectPeer);
+        addAdminSteps(expectPeer);
         steps.add(new Step("teleporte-1000-blocos-silencia", 15) {
 
             double startX;
@@ -1013,6 +1014,24 @@ public final class E2EClient {
         steps.add(disconnect("desconectar-sem-som-orfao"));
         steps.add(reconnect());
         steps.add(audioPlaying("ouvir-depois-de-reconectar", 45));
+        steps.add(purgeKeepsLoaded());
+        steps.add(new Step("fm-stopall-para-tudo", 15) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("Stopped ");
+                say("/fm stopall");
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (countChat("Stopped ") <= seen || r == null || r.state.playing) return null;
+                return AudioEngine.INSTANCE.activeCount() == 0 ? "" : null;
+            }
+        });
         cleanupIndex = steps.size();
         steps.add(disconnect("desconectar-final"));
     }
@@ -1699,6 +1718,337 @@ public final class E2EClient {
         steps.add(peerPortable("peer-portatil-sumiu", "portable-gone", this::otherPortableSilent, "portable-gone-ok"));
     }
 
+    // ---- Fase 7a: /fm, bloqueio e auditoria ----
+
+    /** Manda um comando e espera uma linha do chat que contenha {@code expect} (nova, depois do comando). */
+    private Step command(String name, String cmd, String expect) {
+        return command(name, () -> cmd, () -> expect);
+    }
+
+    /** Idem, com comando e texto esperado calculados no início do passo (coordenadas do roteiro). */
+    private Step command(String name, java.util.function.Supplier<String> cmd,
+        java.util.function.Supplier<String> expect) {
+        return new Step(name, 10) {
+
+            int seen;
+            String want;
+
+            @Override
+            void start() {
+                want = expect.get();
+                seen = countChat(want);
+                say(cmd.get());
+            }
+
+            @Override
+            String tick(int t) {
+                return countChat(want) > seen ? "" : null;
+            }
+        };
+    }
+
+    private void addAdminSteps(boolean expectPeer) {
+        steps.add(command("fm-list-transmissores", "/fm list transmitters", "98.7 MHz · Akashic FM"));
+        steps.add(offThreadCommand("fm-pelo-rcon", "e2e:rcon", false));
+        steps.add(offThreadCommand("fm-pela-ponte-de-chat-roda-na-thread-principal", "e2e:bridge", true));
+        steps.add(command("fm-list-radios", () -> "/fm list radios", () -> new Pos(rx, ry, rz).toString()));
+        steps.add(new Step("fm-info-do-bloco-olhado", 10) {
+
+            int seen;
+
+            @Override
+            void start() {
+                // De frente para a rádio, olhando para ela (o /fm info sem coordenadas usa o bloco olhado).
+                mc().thePlayer.rotationYaw = 180f;
+                mc().thePlayer.rotationPitch = 37f;
+                seen = countChat("tocando=true");
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 5) say("/fm info");
+                return countChat("tocando=true") > seen ? "" : null;
+            }
+        });
+        steps.add(reloadReadsFile());
+        steps.add(command("fm-stop-no-transmissor", () -> "/fm stop " + tx + " " + ry + " " + rz, () -> "Stopped."));
+        steps.add(new Step("transmissor-parado-pelo-admin", 5) {
+
+            @Override
+            String tick(int t) {
+                TileTransmitter tr = transmitterAt(tx, ry, rz);
+                return tr != null && !tr.state.broadcasting ? "" : null;
+            }
+        });
+        if (expectPeer) {
+            steps.add(command("fm-block-segundo-jogador", "/fm block Player2", "Player2 is now blocked"));
+            steps.add(handshake("bloqueado-nao-controla", "blocked-peer", "blocked-ok"));
+            steps.add(command("fm-unblock-segundo-jogador", "/fm unblock Player2", "Player2 is no longer blocked"));
+            steps.add(handshake("desbloqueado-controla-de-novo", "unblocked-peer", "unblocked-ok"));
+        }
+        steps.add(new Step("auditoria-em-arquivo", 10) {
+
+            @Override
+            void start() {
+                say("e2e:audit-tail");
+            }
+
+            @Override
+            String tick(int t) {
+                for (String line : chat) {
+                    if (!line.contains("e2e-result audit ")) continue;
+                    DevE2E.log("auditoria: {}", line);
+                    boolean ok = line.contains("url=true") && line.contains("stop=true")
+                        && line.contains("reload=true")
+                        && (!expectPeer || (line.contains("block=true") && line.contains("unblock=true")));
+                    return ok ? "" : "linhas faltando no arquivo de auditoria: " + line;
+                }
+                return null;
+            }
+        });
+    }
+
+    /**
+     * {@code /fm} vindo de outra thread: a resposta tem que voltar a quem mandou. Pela ponte de chat (executeCommand
+     * da thread dela), o /fm tem que passar pela fila da thread principal (o contador sobe 1). Pelo RCON, o 1.7.10
+     * puro também usaria a fila; com o Hodgepodge (fixRconThreading, no ambiente de dev e no pack GTNH) o comando já
+     * chega na principal: as duas coisas valem.
+     */
+    private Step offThreadCommand(String name, String trigger, boolean mustQueue) {
+        return new Step(name, 20) {
+
+            static final String RESULT = "e2e-result rcon ";
+            int before = -1, seen, nextAsk = -1;
+
+            @Override
+            void start() {
+                ask();
+            }
+
+            private void ask() {
+                seen = countChat(RESULT);
+                say("e2e:rcon-result");
+            }
+
+            @Override
+            String tick(int t) {
+                if (nextAsk >= 0) {
+                    if (t < nextAsk) return null;
+                    nextAsk = -1;
+                    ask();
+                    return null;
+                }
+                String line = chatAfter(RESULT, seen);
+                if (line == null) return null;
+                int runs = intField(line, "queuedRuns=");
+                if (before < 0) {
+                    before = runs;
+                    say(trigger + " fm list transmitters");
+                    nextAsk = t + 10;
+                    return null;
+                }
+                if (!line.contains(" done ")) {
+                    nextAsk = t + 10; // ainda rodando: pergunta de novo daqui a meio segundo
+                    return null;
+                }
+                DevE2E.log("{}: fila +{}: {}", trigger, runs - before, line);
+                if (mustQueue ? runs != before + 1 : runs < before || runs > before + 1) {
+                    return "o /fm de outra thread não passou pela thread principal: " + line;
+                }
+                return line.contains("98.7 MHz · Akashic FM") ? "" : "resposta sem a lista: " + line;
+            }
+        };
+    }
+
+    /**
+     * {@code /fm reload} relê o arquivo de verdade: muda {@code maxPerPlayer} no config/akashicfm.cfg, recarrega,
+     * confere o valor novo (e que os valores do roteiro continuam), depois volta o arquivo e confere de novo.
+     */
+    private Step reloadReadsFile() {
+        return new Step("fm-reload-rele-o-arquivo", 40) {
+
+            static final String CONFIG = "e2e-result config ", FILE = "e2e-result config-file maxPerPlayer",
+                RELOADED = "Server config reloaded";
+            int stage, seen, original = -1;
+            String waitFor;
+
+            @Override
+            void start() {
+                ask("e2e:config-get", CONFIG);
+            }
+
+            private void ask(String msg, String needle) {
+                waitFor = needle;
+                seen = countChat(needle);
+                say(msg);
+            }
+
+            @Override
+            String tick(int t) {
+                if (chatSaw("Config reload failed")) return "reload falhou: " + chatAfter("Config reload failed", 0);
+                String line = chatAfter(waitFor, seen);
+                if (line == null) return null;
+                String err;
+                switch (stage++) {
+                    case 0:
+                        original = intField(line, "maxPerPlayer=");
+                        if (original < 1) return "config ilegível: " + line;
+                        ask("e2e:config-file maxPerPlayer " + (original + 1), FILE);
+                        return null;
+                    case 1:
+                    case 4:
+                        if (!line.endsWith(" ok")) return "não editou o arquivo: " + line;
+                        ask("/fm reload", RELOADED);
+                        return null;
+                    case 2:
+                    case 5:
+                        ask("e2e:config-get", CONFIG);
+                        return null;
+                    case 3:
+                        err = check(line, original + 1);
+                        if (err != null) return err;
+                        ask("e2e:config-file maxPerPlayer " + original, FILE); // devolve o arquivo
+                        return null;
+                    default:
+                        err = check(line, original);
+                        return err == null ? "" : err;
+                }
+            }
+
+            /** O valor do arquivo entrou e os valores do roteiro (transporte, alcance curto) continuam. */
+            private String check(String line, int want) {
+                DevE2E.log("reload: {}", line);
+                if (!line.contains("maxPerPlayer=" + want + " ")) {
+                    return "reload não aplicou maxPerPlayer=" + want + ": " + line;
+                }
+                boolean relay = !"direct".equals(DevE2E.transport());
+                if (!line.contains("baseRange=" + DevE2E.TRANSMITTER_BASE_RANGE + " ")
+                    || !line.contains("relay=" + relay + " ")) {
+                    return "reload desfez os valores do roteiro: " + line;
+                }
+                return null;
+            }
+        };
+    }
+
+    /**
+     * {@code /fm purge player}: as entradas de bloco carregado e presente ficam (tirar um transmissor carregado do
+     * índice o deixaria fora do ar); só saem as que não dá para confirmar (em chunk descarregado). Os blocos do
+     * roteiro não têm dono (/setblock): o servidor dá ao jogador um transmissor real e duas entradas fantasmas.
+     */
+    private Step purgeKeepsLoaded() {
+        return new Step("fm-purge-player-mantem-carregados", 20) {
+
+            int phase = -1, seen, total = -1, loaded = -1;
+            String purgeMsg;
+
+            @Override
+            void start() {
+                seen = countChat("e2e-result index-seed ");
+                say("e2e:index-seed");
+            }
+
+            @Override
+            String tick(int t) {
+                String me = mc().thePlayer.getCommandSenderName();
+                if (phase < 0) {
+                    String line = chatAfter("e2e-result index-seed ", seen);
+                    if (line == null) return null;
+                    if (!line.endsWith(" ok")) return "não preparou o índice: " + line;
+                    seen = countChat("e2e-result index ");
+                    say("e2e:index-owned");
+                    phase = 0;
+                    return null;
+                }
+                if (phase == 0) {
+                    String line = chatAfter("e2e-result index ", seen);
+                    if (line == null) return null;
+                    total = intField(line, "total=");
+                    loaded = intField(line, "loaded=");
+                    // O transmissor real (carregado) e as duas entradas fantasmas (chunk descarregado).
+                    if (loaded < 1 || total - loaded < 2) return "índice antes do purge inesperado: " + line;
+                    purgeMsg = "Removed " + (total - loaded) + " index entries owned by " + me;
+                    seen = countChat("index entries owned by " + me);
+                    say("/fm purge player " + me);
+                    phase = 1;
+                    return null;
+                }
+                if (phase == 1) {
+                    String line = chatAfter("index entries owned by " + me, seen);
+                    if (line == null) return null;
+                    if (!line.contains(purgeMsg))
+                        return "purge removeu o que não devia: " + line + " (esperado: " + purgeMsg + ")";
+                    seen = countChat("e2e-result index ");
+                    say("e2e:index-owned");
+                    phase = 2;
+                    return null;
+                }
+                String line = chatAfter("e2e-result index ", seen);
+                if (line == null) return null;
+                DevE2E.log("purge player: antes total={} carregadas={}; depois {}", total, loaded, line);
+                return intField(line, "loaded=") == loaded && intField(line, "total=") == loaded ? ""
+                    : "índice depois do purge: " + line;
+            }
+        };
+    }
+
+    /** A linha do chat com {@code needle} logo depois das {@code skip} primeiras ocorrências, ou null. */
+    private String chatAfter(String needle, int skip) {
+        int n = 0;
+        for (String line : chat) {
+            if (!line.contains(needle)) continue;
+            if (n++ == skip) return line;
+        }
+        return null;
+    }
+
+    private static int intField(String line, String key) {
+        int i = line.indexOf(key);
+        if (i < 0) return -1;
+        int j = i + key.length(), k = j;
+        while (k < line.length() && Character.isDigit(line.charAt(k))) k++;
+        return k > j ? Integer.parseInt(line.substring(j, k)) : -1;
+    }
+
+    private void addPeerAdminSteps() {
+        steps.add(new Step("peer-bloqueado-e-recusado", 900) {
+
+            boolean sent;
+
+            @Override
+            String tick(int t) {
+                if (!chatSaw("e2e:main blocked-peer")) return null;
+                if (!sent) {
+                    notices.clear();
+                    send(Action.SET_VOLUME, 33, "");
+                    sent = true;
+                }
+                if (!notices.contains("akashicfm.notice.blocked")) return null;
+                TileRadio r = radio();
+                if (r != null && r.state.volume == 33) return "bloqueado mudou o volume";
+                say("e2e:peer blocked-ok");
+                return "";
+            }
+        });
+        steps.add(new Step("peer-desbloqueado-controla", 900) {
+
+            int sentAt = -1;
+
+            @Override
+            String tick(int t) {
+                if (!chatSaw("e2e:main unblocked-peer")) return null;
+                if (sentAt < 0) {
+                    send(Action.SET_VOLUME, 40, "");
+                    sentAt = t;
+                }
+                TileRadio r = radio();
+                if (r == null || r.state.volume != 40) return null;
+                say("e2e:peer unblocked-ok");
+                return "";
+            }
+        });
+    }
+
     // ---- Fase 4: oclusão e reverb ----
 
     /** Ganho médio aplicado com o corredor livre (referência para comparar com as paredes). */
@@ -2344,6 +2694,7 @@ public final class E2EClient {
         });
         addPeerFrequencySteps();
         addPeerPortableSteps();
+        addPeerAdminSteps();
         steps.add(new Step("peer-ve-a-parada", 900) {
 
             int stoppedAt = -1;

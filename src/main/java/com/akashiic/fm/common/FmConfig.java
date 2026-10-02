@@ -8,30 +8,41 @@ public final class FmConfig {
 
     private FmConfig() {}
 
+    /**
+     * Grupo dos campos que o {@code /fm reload} relê do disco com o servidor rodando (o GTNHLib só recarrega campos
+     * marcados com {@code @Config.Reloadable}). Fica de fora o que não pode mudar ao vivo (a latência do relay: os
+     * ouvintes já conectados guardam a antiga).
+     */
+    public static final String RELOAD = "server";
+
     @Config(modid = AkashicFM.MODID, category = "relay")
     @Config.Comment("O servidor baixa cada estação uma vez e retransmite em Opus, sincronizado, para quem está no alcance.")
     public static final class Relay {
 
         @Config.Comment("O servidor baixa cada estação uma vez e retransmite em Opus para quem está no alcance. Sincronia real e privacidade para os jogadores.")
         @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
         public static boolean enabled;
 
         @Config.Comment("Bitrate do Opus por ouvinte, em kbps. 64 kbps gasta ~8 KB/s de upload do servidor por jogador ouvindo.")
         @Config.DefaultInt(64)
         @Config.RangeInt(min = 24, max = 128)
+        @Config.Reloadable(RELOAD)
         public static int opusBitrateKbps;
 
         @Config.Comment("Máximo de estações diferentes sendo baixadas ao mesmo tempo (cada uma custa ~2% de um núcleo).")
         @Config.DefaultInt(8)
         @Config.RangeInt(min = 1, max = 64)
+        @Config.Reloadable(RELOAD)
         public static int maxStations;
 
         @Config.Comment("Máximo de jogadores recebendo áudio pelo relay ao mesmo tempo, somando todas as estações.")
         @Config.DefaultInt(64)
         @Config.RangeInt(min = 1, max = 1024)
+        @Config.Reloadable(RELOAD)
         public static int maxListeners;
 
-        @Config.Comment("Atraso fixo entre o servidor e a reprodução, em ms. Absorve variação de rede para todos tocarem juntos.")
+        @Config.Comment("Atraso fixo entre o servidor e a reprodução, em ms. Absorve variação de rede para todos tocarem juntos. Vale ao reiniciar o servidor (o /fm reload não muda).")
         @Config.DefaultInt(1500)
         @Config.RangeInt(min = 300, max = 5000)
         public static int latencyTargetMs;
@@ -43,6 +54,7 @@ public final class FmConfig {
 
         @Config.Comment("Permite o modo direto: cada cliente baixa o stream sozinho. Não gasta banda do servidor, mas expõe o IP dos jogadores à URL e a sincronia é aproximada.")
         @Config.DefaultBoolean(false)
+        @Config.Reloadable(RELOAD)
         public static boolean enabled;
     }
 
@@ -52,10 +64,12 @@ public final class FmConfig {
 
         @Config.Comment("Domínios permitidos para as URLs (subdomínios incluídos). Vazio = qualquer host público. Endereços internos são sempre recusados.")
         @Config.DefaultStringList({})
+        @Config.Reloadable(RELOAD)
         public static String[] allowedHosts;
 
         @Config.Comment("Aceita qualquer porta acima de 1024 além de 80/443. Portas baixas (exceto 80/443) são sempre recusadas.")
         @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
         public static boolean allowHighPorts;
     }
 
@@ -66,31 +80,37 @@ public final class FmConfig {
         @Config.Comment("Máximo de rádios por jogador.")
         @Config.DefaultInt(16)
         @Config.RangeInt(min = 1, max = 1024)
+        @Config.Reloadable(RELOAD)
         public static int maxRadiosPerPlayer;
 
         @Config.Comment("Máximo de caixas de som ligadas a uma rádio.")
         @Config.DefaultInt(8)
         @Config.RangeInt(min = 0, max = 64)
+        @Config.Reloadable(RELOAD)
         public static int maxSpeakersPerRadio;
 
         @Config.Comment("Distância máxima, em blocos, entre uma caixa de som e a rádio dela.")
         @Config.DefaultInt(32)
         @Config.RangeInt(min = 1, max = 128)
+        @Config.Reloadable(RELOAD)
         public static int maxSpeakerDistance;
 
         @Config.Comment("Máximo de rádios num mesmo chunk.")
         @Config.DefaultInt(4)
         @Config.RangeInt(min = 1, max = 64)
+        @Config.Reloadable(RELOAD)
         public static int maxRadiosPerChunk;
 
         @Config.Comment("Alcance máximo, em blocos, que um jogador pode escolher para a rádio.")
         @Config.DefaultInt(48)
         @Config.RangeInt(min = 4, max = 128)
+        @Config.Reloadable(RELOAD)
         public static int maxRange;
 
         @Config.Comment("Ações por segundo que cada jogador pode mandar às rádios (o excesso é descartado).")
         @Config.DefaultInt(10)
         @Config.RangeInt(min = 1, max = 100)
+        @Config.Reloadable(RELOAD)
         public static int actionsPerSecond;
     }
 
@@ -100,10 +120,12 @@ public final class FmConfig {
 
         @Config.Comment("Impede que outros jogadores (e máquinas) quebrem rádios e caixas privadas. Ops sempre podem.")
         @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
         public static boolean protectPrivateBlocks;
 
         @Config.Comment("Ops controlam qualquer rádio, mesmo privada.")
         @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
         public static boolean opsBypass;
     }
 
@@ -114,50 +136,60 @@ public final class FmConfig {
         @Config.Comment("Alcance do transmissor sem antenas, em blocos.")
         @Config.DefaultInt(64)
         @Config.RangeInt(min = 8, max = 1024)
+        @Config.Reloadable(RELOAD)
         public static int baseRange;
 
         @Config.Comment("Alcance extra por bloco de antena empilhado em cima do transmissor.")
         @Config.DefaultInt(32)
         @Config.RangeInt(min = 0, max = 512)
+        @Config.Reloadable(RELOAD)
         public static int rangePerAntenna;
 
         @Config.Comment("Máximo de antenas que contam (as de cima disso não somam).")
         @Config.DefaultInt(16)
         @Config.RangeInt(min = 0, max = 64)
+        @Config.Reloadable(RELOAD)
         public static int maxAntennas;
 
         @Config.Comment("Teto do alcance, em blocos, com quantas antenas forem.")
         @Config.DefaultInt(512)
         @Config.RangeInt(min = 8, max = 4096)
+        @Config.Reloadable(RELOAD)
         public static int maxRange;
 
         @Config.Comment("Exige energia para transmitir. Só vale com IC2 (EU, cabos do GregTech) ou um mod de RF instalado; sem eles, nunca exige.")
         @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
         public static boolean requireEnergy;
 
         @Config.Comment("Consumo enquanto transmite, em EU por tick.")
         @Config.DefaultInt(8)
         @Config.RangeInt(min = 1, max = 2048)
+        @Config.Reloadable(RELOAD)
         public static int euPerTick;
 
         @Config.Comment("Energia guardada no transmissor, em EU.")
         @Config.DefaultInt(8000)
         @Config.RangeInt(min = 100, max = 1000000)
+        @Config.Reloadable(RELOAD)
         public static int energyCapacity;
 
         @Config.Comment("Entrada máxima de energia, em EU por tick (aceita qualquer tensão: um rádio não explode por isso).")
         @Config.DefaultInt(128)
         @Config.RangeInt(min = 1, max = 100000)
+        @Config.Reloadable(RELOAD)
         public static int maxInputPerTick;
 
         @Config.Comment("Quantos RF valem 1 EU.")
         @Config.DefaultInt(4)
         @Config.RangeInt(min = 1, max = 100)
+        @Config.Reloadable(RELOAD)
         public static int rfPerEu;
 
         @Config.Comment("Máximo de transmissores por jogador.")
         @Config.DefaultInt(4)
         @Config.RangeInt(min = 1, max = 256)
+        @Config.Reloadable(RELOAD)
         public static int maxPerPlayer;
     }
 
@@ -167,11 +199,13 @@ public final class FmConfig {
 
         @Config.Comment("Liga o rádio portátil. Desligado, os portáteis ficam mudos.")
         @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
         public static boolean enabled;
 
         @Config.Comment("Até onde os outros jogadores ouvem o portátil de alguém (sem fone), em blocos.")
         @Config.DefaultInt(16)
         @Config.RangeInt(min = 4, max = 64)
+        @Config.Reloadable(RELOAD)
         public static int range;
     }
 

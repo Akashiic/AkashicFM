@@ -67,6 +67,8 @@ public final class PortableSources {
     private static final Map<UUID, Integer> SENT_AGE = new HashMap<>();
     private static Map<UUID, Set<String>> relayWants = Collections.emptyMap();
     private static Set<String> relayedUrls = Collections.emptySet();
+    /** Linhas do último ciclo para o {@code /fm list portables}. */
+    private static List<String> described = Collections.emptyList();
     private static int ticks;
 
     private PortableSources() {}
@@ -89,6 +91,7 @@ public final class PortableSources {
         Map<UUID, List<S2CPortableSources.Entry>> perListener = new HashMap<>();
         Map<UUID, Set<String>> wants = new HashMap<>();
         Set<String> urls = new HashSet<>();
+        List<String> lines = new ArrayList<>();
         for (Map.Entry<UUID, S2CPortableSources.Entry> se : sources.entrySet()) {
             EntityPlayerMP carrier = online.get(se.getKey());
             S2CPortableSources.Entry e = se.getValue();
@@ -104,6 +107,15 @@ public final class PortableSources {
                 }
             }
             c.audience = audience;
+            lines.add(
+                carrier.getCommandSenderName() + " · "
+                    + (e.url.isEmpty() ? "(sem sinal)" : e.url)
+                    + " · "
+                    + e.transport
+                    + (e.headphones ? " · fone" : "")
+                    + " · "
+                    + audience.size()
+                    + " ouvindo");
             for (UUID l : audience) perListener.computeIfAbsent(l, k -> new ArrayList<>())
                 .add(e);
             if (e.transport == Transport.RELAY && !e.url.isEmpty()) {
@@ -114,6 +126,7 @@ public final class PortableSources {
         }
         relayWants = wants;
         relayedUrls = urls;
+        described = lines;
 
         // 3) A lista de cada ouvinte, quando muda (e renovada de tempos em tempos).
         for (EntityPlayerMP p : online.values()) {
@@ -145,6 +158,7 @@ public final class PortableSources {
     private static S2CPortableSources.Entry sourceOf(EntityPlayerMP p,
         Map<Integer, List<FrequencyResolver.Transmitter>> candidates) {
         if (p.isDead || p.getHealth() <= 0) return null; // morto (com keepInventory) não toca no lugar da morte
+        if (Moderation.isBlocked(p)) return null; // bloqueado por um admin: o portátil fica mudo
         PortableState s = firstOn(p);
         if (s == null) return null;
         Carrier c = CARRIERS.computeIfAbsent(p.getUniqueID(), k -> new Carrier());
@@ -256,8 +270,14 @@ public final class PortableSources {
         return relayedUrls;
     }
 
+    /** Portadores do último ciclo (nome, URL, transporte, fone, ouvintes), para o {@code /fm}. */
+    public static List<String> describeCarriers() {
+        return new ArrayList<>(described);
+    }
+
     /** Servidor parando. */
     public static void clear() {
+        described = Collections.emptyList();
         CARRIERS.clear();
         SENT.clear();
         SENT_AGE.clear();
