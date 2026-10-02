@@ -58,6 +58,7 @@ public final class ClientEvents {
         RelayClient.clear();
         ClientTaskQueue.add(() -> {
             ClockSync.reset();
+            RadioAudioController.resetNowPlaying();
             World current = Minecraft.getMinecraft().theWorld;
             ClientRadioRegistry.retainWorld(current);
             if (current == null) AudioEngine.INSTANCE.stopAll();

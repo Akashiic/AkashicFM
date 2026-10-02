@@ -36,6 +36,14 @@ public interface AudioFeed {
     /** Para tudo e libera rede/threads. Idempotente e seguro de chamar de qualquer thread. */
     void close();
 
+    /**
+     * Título que o próprio stream anuncia (ICY StreamTitle), sem saneamento, ou vazio. Só o modo direto conhece:
+     * no relay o título chega pelo estado da rádio.
+     */
+    default String streamTitle() {
+        return "";
+    }
+
     // ---- Feeds com relógio (relay): o PCM tem PTS no tempo do servidor e a reprodução sincroniza por ele ----
 
     default boolean timed() {

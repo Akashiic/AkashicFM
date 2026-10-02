@@ -19,12 +19,16 @@ import net.minecraft.util.Vec3;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.common.MinecraftForge;
 
+import com.akashiic.fm.audio.dsp.SpectrumAnalyzer;
 import com.akashiic.fm.audio.spatial.OcclusionTracer;
 import com.akashiic.fm.client.ClientRadioRegistry;
+import com.akashiic.fm.client.NowPlaying;
+import com.akashiic.fm.client.RadioInfo;
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.gui.FmConfigGui;
 import com.akashiic.fm.client.gui.GuiRadio;
+import com.akashiic.fm.client.gui.NowPlayingMessage;
 import com.akashiic.fm.client.relay.ClockSync;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.relay.RelayFeed;
@@ -649,6 +653,7 @@ public final class E2EClient {
                 }
             });
         }
+        addNowPlayingSteps();
         steps.add(new Step("tela-da-radio-com-texto", 15) {
 
             @Override
@@ -770,6 +775,46 @@ public final class E2EClient {
                 // Rádio em estéreo (2 fontes) + caixa em MIX (1 fonte), que entrou sem reiniciar as outras.
                 if (!voicesAre(3)) return null;
                 return continuityBroken();
+            }
+        });
+        steps.add(new Step("waila-e-cone-da-caixa", 15) {
+
+            float bassMax;
+
+            @Override
+            void start() {
+                // De frente para a caixa (face sul), perto, para a captura do cone pulsando.
+                say("/tp " + (sx + 0.5) + " " + sy + " " + (sz + 2.6));
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return null;
+                float[] bands = new float[SpectrumAnalyzer.BANDS];
+                if (AudioEngine.INSTANCE.visuals(RadioAudioController.playbackKey(r), bands) >= 0) {
+                    bassMax = Math.max(bassMax, Math.max(bands[0], Math.max(bands[1], bands[2])));
+                }
+                if (t == 30) {
+                    mc().thePlayer.rotationYaw = 180f;
+                    mc().thePlayer.rotationPitch = 30f;
+                    mc().gameSettings.hideGUI = true;
+                }
+                if (t == 70) {
+                    screenshot("e2e-speaker.png");
+                    mc().gameSettings.hideGUI = false;
+                }
+                if (t < 70) return null;
+                TileSpeaker sp = speaker();
+                if (sp == null) return "caixa sumiu";
+                List<String> lines = RadioInfo.lines(sp);
+                DevE2E.log("waila da caixa: {} | graves máx={}", lines, String.format("%.2f", bassMax));
+                String linked = rx + ", " + ry + ", " + rz;
+                boolean ok = false;
+                for (String l : lines) if (l.contains(linked)) ok = true;
+                if (!ok) return "linhas da caixa sem a rádio ligada: " + lines;
+                // O cone só se mexe com grave acima de 0,45 (≈ -27 dBFS na banda).
+                return bassMax > 0.45f ? "" : "graves fracos demais para o cone: " + bassMax;
             }
         });
         steps.add(new Step("trocar-canal-agachado-ate-estereo", 15) {
@@ -1097,6 +1142,101 @@ public final class E2EClient {
                 return "";
             }
         };
+    }
+
+    // ---- Fase 5: tocando agora, aviso, espectro e WAILA ----
+
+    private void addNowPlayingSteps() {
+        steps.add(new Step("titulo-chega", 40) {
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return null;
+                String title = NowPlaying.title(r);
+                if (title.isEmpty()) return null;
+                // No relay o título vem do servidor (estado da rádio); no direto, do próprio stream neste cliente.
+                DevE2E.log(
+                    "título: '{}' (estado da rádio: '{}', transporte {})",
+                    title,
+                    r.state.nowPlaying,
+                    r.state.transport);
+                if (relayMode() && r.state.nowPlaying.isEmpty()) return "relay sem título no estado da rádio";
+                return "";
+            }
+        });
+        steps.add(new Step("aviso-tocando-agora", 30) {
+
+            int deliveredAt = -1, visibleTicks;
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return null;
+                String title = NowPlaying.title(r);
+                // 1) O aviso de verdade já entregou o título (no início veio o host; o título vem até 3 s depois).
+                if (deliveredAt < 0) {
+                    if (title.isEmpty() || !title.equals(NowPlayingMessage.INSTANCE.lastText())) return null;
+                    deliveredAt = t;
+                    DevE2E.log(
+                        "aviso entregue: '{}' ({} avisos até agora)",
+                        NowPlayingMessage.INSTANCE.lastText(),
+                        NowPlayingMessage.INSTANCE.shownCount());
+                    // 2) Esquece o que foi anunciado (como quem para de ouvir e volta): o mesmo caminho mostra de novo.
+                    RadioAudioController.resetNowPlaying();
+                    return null;
+                }
+                boolean ok = title.equals(NowPlayingMessage.INSTANCE.lastText())
+                    && NowPlayingMessage.INSTANCE.visible(System.currentTimeMillis());
+                visibleTicks = ok ? visibleTicks + 1 : 0;
+                if (visibleTicks == 10) screenshot("e2e-tocando-agora.png");
+                if (visibleTicks < 10) return null;
+                DevE2E.log("aviso reapareceu {} ticks depois de esquecer", t - deliveredAt - 10);
+                return "";
+            }
+        });
+        steps.add(new Step("espectro-tocando", 10) {
+
+            float levelMax, sumMax;
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return null;
+                float[] bands = new float[SpectrumAnalyzer.BANDS];
+                float level = AudioEngine.INSTANCE.visuals(RadioAudioController.playbackKey(r), bands);
+                if (level < 0) return null;
+                float sum = 0;
+                for (float b : bands) sum += b;
+                levelMax = Math.max(levelMax, level);
+                sumMax = Math.max(sumMax, sum);
+                if (t < 5 * TPS) return null;
+                DevE2E.log(
+                    "espectro: nível máx={} soma das bandas máx={} agora={}",
+                    String.format("%.2f", levelMax),
+                    String.format("%.2f", sumMax),
+                    fmt(bands));
+                // Música real: nível bem acima de -42 dBFS (0,3) e energia em várias bandas.
+                return levelMax > 0.3f && sumMax > 2f ? "" : "espectro vazio tocando música";
+            }
+        });
+        steps.add(new Step("waila-da-radio", 5) {
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return null;
+                List<String> lines = RadioInfo.lines(r);
+                DevE2E.log("waila da rádio: {}", lines);
+                String host = NowPlaying.hostOf(r.state.url), title = NowPlaying.title(r);
+                boolean hasHost = false, hasTitle = title.isEmpty();
+                for (String l : lines) {
+                    if (l.contains(host)) hasHost = true;
+                    if (!title.isEmpty() && l.contains(title)) hasTitle = true;
+                }
+                return hasHost && hasTitle ? "" : "linhas incompletas: " + lines;
+            }
+        });
     }
 
     /** O relay toca em sincronia: erro suavizado abaixo de 15 ms por 2 s seguidos (dois clientes: < 30 ms entre si). */
@@ -1450,6 +1590,15 @@ public final class E2EClient {
             }
         });
         if (relayMode()) steps.add(syncCheck("peer-sincronia-do-relay"));
+        steps.add(new Step("peer-aviso-tocando-agora", 30) {
+
+            @Override
+            String tick(int t) {
+                if (NowPlayingMessage.INSTANCE.shownCount() == 0) return null;
+                DevE2E.log("peer: aviso '{}'", NowPlayingMessage.INSTANCE.lastText());
+                return "";
+            }
+        });
         steps.add(new Step("peer-permissoes", 10) {
 
             @Override

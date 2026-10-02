@@ -16,7 +16,9 @@ import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.client.relay.ClockSync;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.render.TileRadioRenderer;
+import com.akashiic.fm.client.render.TileSpeakerRenderer;
 import com.akashiic.fm.content.TileRadio;
+import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.dev.DevE2E;
 import com.akashiic.fm.dev.E2EClient;
 import com.akashiic.fm.network.ClockStamps;
@@ -47,6 +49,7 @@ public class ClientProxy extends CommonProxy {
             .register(events);
         MinecraftForge.EVENT_BUS.register(events);
         ClientRegistry.bindTileEntitySpecialRenderer(TileRadio.class, new TileRadioRenderer());
+        ClientRegistry.bindTileEntitySpecialRenderer(TileSpeaker.class, new TileSpeakerRenderer());
         AlCapabilityProbe.registerIfRequested();
         if (DevE2E.enabled()) E2EClient.register(DevE2E.SCENARIO);
     }

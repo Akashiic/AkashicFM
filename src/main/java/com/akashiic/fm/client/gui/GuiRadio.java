@@ -12,6 +12,7 @@ import net.minecraft.world.World;
 
 import org.lwjgl.input.Keyboard;
 
+import com.akashiic.fm.client.NowPlaying;
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.relay.RelayClient;
@@ -517,8 +518,8 @@ public final class GuiRadio extends GuiScreen {
         }
         fontRendererObj.drawString(fontRendererObj.trimStringToWidth(line, width), lx, top + 205, color);
 
-        String second = !s.status.isEmpty() ? translateStatus(s.status)
-            : !s.nowPlaying.isEmpty() ? "\u266A " + s.nowPlaying : "";
+        String title = s.playing ? NowPlaying.title(radio) : "";
+        String second = !s.status.isEmpty() ? translateStatus(s.status) : !title.isEmpty() ? "\u266A " + title : "";
         if (!second.isEmpty()) {
             fontRendererObj.drawString(fontRendererObj.trimStringToWidth(second, width), lx, top + 215, 0xFFB8C8FF);
         }

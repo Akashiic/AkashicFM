@@ -147,6 +147,14 @@ public final class FmConfig {
         @Config.DefaultBoolean(true)
         public static boolean enableReverb;
 
+        @Config.Comment("Mostra acima da barra de itens, como nos discos da jukebox, o que está tocando quando você começa a ouvir uma rádio ou a música muda.")
+        @Config.DefaultBoolean(true)
+        public static boolean showNowPlaying;
+
+        @Config.Comment("Barras de espectro na tela da rádio e cone das caixas pulsando com a música.")
+        @Config.DefaultBoolean(true)
+        public static boolean radioVisualizer;
+
         @Config.Comment("Acústica de blocos específicos: modid:nome=absorção (0 a 1, quanto o bloco abafa o som que o atravessa) ou modid:nome=absorção,amortecimento (quanto a superfície absorve no reverb, 0 a 1, ou -1 para não refletir). Ex.: minecraft:glass=0.3")
         @Config.DefaultStringList({})
         public static String[] acousticOverrides;

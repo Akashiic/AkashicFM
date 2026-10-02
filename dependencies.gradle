@@ -13,6 +13,9 @@ dependencies {
     shadowImplementation("org.jcraft:jorbis:0.0.17")             // OGG/Vorbis, LGPL-2.0
     shadowImplementation("de.sfuhrm:jaad:0.8.7")                 // AAC/HE-AAC, domínio público
 
+    // WAILA opcional: só a API para compilar o provider (registrado por IMC se o WAILA estiver presente).
+    compileOnly("com.github.GTNewHorizons:waila:1.19.34:dev") { transitive = false }
+
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

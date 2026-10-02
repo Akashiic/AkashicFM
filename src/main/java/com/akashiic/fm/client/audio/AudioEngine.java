@@ -135,6 +135,17 @@ public final class AudioEngine {
         }
     }
 
+    /** A reprodução existe e está tocando de verdade (passou do prebuffer/espera do relógio). */
+    public boolean isPlaying(String key) {
+        lock.lock();
+        try {
+            Playback p = playbacks.get(key);
+            return p != null && p.state() == Playback.State.PLAYING;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public boolean has(String key) {
         lock.lock();
         try {
@@ -207,6 +218,33 @@ public final class AudioEngine {
                 p.pitch(),
                 p.occlusions(),
                 p.appliedGains());
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Espectro (8 bandas, 0..1) e nível do que a reprodução está tocando agora, para a tela da rádio e o cone da
+     * caixa. Pedir liga o cálculo por 2 s. Devolve -1 se a reprodução não existe. Thread principal.
+     */
+    public float visuals(String key, float[] bandsOut) {
+        if (key == null) return -1f;
+        lock.lock();
+        try {
+            Playback p = playbacks.get(key);
+            return p == null ? -1f : p.visuals(bandsOut, System.nanoTime());
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Título anunciado pelo próprio stream (modo direto), sem saneamento, ou vazio. */
+    public String streamTitle(String key) {
+        if (key == null) return "";
+        lock.lock();
+        try {
+            Playback p = playbacks.get(key);
+            return p == null ? "" : p.feed.streamTitle();
         } finally {
             lock.unlock();
         }

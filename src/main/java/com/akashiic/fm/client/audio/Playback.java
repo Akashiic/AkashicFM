@@ -11,6 +11,7 @@ import java.util.List;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.openal.AL10;
 
+import com.akashiic.fm.audio.dsp.SpectrumAnalyzer;
 import com.akashiic.fm.client.relay.ClockSync;
 
 /**
@@ -33,6 +34,10 @@ final class Playback {
     /** Blocos recentes guardados para uma voz nova entrar alinhada (cobre a fila inteira com folga). */
     static final int HISTORY_CHUNKS = Voice.POOL_SIZE + 2;
     private static final long RETRY_AFTER_FAILURE_NANOS = 2_000_000_000L;
+    /** O espectro só é calculado se alguém (tela da rádio, cone da caixa) pediu nos últimos 2 s. */
+    private static final long VISUAL_REQUEST_NANOS = 2_000_000_000L;
+    /** Barras sobem rápido e descem devagar, como num VU. */
+    private static final double VISUAL_ATTACK_S = 0.04, VISUAL_RELEASE_S = 0.3;
     /** Sincronia (feeds com relógio): erro a partir do qual a reprodução pula/espera de uma vez. */
     static final double RESYNC_ERROR_MS = 250;
     /** Correção máxima de velocidade (±0,2%: 3,5 cents, inaudível), ou seja, até 2 ms de erro por segundo. */
@@ -82,7 +87,17 @@ final class Playback {
     private final long[] historySeq = new long[HISTORY_CHUNKS];
     /** PTS (ms, relógio do servidor) do primeiro frame de cada bloco do histórico (feeds com relógio). */
     private final double[] historyPts = new double[HISTORY_CHUNKS];
+    /** Espectro e nível de cada bloco do histórico (válido só se calculado: alguém estava olhando). */
+    private final float[][] historyBands = new float[HISTORY_CHUNKS][SpectrumAnalyzer.BANDS];
+    private final float[] historyLevel = new float[HISTORY_CHUNKS];
+    private final boolean[] historyAnalyzed = new boolean[HISTORY_CHUNKS];
     private long nextSeq;
+    private SpectrumAnalyzer analyzer;
+    private boolean visualRequested;
+    private long visualRequestNanos;
+    /** O que a tela mostra agora: espectro e nível do bloco que soa, suavizados. */
+    private final float[] displayBands = new float[SpectrumAnalyzer.BANDS];
+    private float displayLevel;
 
     Playback(String key, AudioFeed feed) {
         this.key = key;
@@ -189,6 +204,35 @@ final class Playback {
             }
         }
         for (Voice v : voices) v.applyParams(dtSeconds, efx);
+        updateVisuals(dtSeconds, now);
+    }
+
+    /** Espectro mostrado: o do bloco que está soando agora (não o que acabou de entrar na fila, 340 ms adiante). */
+    private void updateVisuals(double dt, long now) {
+        if (visualRequested && now - visualRequestNanos > VISUAL_REQUEST_NANOS) visualRequested = false;
+        int slot = -1;
+        if (state == State.PLAYING && !paused && !voices.isEmpty()) {
+            long head = voices.get(0)
+                .headSeq();
+            if (head >= 0) slot = historySlot(head);
+            if (slot >= 0 && !historyAnalyzed[slot]) slot = -1;
+        }
+        double up = 1 - Math.exp(-dt / VISUAL_ATTACK_S), down = 1 - Math.exp(-dt / VISUAL_RELEASE_S);
+        for (int b = 0; b < displayBands.length; b++) {
+            float target = slot >= 0 ? historyBands[slot][b] : 0f;
+            displayBands[b] += (target - displayBands[b]) * (target > displayBands[b] ? up : down);
+        }
+        float targetLevel = slot >= 0 ? historyLevel[slot] : 0f;
+        displayLevel += (targetLevel - displayLevel) * (targetLevel > displayLevel ? up : down);
+    }
+
+    /** Pedido da tela/cone (renova o cálculo do espectro) e cópia do que mostrar. Devolve o nível (0..1). */
+    float visuals(float[] bandsOut, long now) {
+        visualRequested = true;
+        visualRequestNanos = now;
+        if (bandsOut != null)
+            System.arraycopy(displayBands, 0, bandsOut, 0, Math.min(bandsOut.length, displayBands.length));
+        return displayLevel;
     }
 
     private boolean readyToStart() {
@@ -340,6 +384,11 @@ final class Playback {
             historyFrames[slot] = got;
             historySeq[slot] = seq;
             historyPts[slot] = chunkPts;
+            historyAnalyzed[slot] = visualRequested;
+            if (visualRequested) {
+                if (analyzer == null) analyzer = new SpectrumAnalyzer(AudioFeed.SAMPLE_RATE);
+                historyLevel[slot] = analyzer.analyze(stereo, got, historyBands[slot]);
+            }
             for (Voice v : voices) {
                 fillMono(v, stereo, got);
                 if (!v.queue(mono, AudioFeed.SAMPLE_RATE, seq)) return;

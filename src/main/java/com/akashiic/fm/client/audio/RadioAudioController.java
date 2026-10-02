@@ -16,13 +16,17 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
 import com.akashiic.fm.audio.dsp.GainModel;
+import com.akashiic.fm.audio.spatial.OcclusionTracer;
 import com.akashiic.fm.audio.spatial.RoomModel;
 import com.akashiic.fm.client.ClientRadioRegistry;
+import com.akashiic.fm.client.NowPlaying;
+import com.akashiic.fm.client.gui.NowPlayingMessage;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.client.spatial.OcclusionField;
 import com.akashiic.fm.client.spatial.RoomProbe;
 import com.akashiic.fm.common.FmConfig;
+import com.akashiic.fm.common.NowPlayingTracker;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.SpeakerChannel;
@@ -36,8 +40,9 @@ import com.akashiic.fm.content.TileSpeaker;
  * no mundo atual, dentro do alcance, entram; as mais próximas ganham até o limite do config. Tudo que sai
  * desta lista é encerrado na hora (rede fechada, fontes liberadas).
  * <p>
- * Também calcula a oclusão de cada fonte escolhida ({@link OcclusionField}) e, enquanto algo toca, a sala do
- * ouvinte para o reverb ({@link RoomProbe}).
+ * Também calcula a oclusão de cada fonte escolhida ({@link OcclusionField}), enquanto algo toca a sala do
+ * ouvinte para o reverb ({@link RoomProbe}), e avisa no HUD o que está tocando na rádio mais alta que o jogador
+ * ouve ({@link NowPlayingTracker}).
  */
 public final class RadioAudioController {
 
@@ -55,6 +60,8 @@ public final class RadioAudioController {
      */
     static final int MAX_VOICES_TOTAL = 96;
 
+    private static final NowPlayingTracker NOW_PLAYING = new NowPlayingTracker();
+
     private RadioAudioController() {}
 
     /** Uma reprodução possível: uma rádio em modo direto, ou uma estação do relay com as rádios dela. */
@@ -64,12 +71,15 @@ public final class RadioAudioController {
         final List<EmitterSpec> emitters;
         final double nearest;
         final Supplier<AudioFeed> feed;
+        /** Uma rádio desta reprodução (para o título e o nome no aviso). */
+        final TileRadio radio;
 
-        Candidate(String key, List<EmitterSpec> emitters, double nearest, Supplier<AudioFeed> feed) {
+        Candidate(String key, List<EmitterSpec> emitters, double nearest, Supplier<AudioFeed> feed, TileRadio radio) {
             this.key = key;
             this.emitters = emitters;
             this.nearest = nearest;
             this.feed = feed;
+            this.radio = radio;
         }
     }
 
@@ -79,6 +89,8 @@ public final class RadioAudioController {
         final RelayFeed feed;
         final List<EmitterSpec> emitters = new ArrayList<>();
         double nearest = Double.MAX_VALUE;
+        /** A rádio mais próxima do grupo (todas tocam a mesma estação). */
+        TileRadio radio;
 
         RelayGroup(RelayFeed feed) {
             this.feed = feed;
@@ -88,6 +100,20 @@ public final class RadioAudioController {
     /** Chave da reprodução de uma estação do relay neste cliente (uma por estação, não por rádio). */
     public static String relayKey(RelayFeed feed) {
         return "relay:" + feed.stationId();
+    }
+
+    /**
+     * Chave da reprodução que toca esta rádio neste cliente (no relay, a da estação), ou null se ela não está
+     * tocando. A reprodução pode ainda não existir (fora do alcance): a engine responde por ela.
+     */
+    public static String playbackKey(TileRadio radio) {
+        RadioState s = radio.state;
+        if (!s.playing || s.url.isEmpty()) return null;
+        if (s.transport == Transport.RELAY) {
+            RelayFeed feed = RelayClient.feedForUrl(s.url);
+            return feed == null ? null : relayKey(feed);
+        }
+        return s.transport == Transport.DIRECT ? keyFor(radio) : null;
     }
 
     /** Chave da reprodução: muda quando a sessão muda (play, troca de URL ou de transporte). */
@@ -118,6 +144,7 @@ public final class RadioAudioController {
             if (engine.activeCount() > 0) engine.stopAll();
             OcclusionField.INSTANCE.clear();
             RoomProbe.INSTANCE.reset();
+            NOW_PLAYING.update(null, null, null, 0f, System.currentTimeMillis());
             return;
         }
         // Mesma posição que o Minecraft usa para o listener do OpenAL (posY do jogador no cliente).
@@ -147,11 +174,15 @@ public final class RadioAudioController {
             if (relay != null) {
                 RelayGroup g = relayGroups.computeIfAbsent(key, k -> new RelayGroup(RelayClient.feedForUrl(s.url)));
                 g.emitters.addAll(emitters);
-                g.nearest = Math.min(g.nearest, nearest);
+                if (nearest < g.nearest) {
+                    g.nearest = nearest;
+                    g.radio = radio;
+                }
             } else {
                 final String url = s.url;
                 final String threadName = "AkashicFM-Direct-" + radio.xCoord + "," + radio.yCoord + "," + radio.zCoord;
-                candidates.add(new Candidate(key, emitters, nearest, () -> new DirectFeed(url, threadName).start()));
+                candidates
+                    .add(new Candidate(key, emitters, nearest, () -> new DirectFeed(url, threadName).start(), radio));
             }
         }
         for (Map.Entry<String, RelayGroup> e : relayGroups.entrySet()) {
@@ -159,7 +190,7 @@ public final class RadioAudioController {
             List<EmitterSpec> emitters = g.emitters.size() <= MAX_VOICES_PER_RADIO ? g.emitters
                 : new ArrayList<>(nearestFirst(g.emitters, lx, ly, lz).subList(0, MAX_VOICES_PER_RADIO));
             final RelayFeed feed = g.feed;
-            candidates.add(new Candidate(e.getKey(), emitters, g.nearest, () -> feed));
+            candidates.add(new Candidate(e.getKey(), emitters, g.nearest, () -> feed, g.radio));
         }
         Collections.sort(candidates, (a, b) -> Double.compare(a.nearest, b.nearest));
         int max = Math.max(1, FmConfig.Client.maxSimultaneousRadios);
@@ -191,14 +222,30 @@ public final class RadioAudioController {
         }
         double[] occlusion = OcclusionField.INSTANCE.resolve(world, lx, ly, lz, xyz);
         k = 0;
+        Candidate loudest = null;
+        float loudestGain = 0f;
         for (int i = 0; i < chosen.size(); i++) {
             List<EmitterSpec> list = chosenEmitters.get(i);
             List<EmitterSpec> occluded = new ArrayList<>(list.size());
-            for (EmitterSpec e : list) occluded.add(e.withOcclusion(occlusion[k++]));
             Candidate c = chosen.get(i);
+            for (EmitterSpec e : list) {
+                EmitterSpec o = e.withOcclusion(occlusion[k++]);
+                occluded.add(o);
+            }
             engine.touch(c.key, c.feed, occluded);
+            // Aviso "tocando agora": só reprodução que já soa (não a que ainda conecta ou enche o buffer).
+            if (!engine.isPlaying(c.key)) continue;
+            for (EmitterSpec o : occluded) {
+                // Ganho percebido aproximado (com o abafado), só para escolher a rádio do aviso.
+                float heard = o.gain * (float) OcclusionTracer.directGain(o.occlusion);
+                if (heard > loudestGain) {
+                    loudestGain = heard;
+                    loudest = c;
+                }
+            }
         }
         engine.retainOnly(keep);
+        announceNowPlaying(loudest, loudestGain);
 
         // Reverb: a sala de quem ouve, só enquanto alguma rádio toca.
         if (!keep.isEmpty() && FmConfig.Client.enableReverb) {
@@ -207,6 +254,23 @@ public final class RadioAudioController {
             RoomProbe.INSTANCE.reset();
             engine.setRoom(RoomModel.DRY, false);
         }
+    }
+
+    /** Aviso "tocando agora" da rádio mais alta ouvida (o tracker decide quando). */
+    private static void announceNowPlaying(Candidate loudest, float gain) {
+        long now = System.currentTimeMillis();
+        String title = loudest == null ? null : NowPlaying.title(loudest.radio);
+        String station = loudest == null ? null : NowPlaying.hostOf(loudest.radio.state.url);
+        String show = NOW_PLAYING.update(loudest == null ? null : loudest.key, title, station, gain, now);
+        if (show != null && FmConfig.Client.showNowPlaying) {
+            NowPlayingMessage.INSTANCE.show(show, loudest.radio.state.screenText, now);
+        }
+    }
+
+    /** Esquece o que já foi anunciado (desconexão). */
+    public static void resetNowPlaying() {
+        NOW_PLAYING.reset();
+        NowPlayingMessage.INSTANCE.reset();
     }
 
     private static List<EmitterSpec> nearestFirst(List<EmitterSpec> emitters, double lx, double ly, double lz) {

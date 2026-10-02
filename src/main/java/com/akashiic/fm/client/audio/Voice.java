@@ -172,6 +172,12 @@ final class Voice {
         return true;
     }
 
+    /** Sequência do bloco que está tocando agora (o primeiro da fila), ou -1 com a fila vazia. */
+    long headSeq() {
+        Long s = queuedSeqs.peekFirst();
+        return s == null ? -1 : s;
+    }
+
     /** Sequências dos blocos na fila, do que está tocando ao último enfileirado. */
     long[] queuedSeqs() {
         long[] out = new long[queuedSeqs.size()];

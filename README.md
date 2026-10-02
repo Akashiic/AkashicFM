@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: Fase 4
+## Estado atual: Fase 5
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -51,6 +51,12 @@ Feito:
   - provado no áudio de saída gravado: a parede de lã baixa o som em 9 dB e os agudos em 34 dB (exatamente o low-pass calculado), o vidro quase nada, e na sala de pedra a cauda do reverb fica audível.
   
   Detalhes em [`docs/FASE4-RESULTADOS.md`](docs/FASE4-RESULTADOS.md).
+- **Fase 5:**
+  - "Tocando agora": o título da música na tela da rádio, na GUI, no WAILA e acima da barra de itens (a mesma mensagem dos discos da jukebox) quando você começa a ouvir ou a música muda, também no modo direto;
+  - espectro na tela da rádio e cone das caixas pulsando com os graves, alinhados com o que está soando;
+  - WAILA opcional.
+  
+  Detalhes em [`docs/FASE5-RESULTADOS.md`](docs/FASE5-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -61,7 +67,8 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 2 | Áudio 3D completo: caixas sem cortes, recarregamento do som (F3+T), convivência com o Hodgepodge, soak ✅ |
 | 3 | Relay e sincronia: Opus, audiência, relógio, jitter buffer ✅ |
 | 4 | Oclusão e reverb (EFX), com orçamento de raios e fallback só no ganho ✅ |
-| 5+ | Now playing, visual, frequências e torres, admin completo |
+| 5 | Tocando agora (tela, GUI, aviso, WAILA), espectro e cone animado ✅ |
+| 6+ | Frequências e torres, rádio portátil e fone, admin completo |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
 
@@ -72,7 +79,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 - **Caixa de som:** com o **sintonizador**, clique na caixa e depois na rádio para ligar as duas.
   - Agachado + clique na caixa troca o canal: mono, esquerdo, direito ou estéreo.
 - **Quebrar a rádio** devolve o item com as configurações (URL, favoritas, volume, alcance, tela).
-- **No cliente:** volume geral das rádios, limite de rádios simultâneas, a opção de recusar streams diretos, oclusão e reverb ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
+- **No cliente:** volume geral das rádios, limite de rádios simultâneas, a opção de recusar streams diretos, oclusão, reverb, aviso "tocando agora" e visualizador ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
 
 ## Compilar e testar
 
@@ -109,7 +116,7 @@ java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream
 | `limits` | `maxRadiosPerPlayer` (16), `maxSpeakersPerRadio` (8), `maxSpeakerDistance` (32), `maxRadiosPerChunk` (4), `maxRange` (48), `actionsPerSecond` (10) |
 | `protection` | `protectPrivateBlocks` (outros jogadores e máquinas não quebram rádio privada), `opsBypass` |
 | `recipes` | `registerDefaultRecipes` (desligue se o modpack define as próprias) |
-| `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100), `enableOcclusion`, `enableReverb`, `acousticOverrides` (`modid:nome=absorção[,amortecimento]`) |
+| `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100), `enableOcclusion`, `enableReverb`, `acousticOverrides` (`modid:nome=absorção[,amortecimento]`), `showNowPlaying`, `radioVisualizer` |
 
 Cliente e servidor precisam da mesma versão do mod (o FML recusa a conexão se forem diferentes).
 

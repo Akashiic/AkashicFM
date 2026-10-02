@@ -74,6 +74,11 @@ public final class DirectFeed implements AudioFeed {
     }
 
     @Override
+    public String streamTitle() {
+        return pump.streamTitle();
+    }
+
+    @Override
     public void close() {
         pump.close();
         ring.close();

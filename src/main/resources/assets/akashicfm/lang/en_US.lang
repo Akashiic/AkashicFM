@@ -99,3 +99,12 @@ akashicfm.gui.status.playing=playing
 akashicfm.gui.status.playing_synced=playing in sync (%s ms)
 akashicfm.gui.status.ended=finished
 akashicfm.gui.status.error=error: %s
+
+# WAILA
+akashicfm.waila.playing=Playing: %s
+akashicfm.waila.transport=Transport: %s
+akashicfm.waila.access=Access: %s
+akashicfm.waila.speakers=Linked speakers: %s
+akashicfm.waila.speaker.channel=Channel: %s
+akashicfm.waila.speaker.linked=Linked to the radio at %s, %s, %s
+akashicfm.waila.speaker.unlinked=No radio linked
