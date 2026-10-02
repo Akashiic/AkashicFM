@@ -8,6 +8,8 @@ import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.relay.ClockSync;
 import com.akashiic.fm.client.relay.RelayClient;
+import com.akashiic.fm.client.spatial.OcclusionField;
+import com.akashiic.fm.client.spatial.RoomProbe;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -45,6 +47,8 @@ public final class ClientEvents {
         if (event.world == null || !event.world.isRemote) return;
         ClientRadioRegistry.removeWorld(event.world);
         AudioEngine.INSTANCE.stopAll();
+        OcclusionField.INSTANCE.clear();
+        RoomProbe.INSTANCE.reset();
     }
 
     @SubscribeEvent

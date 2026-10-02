@@ -121,7 +121,7 @@ final class Playback {
                 continue;
             }
             used[idx] = true;
-            v.targetGain = desired.get(idx).gain;
+            v.setTargets(desired.get(idx));
         }
         for (boolean u : used) if (!u) changed = true;
         if (changed) membershipChanged = true;
@@ -143,7 +143,7 @@ final class Playback {
      * Um frame. {@code generation} é a geração do contexto AL: se mudou, os ids antigos são inválidos e as
      * vozes são recriadas sem chamar o OpenAL com eles.
      */
-    void update(int generation, double dtSeconds, boolean gamePaused, long now) {
+    void update(int generation, double dtSeconds, boolean gamePaused, long now, Efx efx) {
         if (voicesGeneration != generation) {
             for (Voice v : voices) v.release(false);
             voices.clear();
@@ -188,7 +188,7 @@ final class Playback {
                 }
             }
         }
-        for (Voice v : voices) v.applyParams(dtSeconds);
+        for (Voice v : voices) v.applyParams(dtSeconds, efx);
     }
 
     private boolean readyToStart() {
@@ -264,7 +264,7 @@ final class Playback {
                 it.remove();
             } else {
                 used[idx] = true;
-                v.targetGain = desired.get(idx).gain;
+                v.setTargets(desired.get(idx));
             }
         }
         Voice reference = state == State.PLAYING && !voices.isEmpty() ? voices.get(0) : null;
@@ -380,6 +380,27 @@ final class Playback {
         for (Voice v : voices) sourceVector.put(v.source());
         sourceVector.flip();
         return sourceVector;
+    }
+
+    /** Desliga das fontes os filtros e envios de {@code efx} (a engine vai soltar esses objetos). */
+    void detachEfx(Efx efx) {
+        for (Voice v : voices) v.detachEfx(efx);
+    }
+
+    /** Oclusão suavizada de cada voz (diagnóstico). */
+    float[] occlusions() {
+        float[] out = new float[voices.size()];
+        for (int i = 0; i < out.length; i++) out[i] = voices.get(i)
+            .occlusion();
+        return out;
+    }
+
+    /** AL_GAIN aplicado em cada voz (diagnóstico). */
+    float[] appliedGains() {
+        float[] out = new float[voices.size()];
+        for (int i = 0; i < out.length; i++) out[i] = voices.get(i)
+            .appliedGain();
+        return out;
     }
 
     /** Libera as fontes. {@code contextAlive}=false: só esquece os ids. */

@@ -125,13 +125,13 @@ com.akashiic.fm/
   - um "stop" durante a conexão cancela de verdade (flag volátil + fechamento do socket).
 
 ### 5. Áudio 3D, oclusão e reverb (premium do MVP)
-- **Oclusão:**
-  - `OcclusionTracer`: DDA voxel do olho do jogador até o emissor, até 64 blocos, a cada 4 ticks por emissor audível, com orçamento por tick.
-  - Absorção por material vem de um mapa no config (ar 0, vidro 0,1, folhas 0,2, madeira 0,5, pedra 0,8, lã 1,0), com override por bloco.
-  - São 5 raios (centro + 4 deslocados ±0,4) e vale o menor valor, o que dá uma difração simples e evita corte seco em quinas.
-  - A absorção vira ganho e um low-pass EFX (`AL_FILTER_LOWPASS` / GAINHF).
-- **`EfxManager`:** detecta `ALC_EXT_EFX` em runtime. Sem EFX, a oclusão fica só no ganho.
-- **Reverb:** o `RoomProbe` lança 16 raios a partir do jogador a cada 1 s. O caminho livre médio e o grau de fechamento escolhem um preset de reverb EFX num aux slot compartilhado; o send é ponderado pela oclusão.
+- **Oclusão** (implementada na Fase 4; detalhes em `FASE4-RESULTADOS.md`):
+  - `OcclusionTracer`: DDA voxel do ouvinte até o emissor, 5 raios (centro + 4 deslocados ±0,4, presos no bloco da fonte), oclusão = 1 − média das transmissões. A absorção de cada bloco é pelo comprimento do caminho dentro dele (Beer–Lambert): contar voxels inteiros fazia a oclusão oscilar ao andar ao longo de uma parede.
+  - Absorção e amortecimento por material e forma (`BlockAcoustics`; vidro 0,1, folhas 0,15, madeira 0,4, pedra 0,6, ferro 0,75, lã 0,9), com override por bloco no config.
+  - `OcclusionScheduler`: recálculo a cada 4 ticks (mais devagar longe, na hora se o ouvinte andou), novos primeiro, orçamento de 8192 blocos por tick.
+  - A oclusão vira low-pass EFX (`AL_FILTER_LOWPASS`: ganho e GAINHF) no caminho direto e, mais suave, no envio do reverb.
+- **`Efx`:** detecta `ALC_EXT_EFX` em runtime. Sem EFX, a oclusão fica só no ganho.
+- **Reverb:** o `RoomProbe` lança 16 raios a partir do jogador a cada 1 s. O fechamento, a distância média (Sabine) e o amortecimento das superfícies dão os parâmetros de um reverb EFX num slot próprio (saída auxiliar 1); o envio de cada fonte é ponderado pela oclusão.
 - **HRTF:** usa a do OpenAL Soft quando o driver/config ativa. Ligar por código (`ALC_SOFT_HRTF`) fica como experimental e opt-in, só com lwjgl3ify.
 
 ### 6. Conteúdo do MVP

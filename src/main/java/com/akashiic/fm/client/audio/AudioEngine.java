@@ -19,6 +19,9 @@ import net.minecraft.client.audio.SoundManager;
 import org.lwjgl.openal.AL;
 
 import com.akashiic.fm.AkashicFM;
+import com.akashiic.fm.audio.spatial.RoomModel;
+import com.akashiic.fm.common.FmConfig;
+import com.akashiic.fm.dev.DevE2E;
 
 import cpw.mods.fml.relauncher.ReflectionHelper;
 
@@ -32,12 +35,21 @@ import cpw.mods.fml.relauncher.ReflectionHelper;
  * <p>
  * Watchdog: uma reprodução que o controlador não "toca" por 2 s é encerrada. Se o controlador parar de rodar
  * (mundo fechado, desconexão, troca de dimensão), o som morre sozinho; som órfão não existe.
+ * <p>
+ * EFX (oclusão com low-pass e reverb da sala): os objetos ({@link Efx}) são criados quando há algo tocando e
+ * soltos quando nada toca, quando o config desliga oclusão e reverb, ou junto com o contexto. Sem EFX no
+ * dispositivo (ou se falhar), a oclusão fica só no ganho.
  */
 public final class AudioEngine {
 
     public static final AudioEngine INSTANCE = new AudioEngine();
 
     private static final long WATCHDOG_NANOS = 2_000_000_000L;
+    /**
+     * Sem nada tocando, o EFX espera isto antes de ser solto: a cauda do reverb (até 4 s) termina de soar e quem
+     * volta ao alcance logo reaproveita os objetos.
+     */
+    private static final long EFX_IDLE_RELEASE_NANOS = 4_000_000_000L;
     private static final double MAX_DT = 0.25;
 
     private final ReentrantLock lock = new ReentrantLock();
@@ -56,6 +68,17 @@ public final class AudioEngine {
     private Object lastAlContext;
     private boolean alContextUnavailable;
 
+    private Efx efx;
+    private int efxGeneration;
+    /** Geração em que a criação do EFX já foi tentada: sem EFX no dispositivo, não tenta de novo a cada frame. */
+    private int efxTriedGeneration = Integer.MIN_VALUE;
+    /** Geração em que um erro de OpenAL apareceu com EFX ativo: nela o EFX fica desligado (melhor só ganho). */
+    private int efxFailedGeneration = Integer.MIN_VALUE;
+    private RoomModel.Params room = RoomModel.DRY;
+    private boolean reverbEnabled;
+    private boolean efxIdle;
+    private long efxIdleSinceNanos;
+
     private AudioEngine() {}
 
     // ---- Ganchos do ciclo de vida do contexto AL (mixin em LibraryLWJGLOpenAL; qualquer thread) ----
@@ -67,6 +90,8 @@ public final class AudioEngine {
             hookSeen = true;
             boolean alive = AL.isCreated();
             for (Playback p : playbacks.values()) p.releaseVoices(alive);
+            // Depois das fontes: o OpenAL Soft recusa apagar um slot auxiliar ainda ligado a uma fonte.
+            releaseEfx(alive);
             contextReady = false;
             generation++;
         } finally {
@@ -150,6 +175,17 @@ public final class AudioEngine {
         }
     }
 
+    /** Sala do ouvinte para o reverb (controlador, a cada tick). */
+    public void setRoom(RoomModel.Params params, boolean enabled) {
+        lock.lock();
+        try {
+            room = params == null ? RoomModel.DRY : params;
+            reverbEnabled = enabled;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     /** Estado de uma reprodução para a GUI (null se não existe). */
     public PlaybackInfo info(String key) {
         lock.lock();
@@ -168,7 +204,9 @@ public final class AudioEngine {
                 p.joins,
                 p.resyncs,
                 p.syncErrorMs,
-                p.pitch());
+                p.pitch(),
+                p.occlusions(),
+                p.appliedGains());
         } finally {
             lock.unlock();
         }
@@ -195,6 +233,31 @@ public final class AudioEngine {
     /** Buffers AL do mod vivos agora (diagnóstico de vazamento). */
     public static int liveBuffers() {
         return Voice.LIVE_BUFFERS.get();
+    }
+
+    /** Objetos EFX do mod vivos agora (diagnóstico de vazamento). */
+    public static int liveEfxObjects() {
+        return Efx.LIVE_OBJECTS.get();
+    }
+
+    /** Estado do EFX, lido do OpenAL (diagnóstico; thread principal). Null se não há EFX agora. */
+    public EfxInfo efxInfo() {
+        lock.lock();
+        try {
+            if (efx == null || !alUsable()) return null;
+            RoomModel.Params pushed = efx.pushed();
+            return new EfxInfo(
+                efx.hasReverb(),
+                efx.sendIndex,
+                efx.maxSends,
+                efx.effectLoaded(),
+                efx.slotGainFromAl(),
+                efx.decayFromAl(),
+                pushed == null ? "-" : pushed.toString(),
+                room.toString());
+        } finally {
+            lock.unlock();
+        }
     }
 
     /** Geração atual do contexto AL (muda a cada recriação). */
@@ -245,6 +308,7 @@ public final class AudioEngine {
             for (String key : expired) playbacks.remove(key)
                 .release(alive);
             if (!alive) return;
+            manageEfx(now);
 
             boolean paused = Minecraft.getMinecraft()
                 .isGamePaused();
@@ -253,9 +317,11 @@ public final class AudioEngine {
             while (it.hasNext()) {
                 Playback p = it.next();
                 try {
-                    p.update(generation, dt, paused, now);
+                    p.update(generation, dt, paused, now, efx);
                 } catch (Throwable t) {
-                    // Um erro de áudio nunca pode derrubar o jogo: encerra só esta reprodução.
+                    // Um erro de áudio nunca pode derrubar o jogo: encerra só esta reprodução (o controlador a
+                    // recria no próximo tick). Com EFX ativo, desconfia dele: o próximo frame segue sem EFX.
+                    if (efx != null) efxFailedGeneration = generation;
                     if (!frameFailureLogged) {
                         frameFailureLogged = true;
                         AkashicFM.LOG.error("Falha na reprodução de rádio {}; encerrando-a", p.key, t);
@@ -275,6 +341,86 @@ public final class AudioEngine {
 
     private boolean alUsable() {
         return contextReady && AL.isCreated();
+    }
+
+    /** Cria, atualiza ou solta o EFX conforme o que toca e o config. Thread principal, lock tomado, AL válido. */
+    private void manageEfx(long now) {
+        if (efx != null && efxGeneration != generation) {
+            // Contexto trocado sem passar pelo gancho (fallback): os ids morreram com o contexto antigo.
+            efx.release(false);
+            efx = null;
+        }
+        boolean failed = efxFailedGeneration == generation;
+        boolean allowed = (FmConfig.Client.enableOcclusion || FmConfig.Client.enableReverb) && !failed
+            && !DevE2E.forceNoEfx();
+        if (!allowed) {
+            if (efx != null) {
+                if (failed) AkashicFM.LOG.warn("AkashicFM: EFX desligado depois de um erro; oclusão só pelo ganho");
+                detachAndReleaseEfx();
+            }
+            efxTriedGeneration = Integer.MIN_VALUE;
+            efxIdle = false;
+            return;
+        }
+        if (playbacks.isEmpty()) {
+            // Nada tocando: o reverb fica como está (a cauda decai sozinha) e o EFX é solto depois de um tempo.
+            if (efx == null) {
+                efxTriedGeneration = Integer.MIN_VALUE;
+            } else if (!efxIdle) {
+                efxIdle = true;
+                efxIdleSinceNanos = now;
+            } else if (now - efxIdleSinceNanos > EFX_IDLE_RELEASE_NANOS) {
+                efx.release(true); // sem vozes: nenhuma fonte ligada ao slot
+                efx = null;
+                efxIdle = false;
+                efxTriedGeneration = Integer.MIN_VALUE;
+            }
+            return;
+        }
+        efxIdle = false;
+        if (efx == null && efxTriedGeneration != generation) {
+            efxTriedGeneration = generation;
+            efx = Efx.create();
+            efxGeneration = generation;
+            if (efx == null) AkashicFM.LOG.info("AkashicFM: sem EFX neste dispositivo; oclusão só pelo ganho");
+            else AkashicFM.LOG.info(
+                "AkashicFM: EFX pronto (low-pass{}, saída auxiliar {} de {})",
+                efx.hasReverb() ? " + reverb" : "",
+                efx.sendIndex,
+                efx.maxSends);
+        }
+        if (efx == null) return;
+        try {
+            efx.room(room, reverbEnabled && FmConfig.Client.enableReverb);
+        } catch (Throwable t) {
+            efxFailedGeneration = generation;
+            AkashicFM.LOG.warn("AkashicFM: falha ao aplicar o reverb; EFX desligado", t);
+            detachAndReleaseEfx();
+        }
+    }
+
+    /** Desliga filtros e envios de todas as fontes vivas e solta os objetos EFX. */
+    private void detachAndReleaseEfx() {
+        Efx e = efx;
+        efx = null;
+        try {
+            for (Playback p : playbacks.values()) p.detachEfx(e);
+            e.release(true);
+        } catch (Throwable t) {
+            // Sem conseguir desligar das fontes, o slot pode estar em uso: as fontes vão junto (recriadas depois).
+            for (Playback p : playbacks.values()) p.releaseVoices(true);
+            e.release(true);
+        }
+    }
+
+    /** Solta o EFX junto com o contexto ({@code alive}=false: só esquece os ids). */
+    private void releaseEfx(boolean alive) {
+        if (efx != null) {
+            efx.release(alive);
+            efx = null;
+        }
+        efxTriedGeneration = Integer.MIN_VALUE;
+        efxIdle = false;
     }
 
     /**
@@ -342,9 +488,13 @@ public final class AudioEngine {
         /** Erro de sincronia suavizado, ms (positivo = adiantado); NaN sem relógio. */
         public final double syncErrorMs;
         public final float pitch;
+        /** Oclusão suavizada de cada voz e o AL_GAIN aplicado nela. */
+        public final float[] occlusions;
+        public final float[] gains;
 
         PlaybackInfo(boolean playing, boolean done, AudioFeed.Status feedStatus, String detail, int voices,
-            long framesQueued, int underruns, int starts, int joins, int resyncs, double syncErrorMs, float pitch) {
+            long framesQueued, int underruns, int starts, int joins, int resyncs, double syncErrorMs, float pitch,
+            float[] occlusions, float[] gains) {
             this.playing = playing;
             this.done = done;
             this.feedStatus = feedStatus;
@@ -357,6 +507,35 @@ public final class AudioEngine {
             this.resyncs = resyncs;
             this.syncErrorMs = syncErrorMs;
             this.pitch = pitch;
+            this.occlusions = occlusions;
+            this.gains = gains;
+        }
+    }
+
+    /** Fotografia do EFX lida do OpenAL, para diagnóstico. */
+    public static final class EfxInfo {
+
+        public final boolean reverb;
+        public final int sendIndex;
+        public final int maxSends;
+        public final boolean effectLoaded;
+        /** AL_EFFECTSLOT_GAIN lido do OpenAL (nível do reverb aplicado). */
+        public final float slotGain;
+        /** AL_REVERB_DECAY_TIME lido do efeito. */
+        public final float decay;
+        public final String pushed;
+        public final String room;
+
+        EfxInfo(boolean reverb, int sendIndex, int maxSends, boolean effectLoaded, float slotGain, float decay,
+            String pushed, String room) {
+            this.reverb = reverb;
+            this.sendIndex = sendIndex;
+            this.maxSends = maxSends;
+            this.effectLoaded = effectLoaded;
+            this.slotGain = slotGain;
+            this.decay = decay;
+            this.pushed = pushed;
+            this.room = room;
         }
     }
 }

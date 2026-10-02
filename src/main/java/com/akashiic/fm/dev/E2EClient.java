@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.multiplayer.GuiConnecting;
 import net.minecraft.item.ItemStack;
@@ -18,6 +19,7 @@ import net.minecraft.util.Vec3;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.common.MinecraftForge;
 
+import com.akashiic.fm.audio.spatial.OcclusionTracer;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
@@ -26,6 +28,8 @@ import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.client.relay.ClockSync;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.relay.RelayFeed;
+import com.akashiic.fm.client.spatial.OcclusionField;
+import com.akashiic.fm.client.spatial.RoomProbe;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.SpeakerChannel;
@@ -81,6 +85,7 @@ public final class E2EClient {
         if (scenario.startsWith("peer")) buildPeer();
         else if (scenario.startsWith("listen")) buildListen();
         else if (scenario.startsWith("soak")) buildSoak();
+        else if (scenario.startsWith("acoustic")) buildAcoustic();
         else buildMain(scenario.contains("peer"));
     }
 
@@ -305,7 +310,42 @@ public final class E2EClient {
             + " reproducoes="
             + AudioEngine.INSTANCE.activeCount()
             + " threads="
-            + liveDirectThreads();
+            + liveDirectThreads()
+            + " efx="
+            + AudioEngine.liveEfxObjects();
+    }
+
+    /** Rodada com EFX (padrão) ou do caminho só com ganho (AKASHICFM_E2E_NO_EFX=1). */
+    private static boolean efxExpected() {
+        return !DevE2E.forceNoEfx();
+    }
+
+    /** Com EFX: filtro + efeito + slot (3 objetos) e o reverb disponível. Sem: nenhum objeto. */
+    private static boolean efxObjectsAsExpected() {
+        if (!efxExpected()) return AudioEngine.liveEfxObjects() == 0 && AudioEngine.INSTANCE.efxInfo() == null;
+        AudioEngine.EfxInfo e = AudioEngine.INSTANCE.efxInfo();
+        return AudioEngine.liveEfxObjects() == 3 && e != null && e.reverb;
+    }
+
+    private static String fmt(float[] v) {
+        StringBuilder b = new StringBuilder("[");
+        for (int i = 0; i < v.length; i++) b.append(i == 0 ? "" : ", ")
+            .append(String.format("%.3f", v[i]));
+        return b.append(']')
+            .toString();
+    }
+
+    private static float avg(float[] v) {
+        float sum = 0;
+        for (float x : v) sum += x;
+        return v.length == 0 ? Float.NaN : sum / v.length;
+    }
+
+    /** Todas as vozes com oclusão em [lo, hi]. */
+    private static boolean allWithin(float[] v, double lo, double hi) {
+        if (v.length == 0) return false;
+        for (float x : v) if (x < lo || x > hi) return false;
+        return true;
     }
 
     private int startsMark, underrunsMark, joinsMark;
@@ -768,6 +808,7 @@ public final class E2EClient {
                 return continuityBroken();
             }
         });
+        addAcousticSteps();
         steps.add(soundReload("recarregar-som-durante-reproducao"));
         if (expectPeer) {
             steps.add(new Step("esperar-segundo-jogador", 600) {
@@ -860,6 +901,17 @@ public final class E2EClient {
                 return r != null && !r.state.playing && AudioEngine.INSTANCE.activeCount() == 0 ? "" : null;
             }
         });
+        steps.add(new Step("efx-solto-depois-de-parar", 12) {
+
+            @Override
+            String tick(int t) {
+                if (AudioEngine.liveEfxObjects() != 0) return null;
+                DevE2E.log("objetos EFX soltos {} ticks depois de parar", t);
+                // Com EFX, espera a cauda do reverb (4 s) antes de soltar; sem EFX, nunca houve objeto.
+                if (efxExpected() && t < 3 * TPS) return "EFX solto cedo demais (" + t + " ticks): corta a cauda";
+                return "";
+            }
+        });
         if (expectPeer) {
             steps.add(new Step("segundo-jogador-parou", 60) {
 
@@ -888,6 +940,163 @@ public final class E2EClient {
         steps.add(audioPlaying("ouvir-depois-de-reconectar", 45));
         cleanupIndex = steps.size();
         steps.add(disconnect("desconectar-final"));
+    }
+
+    // ---- Fase 4: oclusão e reverb ----
+
+    /** Ganho médio aplicado com o corredor livre (referência para comparar com as paredes). */
+    private float openGain = Float.NaN;
+
+    private void fill(int x0, int y0, int z0, int x1, int y1, int z1, String block) {
+        say("e2e:fill " + x0 + " " + y0 + " " + z0 + " " + x1 + " " + y1 + " " + z1 + " " + block);
+    }
+
+    /** Parede de 1 bloco entre o ouvinte e a rádio, atravessando o corredor inteiro. */
+    private void wall(String block) {
+        fill(rx - 2, ry - 1, rz + 4, rx + 2, ry + 4, rz + 4, block);
+    }
+
+    /**
+     * Corredor limpo ao sul da rádio (ar, chão de pedra), ouvinte a 7 blocos dela; paredes de lã e de vidro no
+     * meio; depois uma sala de pedra fechada em volta do ouvinte e o corredor aberto de novo. Mede a oclusão de
+     * cada voz, o ganho aplicado (sem EFX a oclusão vira ganho; com EFX vira low-pass e o ganho fica) e o reverb
+     * lido de volta do OpenAL.
+     */
+    private void addAcousticSteps() {
+        steps.add(new Step("acustica-corredor-livre", 30) {
+
+            int stable;
+
+            @Override
+            String tick(int t) {
+                if (t == 0) {
+                    fill(rx - 2, ry, rz + 1, rx + 2, ry + 4, rz + 10, "minecraft:air");
+                    fill(rx - 2, ry - 1, rz + 1, rx + 2, ry - 1, rz + 10, "minecraft:stone");
+                }
+                if (t == 10) say("/tp " + (rx + 0.5) + " " + ry + " " + (rz + 7.5));
+                if (t < 60) return null;
+                double dz = mc().thePlayer.posZ - (rz + 7.5);
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null || !i.playing || Math.abs(dz) > 0.2) return null;
+                stable = allWithin(i.occlusions, 0, 0.02) ? stable + 1 : 0;
+                if (stable < 20) return null;
+                openGain = avg(i.gains);
+                DevE2E.log(
+                    "corredor livre: oclusão={} ganho={} efx={} ({})",
+                    fmt(i.occlusions),
+                    fmt(i.gains),
+                    AudioEngine.liveEfxObjects(),
+                    efxExpected() ? "com EFX" : "sem EFX");
+                return efxObjectsAsExpected() ? "" : "objetos EFX inesperados: " + AudioEngine.liveEfxObjects();
+            }
+        });
+        steps.add(occlusionStep("oclusao-parede-de-la", "minecraft:wool", 0.85, 0.95));
+        steps.add(occlusionStep("oclusao-parede-de-vidro", "minecraft:glass", 0.07, 0.15));
+        steps.add(occlusionStep("oclusao-sem-parede", "minecraft:air", 0, 0.02));
+        steps.add(new Step("reverb-sala-de-pedra", 30) {
+
+            int stable;
+
+            @Override
+            String tick(int t) {
+                if (t == 0) fill(rx - 2, ry - 1, rz + 4, rx + 2, ry + 3, rz + 10, "minecraft:stone");
+                if (t == 2) fill(rx - 1, ry, rz + 5, rx + 1, ry + 2, rz + 9, "minecraft:air");
+                if (t < 60) return null;
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null || !i.playing) return null;
+                // A rádio ficou do lado de fora: 1 bloco de pedra (0,6) entre ela e o ouvinte.
+                boolean occluded = allWithin(i.occlusions, 0.5, 0.75);
+                AudioEngine.EfxInfo e = AudioEngine.INSTANCE.efxInfo();
+                boolean ok;
+                if (efxExpected()) {
+                    ok = occluded && e != null
+                        && e.effectLoaded
+                        && e.slotGain > 0.6f
+                        && e.slotGain < 0.8f
+                        && e.decay > 0.3f
+                        && e.decay < 1.5f;
+                } else {
+                    ok = occluded && e == null && AudioEngine.liveEfxObjects() == 0;
+                }
+                stable = ok ? stable + 1 : 0;
+                if (stable < 20) return null;
+                DevE2E.log(
+                    "sala de pedra: sondagem={} oclusão da rádio={} {}",
+                    RoomProbe.INSTANCE.target(),
+                    fmt(i.occlusions),
+                    e == null ? "sem EFX (reverb indisponível, como esperado)"
+                        : "slot: ganho=" + String.format("%.3f", e.slotGain)
+                            + " decaimento="
+                            + String.format("%.2f", e.decay)
+                            + "s saída="
+                            + e.sendIndex
+                            + "/"
+                            + e.maxSends
+                            + " enviado="
+                            + e.pushed);
+                return "";
+            }
+        });
+        steps.add(new Step("reverb-corredor-aberto", 30) {
+
+            int stable;
+
+            @Override
+            String tick(int t) {
+                if (t == 0) fill(rx - 2, ry, rz + 4, rx + 2, ry + 3, rz + 10, "minecraft:air");
+                if (t < 60) return null;
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null || !i.playing) return null;
+                AudioEngine.EfxInfo e = AudioEngine.INSTANCE.efxInfo();
+                boolean ok = allWithin(i.occlusions, 0, 0.02)
+                    && (efxExpected() ? e != null && (!e.effectLoaded || e.slotGain < 0.25f) : e == null);
+                stable = ok ? stable + 1 : 0;
+                if (stable < 20) return null;
+                DevE2E.log(
+                    "corredor aberto: sondagem={} {} oclusão: {} raios/tick={} traçados={}",
+                    RoomProbe.INSTANCE.target(),
+                    e == null ? "sem EFX"
+                        : "slot: ganho=" + String.format("%.3f", e.slotGain) + " carregado=" + e.effectLoaded,
+                    fmt(i.occlusions),
+                    OcclusionField.INSTANCE.lastSteps(),
+                    OcclusionField.INSTANCE.lastTraced());
+                return "";
+            }
+        });
+    }
+
+    /**
+     * Parede de {@code block} no corredor: toda voz com oclusão em [lo, hi] por 1 s. Com EFX o ganho aplicado não
+     * muda (o abafado é do low-pass); sem EFX ele cai para {@link OcclusionTracer#gainOnly}.
+     */
+    private Step occlusionStep(String name, String block, double lo, double hi) {
+        return new Step(name, 20) {
+
+            int stable;
+
+            @Override
+            String tick(int t) {
+                if (t == 0) wall(block);
+                if (t < 20) return null;
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null || !i.playing) return null;
+                float occ = avg(i.occlusions), gain = avg(i.gains);
+                double expectedRatio = efxExpected() ? 1.0 : OcclusionTracer.gainOnly(occ);
+                double ratio = gain / openGain;
+                boolean ok = allWithin(i.occlusions, lo, hi) && Math.abs(ratio - expectedRatio) < 0.05;
+                stable = ok ? stable + 1 : 0;
+                if (stable < 20) return null;
+                DevE2E.log(
+                    "{}: oclusão={} ganho={} (razão {} , esperada {}) efx={}",
+                    block,
+                    fmt(i.occlusions),
+                    fmt(i.gains),
+                    String.format("%.3f", ratio),
+                    String.format("%.3f", expectedRatio),
+                    AudioEngine.liveEfxObjects());
+                return "";
+            }
+        };
     }
 
     /** O relay toca em sincronia: erro suavizado abaixo de 15 ms por 2 s seguidos (dois clientes: < 30 ms entre si). */
@@ -939,6 +1148,8 @@ public final class E2EClient {
                 if (AudioEngine.INSTANCE.generation() < gen0 + 2) return null;
                 AudioEngine.PlaybackInfo i = info();
                 if (i == null || !i.playing || i.voices == 0 || !alInvariantsHold()) return null;
+                // O EFX do contexto antigo foi solto com ele e o novo foi criado (ou continua sem, no modo sem EFX).
+                if (!efxObjectsAsExpected()) return null;
                 DevE2E.log("depois do recarregamento: geração={} {}", AudioEngine.INSTANCE.generation(), alCounters());
                 return "";
             }
@@ -1011,7 +1222,8 @@ public final class E2EClient {
                 if (t % (10 * TPS) == 5 * TPS && t - lastChange > 6 * TPS) { // amostra com tudo estável
                     samples++;
                     boolean ok = alInvariantsHold() && liveDirectThreads() == AudioEngine.INSTANCE.activeCount()
-                        && AudioEngine.INSTANCE.activeCount() == 1;
+                        && AudioEngine.INSTANCE.activeCount() == 1
+                        && efxObjectsAsExpected();
                     if (!ok) {
                         violations++;
                         if (firstViolation.isEmpty()) firstViolation = "t=" + t / TPS + "s " + alCounters();
@@ -1040,6 +1252,141 @@ public final class E2EClient {
         });
         cleanupIndex = steps.size();
         steps.add(disconnect("desconectar-final"));
+    }
+
+    // ---- Cenário "acoustic": segmentos separados por silêncio, para medir o áudio de saída gravado ----
+
+    /**
+     * Com o OpenAL Soft gravando a mixagem num WAV (backend "wave", ver tools/e2e/run-acoustic.sh): corredor
+     * aberto, parede de lã, de vidro, aberto de novo, sala de pedra (parando a rádio dentro dela para a cauda do
+     * reverb) e parada no corredor aberto (referência sem cauda). Entre os segmentos a rádio fica muda por 2 s,
+     * então o analisador acha cada segmento pelo silêncio. Marcas "acoustic-mark" no log dão a ordem e os tempos.
+     */
+    private void buildAcoustic() {
+        steps.add(join());
+        steps.add(new Step("preparar-acustica", 60) {
+
+            @Override
+            String tick(int t) {
+                if (t == 0) {
+                    // Só o som das rádios na gravação.
+                    for (SoundCategory c : SoundCategory.values()) {
+                        if (c != SoundCategory.MASTER && c != SoundCategory.RECORDS) {
+                            mc().gameSettings.setSoundLevel(c, 0f);
+                        }
+                    }
+                    mc().gameSettings.setSoundLevel(SoundCategory.MASTER, 1f);
+                    mc().gameSettings.setSoundLevel(SoundCategory.RECORDS, 1f);
+                    ChunkCoordinates spawn = mc().theWorld.getSpawnPoint();
+                    rx = spawn.posX + 2;
+                    ry = spawn.posY;
+                    rz = spawn.posZ;
+                    say("/tp " + (spawn.posX + 0.5) + " " + spawn.posY + " " + (spawn.posZ + 0.5));
+                }
+                if (t == 10) say("/setblock " + rx + " " + ry + " " + rz + " akashicfm:radio 3");
+                if (t == 60) send(Action.PLAY, 0, url);
+                if (t < 60) return null;
+                TileRadio r = radio();
+                return r != null && r.state.playing ? "" : null;
+            }
+        });
+        steps.add(audioPlaying("acustica-audio-comeca", 45));
+        steps.add(new Step("acustica-corredor", 30) {
+
+            int stable;
+
+            @Override
+            String tick(int t) {
+                if (t == 0) {
+                    fill(rx - 2, ry, rz + 1, rx + 2, ry + 4, rz + 10, "minecraft:air");
+                    fill(rx - 2, ry - 1, rz + 1, rx + 2, ry - 1, rz + 10, "minecraft:stone");
+                }
+                if (t == 10) say("/tp " + (rx + 0.5) + " " + ry + " " + (rz + 7.5));
+                if (t < 60) return null;
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null || !i.playing) return null;
+                stable = allWithin(i.occlusions, 0, 0.02) ? stable + 1 : 0;
+                return stable >= 40 ? "" : null;
+            }
+        });
+        steps.add(acousticSegment("A-aberto", null, false));
+        steps.add(acousticSegment("B-la", "minecraft:wool", false));
+        steps.add(acousticSegment("C-vidro", "minecraft:glass", false));
+        steps.add(acousticSegment("D-aberto", "minecraft:air", false));
+        steps.add(acousticSegment("E-sala-de-pedra", "box", true));
+        steps.add(new Step("F-aberto-parada", 60) {
+
+            int playingAt = -1;
+
+            @Override
+            String tick(int t) {
+                if (t == 0) {
+                    fill(rx - 2, ry, rz + 4, rx + 2, ry + 3, rz + 10, "minecraft:air");
+                    send(Action.SET_VOLUME, VOLUME_ON, "");
+                }
+                if (t == 20) send(Action.PLAY, 0, "");
+                AudioEngine.PlaybackInfo i = info();
+                if (playingAt < 0 && t > 20 && i != null && i.playing) {
+                    playingAt = t;
+                    mark("F-aberto-parada", "playing");
+                }
+                if (playingAt >= 0 && t == playingAt + 5 * TPS) {
+                    mark("F-aberto-parada", "stop");
+                    send(Action.STOP, 0, "");
+                }
+                return playingAt >= 0 && t >= playingAt + 8 * TPS ? "" : null;
+            }
+        });
+        cleanupIndex = steps.size();
+        steps.add(disconnect("desconectar-final"));
+    }
+
+    private static final int VOLUME_ON = 60;
+
+    private static void mark(String segment, String event) {
+        DevE2E.log("acoustic-mark {} {} ms={}", segment, event, System.currentTimeMillis());
+    }
+
+    /**
+     * Um segmento: muda a rádio, monta o cenário ({@code null} = nada, "box" = sala de pedra, senão parede do
+     * bloco), espera 2 s de silêncio, toca 6 s e registra a oclusão. {@code stopInside}: no fim para a rádio ali
+     * dentro (cauda do reverb) em vez de mudar.
+     */
+    private Step acousticSegment(String name, String scene, boolean stopInside) {
+        return new Step(name, 30) {
+
+            @Override
+            String tick(int t) {
+                if (t == 0) send(Action.SET_VOLUME, 0, "");
+                if (t == 5 && scene != null) {
+                    if ("box".equals(scene)) {
+                        fill(rx - 2, ry - 1, rz + 4, rx + 2, ry + 3, rz + 10, "minecraft:stone");
+                        fill(rx - 1, ry, rz + 5, rx + 1, ry + 2, rz + 9, "minecraft:air");
+                    } else {
+                        wall(scene);
+                    }
+                }
+                if (t == 2 * TPS) {
+                    mark(name, "unmute");
+                    send(Action.SET_VOLUME, VOLUME_ON, "");
+                }
+                if (t == 6 * TPS) {
+                    AudioEngine.PlaybackInfo i = info();
+                    AudioEngine.EfxInfo e = AudioEngine.INSTANCE.efxInfo();
+                    DevE2E.log(
+                        "acoustic-state {} oclusão={} ganho={} reverb={}",
+                        name,
+                        i == null ? "-" : fmt(i.occlusions),
+                        i == null ? "-" : fmt(i.gains),
+                        e == null ? "sem EFX" : "ganho " + String.format("%.3f", e.slotGain) + " " + e.pushed);
+                }
+                if (t == 8 * TPS) {
+                    mark(name, stopInside ? "stop" : "mute");
+                    send(stopInside ? Action.STOP : Action.SET_VOLUME, 0, "");
+                }
+                return t >= (stopInside ? 13 : 8) * TPS ? "" : null;
+            }
+        };
     }
 
     // ---- Cenário "listen": só entra e confere que ouve uma rádio que já estava tocando (persistência) ----

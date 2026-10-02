@@ -1,6 +1,8 @@
 package com.akashiic.fm.dev;
 
+import net.minecraft.block.Block;
 import net.minecraft.util.ChatComponentText;
+import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.common.DimensionManager;
@@ -15,9 +17,10 @@ import com.akashiic.fm.server.relay.RelayService;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
- * Lado servidor do E2E: liga o modo direto (o relay é da Fase 3) e, a cada mensagem "e2e:..." no chat,
- * registra no log os chunks carregados e os contadores da fila de ações. É assim que o teste prova que
- * pacotes maliciosos não carregaram chunk nenhum.
+ * Lado servidor do E2E: escolhe o transporte e, a cada mensagem "e2e:..." no chat, registra no log os chunks
+ * carregados e os contadores da fila de ações (é assim que o teste prova que pacotes maliciosos não carregaram
+ * chunk nenhum). Também responde aos pedidos do roteiro: estatísticas do relay, chunk carregado e
+ * {@code e2e:fill} (cuboide de um bloco, para as paredes e salas do teste de acústica; o 1.7.10 não tem /fill).
  */
 public final class E2EServer {
 
@@ -48,6 +51,10 @@ public final class E2EServer {
                         + " stations="
                         + RelayService.stationCount()));
         }
+        if (event.message.startsWith("e2e:fill ") && event.player != null) {
+            fill(event.player.worldObj, event.message.split(" "));
+            event.player.addChatMessage(new ChatComponentText("e2e-result fill " + event.message.substring(9)));
+        }
         if (event.message.startsWith("e2e:check-unloaded ") && event.player != null) {
             // Responde ao cliente se o chunk da coordenada está carregado (chunkExists nunca carrega).
             String[] a = event.message.split(" ");
@@ -65,6 +72,22 @@ public final class E2EServer {
             ServerRadioRegistry.snapshot()
                 .size(),
             ServerActionQueue.stats());
+    }
+
+    /** e2e:fill x0 y0 z0 x1 y1 z1 modid:bloco — até 4096 blocos, notificando os clientes. */
+    private static void fill(World world, String[] a) {
+        int x0 = Integer.parseInt(a[1]), y0 = Integer.parseInt(a[2]), z0 = Integer.parseInt(a[3]);
+        int x1 = Integer.parseInt(a[4]), y1 = Integer.parseInt(a[5]), z1 = Integer.parseInt(a[6]);
+        Block block = Block.getBlockFromName(a[7]);
+        if (block == null) throw new IllegalArgumentException("bloco desconhecido: " + a[7]);
+        int lx = Math.min(x0, x1), hx = Math.max(x0, x1), ly = Math.max(0, Math.min(y0, y1)),
+            hy = Math.min(255, Math.max(y0, y1)), lz = Math.min(z0, z1), hz = Math.max(z0, z1);
+        long volume = (long) (hx - lx + 1) * (hy - ly + 1) * (hz - lz + 1);
+        if (volume > 4096) throw new IllegalArgumentException("volume grande demais: " + volume);
+        for (int x = lx; x <= hx; x++) for (int y = ly; y <= hy; y++) for (int z = lz; z <= hz; z++) {
+            world.setBlock(x, y, z, block, 0, 3);
+        }
+        DevE2E.log("fill {} blocos de {} em ({},{},{})..({},{},{})", volume, a[7], lx, ly, lz, hx, hy, hz);
     }
 
     static int loadedChunks() {

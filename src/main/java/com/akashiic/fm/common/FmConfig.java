@@ -138,5 +138,17 @@ public final class FmConfig {
         @Config.DefaultInt(100)
         @Config.RangeInt(min = 0, max = 100)
         public static int radioVolume;
+
+        @Config.Comment("Abafa o som das rádios atrás de paredes: lã abafa muito, pedra bastante, vidro quase nada. Com EFX, as paredes cortam os agudos; sem EFX, só o volume.")
+        @Config.DefaultBoolean(true)
+        public static boolean enableOcclusion;
+
+        @Config.Comment("Reverb conforme o lugar onde você está: sala de pedra, caverna, campo aberto. Precisa de EFX (OpenAL Soft).")
+        @Config.DefaultBoolean(true)
+        public static boolean enableReverb;
+
+        @Config.Comment("Acústica de blocos específicos: modid:nome=absorção (0 a 1, quanto o bloco abafa o som que o atravessa) ou modid:nome=absorção,amortecimento (quanto a superfície absorve no reverb, 0 a 1, ou -1 para não refletir). Ex.: minecraft:glass=0.3")
+        @Config.DefaultStringList({})
+        public static String[] acousticOverrides;
     }
 }

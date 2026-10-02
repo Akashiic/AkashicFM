@@ -16,9 +16,12 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
 import com.akashiic.fm.audio.dsp.GainModel;
+import com.akashiic.fm.audio.spatial.RoomModel;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.relay.RelayFeed;
+import com.akashiic.fm.client.spatial.OcclusionField;
+import com.akashiic.fm.client.spatial.RoomProbe;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioState;
@@ -32,6 +35,9 @@ import com.akashiic.fm.content.TileSpeaker;
  * Decide, a cada tick do cliente, quais rádios tocam e com que ganho em cada fonte. Só rádios carregadas
  * no mundo atual, dentro do alcance, entram; as mais próximas ganham até o limite do config. Tudo que sai
  * desta lista é encerrado na hora (rede fechada, fontes liberadas).
+ * <p>
+ * Também calcula a oclusão de cada fonte escolhida ({@link OcclusionField}) e, enquanto algo toca, a sala do
+ * ouvinte para o reverb ({@link RoomProbe}).
  */
 public final class RadioAudioController {
 
@@ -110,6 +116,8 @@ public final class RadioAudioController {
             || records <= 0f
             || clientVolume <= 0) {
             if (engine.activeCount() > 0) engine.stopAll();
+            OcclusionField.INSTANCE.clear();
+            RoomProbe.INSTANCE.reset();
             return;
         }
         // Mesma posição que o Minecraft usa para o listener do OpenAL (posY do jogador no cliente).
@@ -157,17 +165,48 @@ public final class RadioAudioController {
         int max = Math.max(1, FmConfig.Client.maxSimultaneousRadios);
 
         Set<String> keep = new HashSet<>();
+        List<Candidate> chosen = new ArrayList<>();
+        List<List<EmitterSpec>> chosenEmitters = new ArrayList<>();
         int budget = MAX_VOICES_TOTAL;
+        int total = 0;
         for (int i = 0; i < candidates.size() && keep.size() < max && budget > 0; i++) {
             Candidate c = candidates.get(i);
             // emittersFor já ordena por distância quando corta; aqui só cabe no que resta do orçamento.
             List<EmitterSpec> emitters = c.emitters.size() <= budget ? c.emitters
                 : nearestFirst(c.emitters, lx, ly, lz).subList(0, budget);
             budget -= emitters.size();
-            engine.touch(c.key, c.feed, emitters);
+            total += emitters.size();
+            chosen.add(c);
+            chosenEmitters.add(emitters);
             keep.add(c.key);
         }
+
+        // Oclusão de todas as fontes escolhidas de uma vez: o agendador reparte o orçamento de raios entre elas.
+        double[] xyz = new double[total * 3];
+        int k = 0;
+        for (List<EmitterSpec> list : chosenEmitters) for (EmitterSpec e : list) {
+            xyz[k++] = e.x;
+            xyz[k++] = e.y;
+            xyz[k++] = e.z;
+        }
+        double[] occlusion = OcclusionField.INSTANCE.resolve(world, lx, ly, lz, xyz);
+        k = 0;
+        for (int i = 0; i < chosen.size(); i++) {
+            List<EmitterSpec> list = chosenEmitters.get(i);
+            List<EmitterSpec> occluded = new ArrayList<>(list.size());
+            for (EmitterSpec e : list) occluded.add(e.withOcclusion(occlusion[k++]));
+            Candidate c = chosen.get(i);
+            engine.touch(c.key, c.feed, occluded);
+        }
         engine.retainOnly(keep);
+
+        // Reverb: a sala de quem ouve, só enquanto alguma rádio toca.
+        if (!keep.isEmpty() && FmConfig.Client.enableReverb) {
+            engine.setRoom(RoomProbe.INSTANCE.tick(world, lx, ly, lz), true);
+        } else {
+            RoomProbe.INSTANCE.reset();
+            engine.setRoom(RoomModel.DRY, false);
+        }
     }
 
     private static List<EmitterSpec> nearestFirst(List<EmitterSpec> emitters, double lx, double ly, double lz) {

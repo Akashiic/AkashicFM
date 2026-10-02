@@ -10,6 +10,7 @@ import org.lwjgl.openal.AL10;
 import org.lwjgl.openal.AL11;
 
 import com.akashiic.fm.audio.dsp.GainModel;
+import com.akashiic.fm.audio.spatial.OcclusionTracer;
 import com.akashiic.fm.common.SpeakerChannel;
 
 /**
@@ -26,6 +27,10 @@ final class Voice {
      */
     static final AtomicInteger LIVE_SOURCES = new AtomicInteger(), LIVE_BUFFERS = new AtomicInteger();
     private static final double GAIN_TAU_SECONDS = 0.08;
+    /** Porta abrindo ou fonte saindo de trás da quina: o abafado muda em ~0,1 s, sem clique. */
+    private static final double OCCLUSION_TAU_SECONDS = 0.1;
+    /** Variação da oclusão suavizada a partir da qual os filtros são reenviados ao OpenAL. */
+    private static final float OCCLUSION_EPSILON = 0.004f;
 
     final SpeakerChannel channel;
     private int source;
@@ -38,8 +43,15 @@ final class Voice {
 
     final double x, y, z;
     private boolean positionDirty = true;
+    /** Ganho do volume e da distância (sem a oclusão). */
     float targetGain;
     private float gain;
+    float targetOcclusion;
+    private float occlusion;
+    private boolean occlusionInit;
+    /** Instância EFX cujos filtros estão aplicados nesta fonte (0 = nenhuma) e a oclusão que eles representam. */
+    private int efxId;
+    private float appliedOcclusion = -1f;
 
     Voice(EmitterSpec spec) {
         this.channel = spec.channel;
@@ -47,6 +59,13 @@ final class Voice {
         this.y = spec.y;
         this.z = spec.z;
         this.targetGain = spec.gain;
+        this.targetOcclusion = spec.occlusion;
+    }
+
+    /** Ganho e oclusão desejados neste tick. */
+    void setTargets(EmitterSpec spec) {
+        targetGain = spec.gain;
+        targetOcclusion = spec.occlusion;
     }
 
     /** Cria a fonte e os buffers. Em falha (ex.: acabaram as fontes do OpenAL) libera o que criou e devolve false. */
@@ -77,6 +96,8 @@ final class Voice {
         }
         gain = 0f;
         positionDirty = true;
+        efxId = 0;
+        appliedOcclusion = -1f;
         return true;
     }
 
@@ -102,6 +123,7 @@ final class Voice {
         free.clear();
         queuedSeqs.clear();
         queued = 0;
+        efxId = 0;
     }
 
     boolean isCreated() {
@@ -184,18 +206,68 @@ final class Voice {
         return AL10.alGetSourcei(source, AL10.AL_SOURCE_STATE);
     }
 
-    /** Aplica posição e ganho (suavizado) na fonte. */
-    void applyParams(double dtSeconds) {
+    /** Oclusão suavizada atual (diagnóstico). */
+    float occlusion() {
+        return occlusion;
+    }
+
+    /** Ganho aplicado agora no AL_GAIN da fonte (diagnóstico). */
+    float appliedGain() {
+        return gain;
+    }
+
+    /**
+     * Aplica posição, oclusão e ganho (suavizados). Com EFX a oclusão vira low-pass no caminho direto e no envio
+     * do reverb; sem EFX, só ganho.
+     */
+    void applyParams(double dtSeconds, Efx efx) {
         if (positionDirty) {
             AL10.alSource3f(source, AL10.AL_POSITION, (float) x, (float) y, (float) z);
             positionDirty = false;
         }
-        float next = GainModel.smooth(gain, targetGain, dtSeconds, GAIN_TAU_SECONDS);
+        // Voz nova já nasce com a oclusão certa (sem um instante de som limpo atrás da parede).
+        if (!occlusionInit) {
+            occlusion = targetOcclusion;
+            occlusionInit = true;
+        } else {
+            occlusion = GainModel.smooth(occlusion, targetOcclusion, dtSeconds, OCCLUSION_TAU_SECONDS);
+            if (Math.abs(targetOcclusion - occlusion) < 1e-3f) occlusion = targetOcclusion;
+        }
+        float occlusionGain;
+        if (efx != null) {
+            occlusionGain = 1f;
+            if (efxId != efx.id || Math.abs(occlusion - appliedOcclusion) > OCCLUSION_EPSILON
+                || (occlusion != appliedOcclusion && occlusion == targetOcclusion)) {
+                efx.direct(
+                    source,
+                    (float) OcclusionTracer.directGain(occlusion),
+                    (float) OcclusionTracer.highFrequencyGain(occlusion));
+                efx.send(
+                    source,
+                    (float) OcclusionTracer.sendGain(occlusion),
+                    (float) OcclusionTracer.sendHighFrequencyGain(occlusion));
+                efxId = efx.id;
+                appliedOcclusion = occlusion;
+            }
+        } else {
+            efxId = 0; // sem EFX: a engine já desligou os filtros antes de soltar os objetos
+            appliedOcclusion = -1f;
+            occlusionGain = (float) OcclusionTracer.gainOnly(occlusion);
+        }
+        float target = targetGain * occlusionGain;
+        float next = GainModel.smooth(gain, target, dtSeconds, GAIN_TAU_SECONDS);
         // A aproximação exponencial nunca chega exatamente: encaixa no alvo para parar de escrever todo frame.
-        if (Math.abs(targetGain - next) < 1e-4f) next = targetGain;
+        if (Math.abs(target - next) < 1e-4f) next = target;
         if (next != gain) {
             gain = next;
             AL10.alSourcef(source, AL10.AL_GAIN, gain);
         }
+    }
+
+    /** Tira filtro e envio desta fonte se foram aplicados por {@code efx} (antes de a engine soltar o EFX). */
+    void detachEfx(Efx efx) {
+        if (source != 0 && efxId == efx.id) efx.detach(source);
+        efxId = 0;
+        appliedOcclusion = -1f;
     }
 }

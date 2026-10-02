@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: Fase 3
+## Estado atual: Fase 4
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -44,6 +44,13 @@ Feito:
   - jogador fora do alcance não recebe nada.
   
   Detalhes em [`docs/FASE3-RESULTADOS.md`](docs/FASE3-RESULTADOS.md).
+- **Fase 4:**
+  - oclusão por blocos: paredes abafam conforme o material (lã muito, pedra bastante, vidro quase nada), com transição suave nas quinas e portas abertas/fechadas;
+  - reverb conforme o lugar (sala de pedra, caverna, campo aberto), medido por raios a partir do jogador;
+  - com EFX as paredes cortam os agudos; sem EFX, só o volume;
+  - provado no áudio de saída gravado: a parede de lã baixa o som em 9 dB e os agudos em 34 dB (exatamente o low-pass calculado), o vidro quase nada, e na sala de pedra a cauda do reverb fica audível.
+  
+  Detalhes em [`docs/FASE4-RESULTADOS.md`](docs/FASE4-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -53,7 +60,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 1 | Núcleo seguro: blocos, estado, rede validada, GUI, engine de áudio, modo direto ✅ |
 | 2 | Áudio 3D completo: caixas sem cortes, recarregamento do som (F3+T), convivência com o Hodgepodge, soak ✅ |
 | 3 | Relay e sincronia: Opus, audiência, relógio, jitter buffer ✅ |
-| 4 | Oclusão e reverb |
+| 4 | Oclusão e reverb (EFX), com orçamento de raios e fallback só no ganho ✅ |
 | 5+ | Now playing, visual, frequências e torres, admin completo |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
@@ -65,7 +72,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 - **Caixa de som:** com o **sintonizador**, clique na caixa e depois na rádio para ligar as duas.
   - Agachado + clique na caixa troca o canal: mono, esquerdo, direito ou estéreo.
 - **Quebrar a rádio** devolve o item com as configurações (URL, favoritas, volume, alcance, tela).
-- **No cliente:** volume geral das rádios, limite de rádios simultâneas e a opção de recusar streams diretos ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
+- **No cliente:** volume geral das rádios, limite de rádios simultâneas, a opção de recusar streams diretos, oclusão e reverb ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
 
 ## Compilar e testar
 
@@ -83,6 +90,7 @@ Teste de ponta a ponta em jogo (servidor e dois clientes reais sob Xvfb; ver [`d
 ./gradlew jar
 tools/e2e/capture.sh runServer21 && tools/e2e/capture.sh runClient21   # uma vez
 tools/e2e/run-all.sh
+tools/e2e/run-acoustic.sh   # grava o áudio de saída e mede abafado e reverb
 ```
 
 Para rodar a sonda de rádios reais (precisa de internet), use a classe `com.akashiic.fm.tools.RelayProbe` dos testes:
@@ -101,7 +109,7 @@ java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream
 | `limits` | `maxRadiosPerPlayer` (16), `maxSpeakersPerRadio` (8), `maxSpeakerDistance` (32), `maxRadiosPerChunk` (4), `maxRange` (48), `actionsPerSecond` (10) |
 | `protection` | `protectPrivateBlocks` (outros jogadores e máquinas não quebram rádio privada), `opsBypass` |
 | `recipes` | `registerDefaultRecipes` (desligue se o modpack define as próprias) |
-| `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100) |
+| `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100), `enableOcclusion`, `enableReverb`, `acousticOverrides` (`modid:nome=absorção[,amortecimento]`) |
 
 Cliente e servidor precisam da mesma versão do mod (o FML recusa a conexão se forem diferentes).
 

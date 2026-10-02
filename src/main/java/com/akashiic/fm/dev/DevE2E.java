@@ -33,6 +33,11 @@ public final class DevE2E {
         return "direct".equals(t) ? "direct" : "relay";
     }
 
+    /** E2E do caminho sem EFX (variável AKASHICFM_E2E_NO_EFX=1): a oclusão fica só no ganho. */
+    public static boolean forceNoEfx() {
+        return enabled() && "1".equals(System.getenv("AKASHICFM_E2E_NO_EFX"));
+    }
+
     public static boolean enabled() {
         return SCENARIO != null;
     }
