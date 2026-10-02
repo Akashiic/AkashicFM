@@ -25,6 +25,16 @@ public final class ServerPolicy {
         return new UrlPolicy(FmConfig.Policy.allowedHosts, FmConfig.Policy.allowHighPorts);
     }
 
+    /** Motivo pelo qual a política atual recusa a URL, ou null se ela passa. Sem DNS. */
+    public static UrlPolicy.PolicyException rejection(String url) {
+        try {
+            urlPolicy().check(url);
+            return null;
+        } catch (UrlPolicy.PolicyException e) {
+            return e;
+        }
+    }
+
     /** Transporte para uma rádio que vai começar a tocar agora. */
     public static Transport chooseTransport() {
         if (FmConfig.Relay.enabled && relayAvailable) return Transport.RELAY;

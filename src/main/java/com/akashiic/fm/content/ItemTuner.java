@@ -88,7 +88,7 @@ public class ItemTuner extends Item {
 
     private void onRadio(ItemStack stack, EntityPlayer player, World world, TileRadio radio) {
         NBTTagCompound tag = stack.getTagCompound();
-        if (tag == null || !tag.hasKey(LINK_KEY)) {
+        if (tag == null || !tag.hasKey(LINK_KEY, 10)) {
             chat(player, "akashicfm.tuner.nothing_selected");
             return;
         }
@@ -121,7 +121,7 @@ public class ItemTuner extends Item {
     @SuppressWarnings({ "rawtypes", "unchecked" })
     public void addInformation(ItemStack stack, EntityPlayer player, List lines, boolean advanced) {
         NBTTagCompound tag = stack.getTagCompound();
-        if (tag != null && tag.hasKey(LINK_KEY)) {
+        if (tag != null && tag.hasKey(LINK_KEY, 10)) {
             Pos p = Pos.fromNbt(tag.getCompoundTag(LINK_KEY));
             lines.add(
                 EnumChatFormatting.AQUA

@@ -18,6 +18,7 @@ import net.minecraftforge.common.util.FakePlayer;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Permissions;
 import com.akashiic.fm.common.RadioLimits;
+import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.server.RadioIndex;
 
 import cpw.mods.fml.relauncher.Side;
@@ -42,7 +43,7 @@ public class ItemBlockRadio extends ItemBlock {
         if (te instanceof TileRadio) {
             TileRadio radio = (TileRadio) te;
             if (stack.hasTagCompound() && stack.getTagCompound()
-                .hasKey(BlockRadio.SETTINGS_KEY)) {
+                .hasKey(BlockRadio.SETTINGS_KEY, 10)) {
                 radio.state.readSettings(
                     stack.getTagCompound()
                         .getCompoundTag(BlockRadio.SETTINGS_KEY),
@@ -92,10 +93,10 @@ public class ItemBlockRadio extends ItemBlock {
     @SuppressWarnings({ "rawtypes", "unchecked" })
     public void addInformation(ItemStack stack, EntityPlayer player, List lines, boolean advanced) {
         if (!stack.hasTagCompound() || !stack.getTagCompound()
-            .hasKey(BlockRadio.SETTINGS_KEY)) return;
+            .hasKey(BlockRadio.SETTINGS_KEY, 10)) return;
         NBTTagCompound s = stack.getTagCompound()
             .getCompoundTag(BlockRadio.SETTINGS_KEY);
-        String url = s.getString("url");
+        String url = TextSanitizer.cleanUrl(s.hasKey("url", 8) ? s.getString("url") : "", RadioLimits.MAX_URL_LENGTH);
         if (!url.isEmpty()) {
             String shown = url.length() > 40 ? url.substring(0, 37) + "..." : url;
             lines.add(EnumChatFormatting.GRAY + StatCollector.translateToLocalFormatted("akashicfm.item.url", shown));

@@ -112,6 +112,11 @@ public final class SpeakerLinks {
                     changed = true;
                 }
             }
+            if (s.playing && ServerPolicy.rejection(s.url) != null) {
+                // A allowlist mudou (config recarregado) e esta URL não vale mais: para.
+                s.playing = false;
+                changed = true;
+            }
             if (s.playing) {
                 Transport wanted = ServerPolicy.chooseTransport();
                 if (wanted != s.transport) {

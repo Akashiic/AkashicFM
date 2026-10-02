@@ -1,0 +1,93 @@
+# AkashicFM - Português (Brasil)
+
+itemGroup.akashicfm=AkashicFM
+tile.akashicfm.radio.name=Rádio
+tile.akashicfm.speaker.name=Caixa de Som
+item.akashicfm.tuner.name=Sintonizador
+
+# Dica do item da rádio
+akashicfm.item.url=Estação: %s
+akashicfm.item.stations=Favoritas: %s
+
+# Limites de colocação
+akashicfm.limit.chunk=Este chunk já tem o máximo de rádios (%s).
+akashicfm.limit.player=Você já tem o máximo de rádios (%s).
+akashicfm.protection.not_yours=Este bloco pertence a outro jogador.
+
+# Respostas do servidor às ações na rádio
+akashicfm.notice.too_far=Você está longe demais da rádio.
+akashicfm.notice.no_url=Informe a URL de um stream primeiro.
+akashicfm.notice.url_invalid=URL inválida. Use http:// ou https:// seguido de um endereço público.
+akashicfm.notice.no_permission=Você não tem permissão para fazer isso nesta rádio.
+akashicfm.notice.no_transport=O áudio das rádios está desligado neste servidor (relay indisponível e modo direto desativado).
+akashicfm.notice.stations_full=As favoritas estão cheias (máximo %s).
+
+# Política de URL (motivo da recusa do servidor)
+akashicfm.policy.empty=URL recusada: vazia.
+akashicfm.policy.too_long=URL recusada: mais de %s caracteres.
+akashicfm.policy.malformed=URL recusada: endereço malformado.
+akashicfm.policy.scheme=URL recusada: só http:// e https:// são permitidos.
+akashicfm.policy.credentials=URL recusada: usuário e senha na URL não são permitidos.
+akashicfm.policy.no_host=URL recusada: host ausente ou inválido.
+akashicfm.policy.port=URL recusada: a porta %s não é permitida.
+akashicfm.policy.not_allowed=URL recusada: %s não está na lista de sites permitidos deste servidor.
+akashicfm.policy.internal=URL recusada: %s é um endereço privado ou local.
+
+# Sintonizador
+akashicfm.tuner.selected=Caixa em %s selecionada. Agora clique com o botão direito numa rádio para ligar.
+akashicfm.tuner.nothing_selected=Selecione uma caixa primeiro (botão direito nela com o sintonizador).
+akashicfm.tuner.other_dimension=A caixa selecionada está em outra dimensão.
+akashicfm.tuner.speaker_missing=A caixa selecionada não existe mais.
+akashicfm.tuner.too_far=A caixa está longe demais da rádio (máximo %s blocos).
+akashicfm.tuner.speaker_not_yours=Esta caixa pertence a outro jogador.
+akashicfm.tuner.already_linked=Esta caixa já está ligada a esta rádio.
+akashicfm.tuner.radio_full=Esta rádio já tem o máximo de caixas (%s).
+akashicfm.tuner.linked=Caixa ligada (%s nesta rádio).
+akashicfm.tuner.channel=Canal da caixa: %s
+akashicfm.tuner.tooltip_selected=Caixa selecionada: %s
+akashicfm.tuner.tooltip_help1=Botão direito numa caixa e depois numa rádio para ligar as duas.
+akashicfm.tuner.tooltip_help2=Agachado + botão direito numa caixa troca o canal dela.
+
+akashicfm.channel.mix=Mono (mistura)
+akashicfm.channel.left=Esquerdo
+akashicfm.channel.right=Direito
+akashicfm.channel.stereo=Estéreo
+
+# Tela da rádio
+akashicfm.gui.title=Rádio AkashicFM
+akashicfm.gui.owner=Dono: %s
+akashicfm.gui.no_owner=Sem dono
+akashicfm.gui.url_hint=URL do stream (http/https)
+akashicfm.gui.play=Tocar
+akashicfm.gui.stop=Parar
+akashicfm.gui.volume=Volume: %s%%
+akashicfm.gui.range=Alcance: %s blocos
+akashicfm.gui.stations=Favoritas (%s/%s)
+akashicfm.gui.no_stations=Nenhuma favorita ainda.
+akashicfm.gui.save_station=Salvar atual
+akashicfm.gui.screen_hint=Texto da tela
+akashicfm.gui.ok=OK
+akashicfm.gui.color=Cor
+akashicfm.gui.access.PRIVATE=Privada
+akashicfm.gui.access.PUBLIC=Pública
+akashicfm.gui.redstone=Redstone: %s
+akashicfm.gui.redstone.IGNORE=ignorar
+akashicfm.gui.redstone.WHILE_POWERED=enquanto ligada
+akashicfm.gui.redstone.TOGGLE_ON_PULSE=alternar no pulso
+akashicfm.gui.unlink_all=Desligar caixas (%s)
+akashicfm.gui.transport.NONE=Sem transporte
+akashicfm.gui.transport.RELAY=Relay
+akashicfm.gui.transport.DIRECT=Direto
+akashicfm.gui.status.checking=Consultando permissões...
+akashicfm.gui.status.stopped=Parada
+akashicfm.gui.status.no_transport=sem transporte de áudio
+akashicfm.gui.status.relay_unavailable=relay ainda não suportado por este cliente
+akashicfm.gui.status.audio_disabled=áudio das rádios desligado no seu config
+akashicfm.gui.status.direct_disabled=streams diretos desligados no seu config
+akashicfm.gui.status.not_here=não está tocando para você (fora do alcance ou limite de rádios)
+akashicfm.gui.status.connecting=conectando...
+akashicfm.gui.status.reconnecting=reconectando...
+akashicfm.gui.status.buffering=carregando...
+akashicfm.gui.status.playing=tocando
+akashicfm.gui.status.ended=terminou
+akashicfm.gui.status.error=erro: %s

@@ -28,35 +28,87 @@ public final class UrlPolicy {
         this.allowHighPorts = allowHighPorts;
     }
 
+    /**
+     * Regras sintáticas, sem DNS (seguro na thread principal). IP literal é verificado aqui mesmo; nome de host
+     * só é verificado de verdade em {@link #resolvePublic}, na hora de conectar.
+     */
     public URI check(String raw) throws PolicyException {
-        if (raw == null || raw.isEmpty()) throw new PolicyException("URL vazia");
-        if (raw.length() > MAX_URL_LENGTH) throw new PolicyException("URL maior que " + MAX_URL_LENGTH);
+        if (raw == null || raw.isEmpty()) throw new PolicyException("empty", "");
+        if (raw.length() > MAX_URL_LENGTH) throw new PolicyException("too_long", String.valueOf(MAX_URL_LENGTH));
         URI uri;
         try {
             uri = new URI(raw.trim());
         } catch (Exception e) {
-            throw new PolicyException("URL inválida");
+            throw new PolicyException("malformed", "");
         }
         String scheme = uri.getScheme() == null ? ""
             : uri.getScheme()
                 .toLowerCase(Locale.ROOT);
-        if (!scheme.equals("http") && !scheme.equals("https")) throw new PolicyException("só http/https");
-        if (uri.getRawUserInfo() != null) throw new PolicyException("credenciais na URL não são permitidas");
+        if (!scheme.equals("http") && !scheme.equals("https")) throw new PolicyException("scheme", "");
+        if (uri.getRawUserInfo() != null) throw new PolicyException("credentials", "");
         String host = uri.getHost();
-        if (host == null || host.isEmpty()) throw new PolicyException("URL sem host");
+        if (host == null || host.isEmpty()) throw new PolicyException("no_host", "");
         host = host.toLowerCase(Locale.ROOT);
+        // "localhost." é o mesmo host que "localhost": o ponto final não pode driblar as regras abaixo.
+        String bare = host.endsWith(".") ? host.substring(0, host.length() - 1) : host;
         int port = uri.getPort();
         if (port != -1 && port != 80 && port != 443 && !(allowHighPorts && port >= 1024 && port <= 65535)) {
-            throw new PolicyException("porta não permitida: " + port);
+            throw new PolicyException("port", String.valueOf(port));
         }
-        if (allowedHosts.length > 0 && !hostAllowed(host))
-            throw new PolicyException("domínio fora da lista permitida: " + host);
-        if (host.equals("localhost") || host.endsWith(".localhost")
-            || host.endsWith(".local")
-            || host.endsWith(".internal")) {
-            throw new PolicyException("host interno: " + host);
+        if (allowedHosts.length > 0 && !hostAllowed(bare)) throw new PolicyException("not_allowed", bare);
+        if (bare.equals("localhost") || bare.endsWith(".localhost")
+            || bare.endsWith(".local")
+            || bare.endsWith(".internal")) {
+            throw new PolicyException("internal", bare);
         }
+        InetAddress literal = parseLiteral(bare);
+        if (literal != null && isInternal(literal)) throw new PolicyException("internal", bare);
         return uri;
+    }
+
+    /**
+     * IP literal do host, sem nunca consultar DNS: IPv6 entre colchetes ou IPv4 em qualquer forma que o Java
+     * aceita (a, a.b, a.b.c, a.b.c.d, só decimal). Host feito só de dígitos e pontos que não é IPv4 válido é
+     * recusado (o Java mandaria para o DNS, e nenhum domínio real é assim). Devolve null para nomes.
+     */
+    static InetAddress parseLiteral(String host) throws PolicyException {
+        try {
+            if (host.startsWith("[")) {
+                if (!host.endsWith("]") || host.indexOf(':') < 0) throw new PolicyException("malformed", "");
+                // Com colchetes o Java só aceita literal IPv6 e recusa o resto sem DNS.
+                return InetAddress.getByName(host);
+            }
+            if (!host.isEmpty() && host.chars()
+                .allMatch(c -> (c >= '0' && c <= '9') || c == '.')) {
+                byte[] v4 = parseIpv4(host);
+                if (v4 == null) throw new PolicyException("malformed", "");
+                return InetAddress.getByAddress(v4);
+            }
+            return null;
+        } catch (UnknownHostException e) {
+            throw new PolicyException("malformed", "");
+        }
+    }
+
+    /** Mesmas formas do {@code Inet4Address} do Java: o último campo ocupa os bytes que sobram. */
+    static byte[] parseIpv4(String s) {
+        String[] parts = s.split("\\.", -1);
+        if (parts.length < 1 || parts.length > 4) return null;
+        long[] v = new long[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            String p = parts[i];
+            if (p.isEmpty() || p.length() > 10) return null;
+            v[i] = Long.parseLong(p);
+        }
+        long last = v[v.length - 1];
+        long lastMax = (1L << (8 * (5 - v.length))) - 1;
+        if (last < 0 || last > lastMax) return null;
+        long value = last;
+        for (int i = 0; i < v.length - 1; i++) {
+            if (v[i] > 255) return null;
+            value |= v[i] << (8 * (3 - i));
+        }
+        return new byte[] { (byte) (value >>> 24), (byte) (value >>> 16), (byte) (value >>> 8), (byte) value };
     }
 
     /**
@@ -66,7 +118,7 @@ public final class UrlPolicy {
     public InetAddress resolvePublic(String host) throws PolicyException, UnknownHostException {
         InetAddress[] all = InetAddress.getAllByName(host);
         for (InetAddress a : all) {
-            if (isInternal(a)) throw new PolicyException("endereço interno: " + host + " -> " + a.getHostAddress());
+            if (isInternal(a)) throw new PolicyException("internal", host + " -> " + a.getHostAddress());
         }
         return all[0];
     }
@@ -110,10 +162,21 @@ public final class UrlPolicy {
         return false;
     }
 
+    /** Recusa da política. {@link #code} é estável e vira a chave de tradução {@code akashicfm.policy.<code>}. */
     public static final class PolicyException extends Exception {
 
-        public PolicyException(String msg) {
-            super(msg);
+        public final String code;
+        /** Host, porta ou limite envolvido (pode ser vazio). */
+        public final String detail;
+
+        public PolicyException(String code, String detail) {
+            super(detail == null || detail.isEmpty() ? code : code + ": " + detail);
+            this.code = code;
+            this.detail = detail == null ? "" : detail;
+        }
+
+        public String translationKey() {
+            return "akashicfm.policy." + code;
         }
     }
 }

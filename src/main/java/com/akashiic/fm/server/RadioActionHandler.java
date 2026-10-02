@@ -176,12 +176,17 @@ public final class RadioActionHandler {
         CHANGED,
         UNCHANGED,
         NO_URL,
+        REJECTED,
         NO_TRANSPORT
     }
 
-    /** Muta o estado para tocar, sem notificar. Quem chama decide quando marcar a mudança. */
+    /**
+     * Muta o estado para tocar, sem notificar. Quem chama decide quando marcar a mudança. A URL passa de novo
+     * pela política: pode ter vindo do item (NBT) ou ter sido salva antes de o admin mudar a allowlist.
+     */
     static PlayResult applyPlay(RadioState s) {
         if (s.url.isEmpty()) return PlayResult.NO_URL;
+        if (ServerPolicy.rejection(s.url) != null) return PlayResult.REJECTED;
         Transport t = ServerPolicy.chooseTransport();
         if (t == Transport.NONE) return PlayResult.NO_TRANSPORT;
         if (s.playing && s.transport == t) return PlayResult.UNCHANGED;
@@ -198,6 +203,16 @@ public final class RadioActionHandler {
             case NO_URL:
                 notice(player, radio, true, "akashicfm.notice.no_url", "");
                 return false;
+            case REJECTED: {
+                UrlPolicy.PolicyException e = ServerPolicy.rejection(radio.state.url);
+                notice(
+                    player,
+                    radio,
+                    true,
+                    e == null ? "akashicfm.policy.malformed" : e.translationKey(),
+                    e == null ? "" : e.detail);
+                return false;
+            }
             case NO_TRANSPORT:
                 notice(player, radio, true, "akashicfm.notice.no_transport", "");
                 return false;
@@ -225,7 +240,7 @@ public final class RadioActionHandler {
             ServerPolicy.urlPolicy()
                 .check(url);
         } catch (UrlPolicy.PolicyException e) {
-            notice(player, radio, true, "akashicfm.notice.url_rejected", e.getMessage());
+            notice(player, radio, true, e.translationKey(), e.detail);
             return false;
         }
         if (!url.equals(s.url)) {
@@ -256,7 +271,7 @@ public final class RadioActionHandler {
             ServerPolicy.urlPolicy()
                 .check(url);
         } catch (UrlPolicy.PolicyException e) {
-            notice(player, radio, true, "akashicfm.notice.url_rejected", e.getMessage());
+            notice(player, radio, true, e.translationKey(), e.detail);
             return;
         }
         s.stations.add(url);

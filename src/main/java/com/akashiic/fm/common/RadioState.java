@@ -115,7 +115,7 @@ public final class RadioState {
 
     /** Lê e saneia. Campos ausentes voltam ao padrão. */
     public void readFromNbt(NBTTagCompound tag, int maxRange, int maxSpeakers) {
-        url = tag.getString("url");
+        url = str(tag, "url");
         stations.clear();
         readStrings(tag.getTagList("stations", 8), stations, RadioLimits.MAX_STATIONS * 2);
         playing = tag.getBoolean("playing");
@@ -123,8 +123,8 @@ public final class RadioState {
         range = tag.hasKey("range") ? tag.getShort("range") : RadioLimits.RANGE_DEFAULT;
         access = RadioAccess.byOrdinal(tag.getByte("access"));
         owner = tag.hasKey("ownerMost") ? new UUID(tag.getLong("ownerMost"), tag.getLong("ownerLeast")) : null;
-        ownerName = tag.getString("ownerName");
-        screenText = tag.getString("screenText");
+        ownerName = str(tag, "ownerName");
+        screenText = str(tag, "screenText");
         screenColor = tag.hasKey("screenColor") ? tag.getInteger("screenColor") : RadioLimits.SCREEN_COLOR_DEFAULT;
         redstoneMode = RedstoneMode.byOrdinal(tag.getByte("redstoneMode"));
         lastPowered = tag.getBoolean("lastPowered");
@@ -135,8 +135,8 @@ public final class RadioState {
         transport = Transport.byOrdinal(tag.getByte("transport"));
         session = tag.getInteger("session");
         epoch = tag.getInteger("epoch");
-        status = tag.getString("status");
-        nowPlaying = tag.getString("nowPlaying");
+        status = str(tag, "status");
+        nowPlaying = str(tag, "nowPlaying");
         sanitize(maxRange, maxSpeakers);
     }
 
@@ -153,12 +153,12 @@ public final class RadioState {
     }
 
     public void readSettings(NBTTagCompound tag, int maxRange, int maxSpeakers) {
-        url = tag.getString("url");
+        url = str(tag, "url");
         stations.clear();
         readStrings(tag.getTagList("stations", 8), stations, RadioLimits.MAX_STATIONS * 2);
         if (tag.hasKey("volume")) volume = tag.getByte("volume");
         if (tag.hasKey("range")) range = tag.getShort("range");
-        screenText = tag.getString("screenText");
+        screenText = str(tag, "screenText");
         if (tag.hasKey("screenColor")) screenColor = tag.getInteger("screenColor");
         redstoneMode = RedstoneMode.byOrdinal(tag.getByte("redstoneMode"));
         access = RadioAccess.byOrdinal(tag.getByte("access"));
@@ -174,6 +174,11 @@ public final class RadioState {
         } catch (UrlPolicy.PolicyException e) {
             return false;
         }
+    }
+
+    /** Só aceita tag de string: o getString do 1.7.10 devolveria o toString() de uma tag de outro tipo. */
+    static String str(NBTTagCompound tag, String key) {
+        return tag.hasKey(key, 8) ? tag.getString(key) : "";
     }
 
     private static NBTTagList writeStrings(List<String> values) {

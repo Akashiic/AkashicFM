@@ -61,7 +61,9 @@ public class TileRadio extends TileEntity {
     @Override
     public void readFromNBT(NBTTagCompound tag) {
         super.readFromNBT(tag);
-        state.readFromNbt(tag.getCompoundTag(NBT_KEY), FmConfig.Limits.maxRange, FmConfig.Limits.maxSpeakersPerRadio);
+        // hasKey com tipo: o getCompoundTag do 1.7.10 derruba o jogo se a tag existir com outro tipo.
+        NBTTagCompound radio = tag.hasKey(NBT_KEY, 10) ? tag.getCompoundTag(NBT_KEY) : new NBTTagCompound();
+        state.readFromNbt(radio, FmConfig.Limits.maxRange, FmConfig.Limits.maxSpeakersPerRadio);
         state.status = "";
         state.nowPlaying = "";
     }

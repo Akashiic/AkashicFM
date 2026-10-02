@@ -61,10 +61,10 @@ public class TileSpeaker extends TileEntity {
     }
 
     private void readShared(NBTTagCompound tag) {
-        linkedRadio = tag.hasKey("linkedRadio") ? Pos.fromNbt(tag.getCompoundTag("linkedRadio")) : null;
+        linkedRadio = tag.hasKey("linkedRadio", 10) ? Pos.fromNbt(tag.getCompoundTag("linkedRadio")) : null;
         channel = SpeakerChannel.byOrdinal(tag.getByte("channel"));
         owner = tag.hasKey("ownerMost") ? new UUID(tag.getLong("ownerMost"), tag.getLong("ownerLeast")) : null;
-        ownerName = TextSanitizer.clean(tag.getString("ownerName"), 16);
+        ownerName = TextSanitizer.clean(tag.hasKey("ownerName", 8) ? tag.getString("ownerName") : "", 16);
     }
 
     @Override

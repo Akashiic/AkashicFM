@@ -1,0 +1,93 @@
+# AkashicFM - English
+
+itemGroup.akashicfm=AkashicFM
+tile.akashicfm.radio.name=Radio
+tile.akashicfm.speaker.name=Speaker
+item.akashicfm.tuner.name=Tuner
+
+# Radio item tooltip
+akashicfm.item.url=Station: %s
+akashicfm.item.stations=Favorites: %s
+
+# Placement limits
+akashicfm.limit.chunk=This chunk already has the maximum number of radios (%s).
+akashicfm.limit.player=You already own the maximum number of radios (%s).
+akashicfm.protection.not_yours=This block belongs to someone else.
+
+# Server replies to radio actions
+akashicfm.notice.too_far=You are too far from the radio.
+akashicfm.notice.no_url=Enter a stream URL first.
+akashicfm.notice.url_invalid=Invalid URL. Use http:// or https:// followed by a public address.
+akashicfm.notice.no_permission=You don't have permission to do that on this radio.
+akashicfm.notice.no_transport=This server has radio audio turned off (relay unavailable and direct mode disabled).
+akashicfm.notice.stations_full=Favorites are full (maximum %s).
+
+# URL policy (reason the server refused a URL)
+akashicfm.policy.empty=URL rejected: empty.
+akashicfm.policy.too_long=URL rejected: longer than %s characters.
+akashicfm.policy.malformed=URL rejected: malformed address.
+akashicfm.policy.scheme=URL rejected: only http:// and https:// are allowed.
+akashicfm.policy.credentials=URL rejected: user and password in the URL are not allowed.
+akashicfm.policy.no_host=URL rejected: missing or invalid host.
+akashicfm.policy.port=URL rejected: port %s is not allowed.
+akashicfm.policy.not_allowed=URL rejected: %s is not on this server's list of allowed sites.
+akashicfm.policy.internal=URL rejected: %s is a private or local address.
+
+# Tuner
+akashicfm.tuner.selected=Speaker at %s selected. Now right-click a radio to link it.
+akashicfm.tuner.nothing_selected=Select a speaker first (right-click it with the tuner).
+akashicfm.tuner.other_dimension=The selected speaker is in another dimension.
+akashicfm.tuner.speaker_missing=The selected speaker no longer exists.
+akashicfm.tuner.too_far=The speaker is too far from the radio (maximum %s blocks).
+akashicfm.tuner.speaker_not_yours=This speaker belongs to someone else.
+akashicfm.tuner.already_linked=This speaker is already linked to this radio.
+akashicfm.tuner.radio_full=This radio already has the maximum number of speakers (%s).
+akashicfm.tuner.linked=Speaker linked (%s on this radio).
+akashicfm.tuner.channel=Speaker channel: %s
+akashicfm.tuner.tooltip_selected=Selected speaker: %s
+akashicfm.tuner.tooltip_help1=Right-click a speaker, then a radio, to link them.
+akashicfm.tuner.tooltip_help2=Sneak + right-click a speaker to change its channel.
+
+akashicfm.channel.mix=Mono (mix)
+akashicfm.channel.left=Left
+akashicfm.channel.right=Right
+akashicfm.channel.stereo=Stereo
+
+# Radio screen
+akashicfm.gui.title=AkashicFM Radio
+akashicfm.gui.owner=Owner: %s
+akashicfm.gui.no_owner=No owner
+akashicfm.gui.url_hint=Stream URL (http/https)
+akashicfm.gui.play=Play
+akashicfm.gui.stop=Stop
+akashicfm.gui.volume=Volume: %s%%
+akashicfm.gui.range=Range: %s blocks
+akashicfm.gui.stations=Favorites (%s/%s)
+akashicfm.gui.no_stations=No favorites yet.
+akashicfm.gui.save_station=Save current
+akashicfm.gui.screen_hint=Screen text
+akashicfm.gui.ok=OK
+akashicfm.gui.color=Color
+akashicfm.gui.access.PRIVATE=Private
+akashicfm.gui.access.PUBLIC=Public
+akashicfm.gui.redstone=Redstone: %s
+akashicfm.gui.redstone.IGNORE=ignore
+akashicfm.gui.redstone.WHILE_POWERED=while powered
+akashicfm.gui.redstone.TOGGLE_ON_PULSE=toggle on pulse
+akashicfm.gui.unlink_all=Unlink speakers (%s)
+akashicfm.gui.transport.NONE=No transport
+akashicfm.gui.transport.RELAY=Relay
+akashicfm.gui.transport.DIRECT=Direct
+akashicfm.gui.status.checking=Checking permissions...
+akashicfm.gui.status.stopped=Stopped
+akashicfm.gui.status.no_transport=no audio transport
+akashicfm.gui.status.relay_unavailable=relay not supported by this client yet
+akashicfm.gui.status.audio_disabled=radio audio is off in your config
+akashicfm.gui.status.direct_disabled=direct streams are off in your config
+akashicfm.gui.status.not_here=not playing for you (out of range or radio limit)
+akashicfm.gui.status.connecting=connecting...
+akashicfm.gui.status.reconnecting=reconnecting...
+akashicfm.gui.status.buffering=buffering...
+akashicfm.gui.status.playing=playing
+akashicfm.gui.status.ended=finished
+akashicfm.gui.status.error=error: %s
