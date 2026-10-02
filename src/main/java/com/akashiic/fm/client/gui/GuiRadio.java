@@ -2,6 +2,7 @@ package com.akashiic.fm.client.gui;
 
 import java.util.Collections;
 
+import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
@@ -77,6 +78,14 @@ public final class GuiRadio extends GuiScreen {
         return px == x && py == y && pz == z;
     }
 
+    public boolean permsKnown() {
+        return permsKnown;
+    }
+
+    public boolean canAdmin() {
+        return permsKnown && canAdmin;
+    }
+
     @Override
     public boolean doesGuiPauseGame() {
         return false; // no singleplayer, pausar pararia o som que o jogador está ajustando
@@ -100,11 +109,11 @@ public final class GuiRadio extends GuiScreen {
         String urlText = urlField != null ? urlField.getText() : s.url;
         String screenText = screenField != null ? screenField.getText() : s.screenText;
 
-        urlField = new GuiTextField(fontRendererObj, left + 9, top + 31, 168, 14);
+        urlField = new GuiTextField(fontRendererObj, left + 9, top + 31, 154, 14);
         urlField.setMaxStringLength(RadioLimits.MAX_URL_LENGTH);
-        urlField.setText(urlText);
-        play = add(new FlatButton(ID_PLAY, left + 182, top + 30, 32, 16, I18n.format("akashicfm.gui.play")));
-        stop = add(new FlatButton(ID_STOP, left + 216, top + 30, 32, 16, I18n.format("akashicfm.gui.stop")));
+        setFieldText(urlField, urlText);
+        play = add(new FlatButton(ID_PLAY, left + 168, top + 30, 38, 16, I18n.format("akashicfm.gui.play")));
+        stop = add(new FlatButton(ID_STOP, left + 210, top + 30, 38, 16, I18n.format("akashicfm.gui.stop")));
 
         volume = add(
             new FlatSlider(
@@ -141,15 +150,15 @@ public final class GuiRadio extends GuiScreen {
         up = add(new FlatButton(ID_UP, left + 236, top + 86, 12, 14, "▲"));
         down = add(new FlatButton(ID_DOWN, left + 236, top + 146, 12, 14, "▼"));
 
-        screenField = new GuiTextField(fontRendererObj, left + 9, top + 166, 126, 14);
+        screenField = new GuiTextField(fontRendererObj, left + 9, top + 166, 104, 14);
         screenField.setMaxStringLength(RadioLimits.MAX_SCREEN_TEXT);
-        screenField.setText(screenText);
-        screenOk = add(new FlatButton(ID_SCREEN_OK, left + 140, top + 165, 18, 16, I18n.format("akashicfm.gui.ok")));
-        color = add(new FlatButton(ID_COLOR, left + 162, top + 165, 40, 16, I18n.format("akashicfm.gui.color")));
-        access = add(new FlatButton(ID_ACCESS, left + 206, top + 165, 42, 16, ""));
+        setFieldText(screenField, screenText);
+        screenOk = add(new FlatButton(ID_SCREEN_OK, left + 118, top + 165, 24, 16, I18n.format("akashicfm.gui.ok")));
+        color = add(new FlatButton(ID_COLOR, left + 146, top + 165, 50, 16, I18n.format("akashicfm.gui.color")));
+        access = add(new FlatButton(ID_ACCESS, left + 200, top + 165, 48, 16, ""));
 
-        redstone = add(new FlatButton(ID_REDSTONE, left + 8, top + 185, 120, 16, ""));
-        unlink = add(new FlatButton(ID_UNLINK, left + 132, top + 185, 116, 16, ""));
+        redstone = add(new FlatButton(ID_REDSTONE, left + 8, top + 185, 150, 16, ""));
+        unlink = add(new FlatButton(ID_UNLINK, left + 162, top + 185, 86, 16, ""));
 
         if (!permsRequested) {
             permsRequested = true;
@@ -225,7 +234,7 @@ public final class GuiRadio extends GuiScreen {
         if (!urlEdited && !urlField.isFocused()
             && !urlField.getText()
                 .equals(s.url))
-            urlField.setText(s.url);
+            setFieldText(urlField, s.url);
         play.enabled = control;
         stop.enabled = control && s.playing;
 
@@ -263,7 +272,7 @@ public final class GuiRadio extends GuiScreen {
         if (!screenEdited && !screenField.isFocused()
             && !screenField.getText()
                 .equals(s.screenText))
-            screenField.setText(s.screenText);
+            setFieldText(screenField, s.screenText);
         screenOk.enabled = admin && !screenField.getText()
             .equals(s.screenText);
         color.enabled = admin;
@@ -275,6 +284,15 @@ public final class GuiRadio extends GuiScreen {
             .format("akashicfm.gui.redstone", I18n.format("akashicfm.gui.redstone." + s.redstoneMode.name()));
         unlink.enabled = admin && !s.speakers.isEmpty();
         unlink.displayString = I18n.format("akashicfm.gui.unlink_all", s.speakers.size());
+    }
+
+    /**
+     * Texto vindo do estado: mostra o começo (o GuiTextField do 1.7.10 deixa o cursor no fim e, com texto maior
+     * que o campo, desenha um falso trecho selecionado).
+     */
+    private static void setFieldText(GuiTextField field, String text) {
+        field.setText(text);
+        field.setCursorPositionZero();
     }
 
     /** URL sem o esquema, para caber mais na linha. */
@@ -443,7 +461,11 @@ public final class GuiRadio extends GuiScreen {
         urlField.drawTextBox();
         if (urlField.getText()
             .isEmpty() && !urlField.isFocused()) {
-            fontRendererObj.drawString(I18n.format("akashicfm.gui.url_hint"), left + 13, top + 34, 0xFF606870);
+            fontRendererObj.drawString(
+                fontRendererObj.trimStringToWidth(I18n.format("akashicfm.gui.url_hint"), 146),
+                left + 13,
+                top + 34,
+                0xFF606870);
         }
         fontRendererObj.drawString(
             I18n.format("akashicfm.gui.stations", s.stations.size(), RadioLimits.MAX_STATIONS),
@@ -456,7 +478,11 @@ public final class GuiRadio extends GuiScreen {
         screenField.drawTextBox();
         if (screenField.getText()
             .isEmpty() && !screenField.isFocused()) {
-            fontRendererObj.drawString(I18n.format("akashicfm.gui.screen_hint"), left + 13, top + 169, 0xFF606870);
+            fontRendererObj.drawString(
+                fontRendererObj.trimStringToWidth(I18n.format("akashicfm.gui.screen_hint"), 96),
+                left + 13,
+                top + 169,
+                0xFF606870);
         }
 
         super.drawScreen(mouseX, mouseY, partialTicks);
@@ -512,6 +538,9 @@ public final class GuiRadio extends GuiScreen {
         }
         if (!FmConfig.Client.enableAudio) return I18n.format("akashicfm.gui.status.audio_disabled");
         if (!FmConfig.Client.allowDirectStreams) return I18n.format("akashicfm.gui.status.direct_disabled");
+        if (mc.gameSettings.getSoundLevel(SoundCategory.MASTER) <= 0f
+            || mc.gameSettings.getSoundLevel(SoundCategory.RECORDS) <= 0f
+            || FmConfig.Client.radioVolume <= 0) return I18n.format("akashicfm.gui.status.muted");
         AudioEngine.PlaybackInfo info = AudioEngine.INSTANCE.info(RadioAudioController.keyFor(radio));
         if (info == null) return I18n.format("akashicfm.gui.status.not_here");
         switch (info.feedStatus) {

@@ -31,6 +31,11 @@ public final class DirectFeed implements AudioFeed, Runnable {
     private volatile boolean closed;
     private volatile Status status = Status.CONNECTING;
     private volatile String detail = "";
+    /** Uma conexão que tocou pelo menos isto zera o backoff (uma que cai a cada segundo não zera). */
+    private static final long HEALTHY_FRAMES = SAMPLE_RATE * 5L;
+    /** Frames entregues pela conexão atual e se ela é ao vivo (só a thread do feed usa). */
+    private long producedFrames;
+    private boolean currentLive;
 
     public DirectFeed(String url, String threadName) {
         this.url = url;
@@ -50,15 +55,16 @@ public final class DirectFeed implements AudioFeed, Runnable {
         try {
             while (!closed) {
                 status = failures == 0 ? Status.CONNECTING : Status.RECONNECTING;
-                boolean live;
+                producedFrames = 0;
+                currentLive = true;
                 try {
-                    live = streamOnce();
+                    boolean live = streamOnce();
                     if (closed) break;
                     if (!live) { // arquivo terminou normalmente
                         status = Status.ENDED;
                         break;
                     }
-                    failures = 0; // ao vivo caiu depois de tocar: reconecta do começo do backoff
+                    if (producedFrames == 0) detail = "stream sem áudio";
                 } catch (UrlPolicy.PolicyException e) {
                     fail(e.getMessage());
                     break;
@@ -70,7 +76,15 @@ public final class DirectFeed implements AudioFeed, Runnable {
                 } catch (IOException | RuntimeException e) {
                     if (closed) break;
                     detail = String.valueOf(e.getMessage());
+                    // Arquivo que falhou no meio não recomeça do início (repetiria até o mesmo ponto para sempre).
+                    if (producedFrames > 0 && !currentLive) {
+                        fail(detail);
+                        break;
+                    }
                 }
+                // Ao vivo que caiu depois de tocar um tempo: backoff do começo. Caiu sem tocar quase nada: conta
+                // como falha (senão seria uma conexão por segundo para sempre num stream quebrado).
+                if (producedFrames >= HEALTHY_FRAMES) failures = 0;
                 if (failures >= BACKOFF_MS.length) {
                     fail(detail.isEmpty() ? "sem conexão" : detail);
                     break;
@@ -103,6 +117,7 @@ public final class DirectFeed implements AudioFeed, Runnable {
         }
         boolean live = r.header("content-length") == null || r.header("icy-name") != null
             || r.header("icy-metaint") != null;
+        currentLive = live;
         BufferedInputStream body = new BufferedInputStream(r.body, 64 * 1024);
         StreamFormat fmt = StreamFormat.detect(r.header("content-type"), body);
         if (fmt == StreamFormat.UNSUPPORTED) throw new UnsupportedFormatException();
@@ -125,7 +140,10 @@ public final class DirectFeed implements AudioFeed, Runnable {
                     out = new short[rs.maxOut(in.length)];
                 }
                 int m = rs.process(in, n, out);
-                if (m > 0 && !ring.write(out, m / 2, () -> closed)) return live;
+                if (m > 0) {
+                    if (!ring.write(out, m / 2, () -> closed)) return live;
+                    producedFrames += m / 2;
+                }
             }
             return live;
         } finally {

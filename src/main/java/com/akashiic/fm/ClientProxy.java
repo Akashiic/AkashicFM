@@ -15,6 +15,8 @@ import com.akashiic.fm.client.audio.AlCapabilityProbe;
 import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.client.render.TileRadioRenderer;
 import com.akashiic.fm.content.TileRadio;
+import com.akashiic.fm.dev.DevE2E;
+import com.akashiic.fm.dev.E2EClient;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 
@@ -40,6 +42,7 @@ public class ClientProxy extends CommonProxy {
         MinecraftForge.EVENT_BUS.register(events);
         ClientRegistry.bindTileEntitySpecialRenderer(TileRadio.class, new TileRadioRenderer());
         AlCapabilityProbe.registerIfRequested();
+        if (DevE2E.enabled()) E2EClient.register(DevE2E.SCENARIO);
     }
 
     @Override
@@ -71,6 +74,7 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public void onRadioNotice(S2CRadioNotice notice) {
+        if (DevE2E.enabled() && E2EClient.INSTANCE != null) E2EClient.INSTANCE.onNotice(notice);
         GuiRadio gui = openGuiFor(notice.x, notice.y, notice.z);
         if (gui != null) {
             gui.onNotice(notice);
@@ -88,6 +92,7 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public void onRadioPerms(S2CRadioPerms perms) {
+        if (DevE2E.enabled() && E2EClient.INSTANCE != null) E2EClient.INSTANCE.onPerms(perms);
         GuiRadio gui = openGuiFor(perms.x, perms.y, perms.z);
         if (gui != null) gui.onPerms(perms);
     }

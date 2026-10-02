@@ -62,9 +62,16 @@ final class FlatSlider extends FlatButton {
             if (!enabled) dragging = false;
             else updateFromMouse(mouseX);
         }
-        int track = width - 8;
-        int knob = xPosition + 4 + (max == min ? 0 : Math.round((value - min) * (float) track / (max - min)));
-        drawRect(knob - 3, yPosition + 1, knob + 3, yPosition + height - 1, enabled ? 0xFF8FB8FF : 0xFF505050);
+        // Barra de progresso discreta atrás do texto, com uma alça fina na posição atual.
+        int track = width - 2;
+        int fill = xPosition + 1 + (max == min ? 0 : Math.round((value - min) * (float) track / (max - min)));
+        drawRect(xPosition + 1, yPosition + 1, fill, yPosition + height - 1, enabled ? 0x553A7BD5 : 0x33505050);
+        drawRect(
+            Math.max(xPosition + 1, fill - 1),
+            yPosition + 1,
+            Math.min(xPosition + width - 1, fill + 1),
+            yPosition + height - 1,
+            enabled ? 0xFF8FB8FF : 0xFF606060);
     }
 
     @Override
@@ -75,7 +82,7 @@ final class FlatSlider extends FlatButton {
     }
 
     private void updateFromMouse(int mouseX) {
-        float frac = (mouseX - (xPosition + 4)) / (float) Math.max(1, width - 8);
+        float frac = (mouseX - (xPosition + 1)) / (float) Math.max(1, width - 2);
         frac = Math.max(0f, Math.min(1f, frac));
         value = clamp(min + Math.round(frac * (max - min)));
         updateLabel();

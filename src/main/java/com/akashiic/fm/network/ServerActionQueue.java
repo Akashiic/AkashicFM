@@ -3,6 +3,7 @@ package com.akashiic.fm.network;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 
@@ -34,6 +35,9 @@ public final class ServerActionQueue {
     private static final ConcurrentLinkedQueue<Pending> QUEUE = new ConcurrentLinkedQueue<>();
     private static final AtomicInteger SIZE = new AtomicInteger();
     public static final RateLimiter LIMITER = new RateLimiter();
+    /** Contadores para diagnóstico (comando de admin e testes E2E). */
+    private static final AtomicLong PROCESSED = new AtomicLong(), RATE_LIMITED = new AtomicLong(),
+        OVERFLOW = new AtomicLong();
 
     private ServerActionQueue() {}
 
@@ -41,9 +45,13 @@ public final class ServerActionQueue {
     static void offer(EntityPlayerMP player, C2SRadioAction action) {
         if (player == null) return;
         UUID id = player.getUniqueID();
-        if (!LIMITER.tryAcquire(id, FmConfig.Limits.actionsPerSecond)) return;
+        if (!LIMITER.tryAcquire(id, FmConfig.Limits.actionsPerSecond)) {
+            RATE_LIMITED.incrementAndGet();
+            return;
+        }
         if (SIZE.incrementAndGet() > MAX_PENDING) {
             SIZE.decrementAndGet();
+            OVERFLOW.incrementAndGet();
             return;
         }
         QUEUE.add(new Pending(player, action));
@@ -55,8 +63,14 @@ public final class ServerActionQueue {
             Pending p = QUEUE.poll();
             if (p == null) return;
             SIZE.decrementAndGet();
+            PROCESSED.incrementAndGet();
             RadioActionHandler.handle(p.player, p.action);
         }
+    }
+
+    public static String stats() {
+        return "processed=" + PROCESSED
+            .get() + " rateLimited=" + RATE_LIMITED.get() + " overflow=" + OVERFLOW.get() + " pending=" + SIZE.get();
     }
 
     public static void clear() {

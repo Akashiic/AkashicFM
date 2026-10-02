@@ -38,6 +38,11 @@ public final class RadioAudioController {
     static final double STEREO_HALF_WIDTH = 0.3;
     /** Teto de fontes AL por rádio (as mais próximas do ouvinte ficam). */
     static final int MAX_VOICES_PER_RADIO = 16;
+    /**
+     * Teto de fontes AL do mod somando todas as rádios. O OpenAL Soft tem 256 no total e o Minecraft (com o
+     * Hodgepodge) reserva até 72; sobra folga para outros mods.
+     */
+    static final int MAX_VOICES_TOTAL = 96;
 
     private RadioAudioController() {}
 
@@ -45,11 +50,13 @@ public final class RadioAudioController {
 
         final TileRadio radio;
         final String key;
+        final List<EmitterSpec> emitters;
         final double nearest;
 
-        Candidate(TileRadio radio, String key, double nearest) {
+        Candidate(TileRadio radio, String key, List<EmitterSpec> emitters, double nearest) {
             this.radio = radio;
             this.key = key;
+            this.emitters = emitters;
             this.nearest = nearest;
         }
     }
@@ -70,7 +77,15 @@ public final class RadioAudioController {
         AudioEngine engine = AudioEngine.INSTANCE;
         World world = mc.theWorld;
         EntityClientPlayerMP player = mc.thePlayer;
-        if (world == null || player == null || !FmConfig.Client.enableAudio) {
+        float master = mc.gameSettings.getSoundLevel(SoundCategory.MASTER);
+        float records = mc.gameSettings.getSoundLevel(SoundCategory.RECORDS);
+        int clientVolume = FmConfig.Client.radioVolume;
+        // Sem mundo, áudio desligado ou volume zerado: nada toca e nenhum stream fica baixando à toa.
+        if (world == null || player == null
+            || !FmConfig.Client.enableAudio
+            || master <= 0f
+            || records <= 0f
+            || clientVolume <= 0) {
             if (engine.activeCount() > 0) engine.stopAll();
             return;
         }
@@ -83,30 +98,38 @@ public final class RadioAudioController {
             RadioState s = radio.state;
             if (!s.playing || s.url.isEmpty() || s.transport != Transport.DIRECT) continue;
             if (!FmConfig.Client.allowDirectStreams) continue;
+            // Só conta o que soa de verdade: caixas em chunk que este cliente não tem não entram.
+            List<EmitterSpec> emitters = emittersFor(world, radio, lx, ly, lz, records, clientVolume);
+            double nearest = Double.MAX_VALUE;
+            for (EmitterSpec e : emitters) nearest = Math.min(nearest, Math.sqrt(distSq(e, lx, ly, lz)));
             String key = keyFor(radio);
-            double nearest = Math.sqrt(
-                radio.pos()
-                    .distanceSqTo(lx, ly, lz));
-            for (Pos p : s.speakers) nearest = Math.min(nearest, Math.sqrt(p.distanceSqTo(lx, ly, lz)));
             double limit = s.range + (engine.has(key) ? HYSTERESIS : 0);
-            if (nearest <= limit) candidates.add(new Candidate(radio, key, nearest));
+            if (nearest <= limit) candidates.add(new Candidate(radio, key, emitters, nearest));
         }
         Collections.sort(candidates, (a, b) -> Double.compare(a.nearest, b.nearest));
         int max = Math.max(1, FmConfig.Client.maxSimultaneousRadios);
 
-        float records = mc.gameSettings.getSoundLevel(SoundCategory.RECORDS);
-        int clientVolume = FmConfig.Client.radioVolume;
         Set<String> keep = new HashSet<>();
-        for (int i = 0; i < candidates.size() && i < max; i++) {
+        int budget = MAX_VOICES_TOTAL;
+        for (int i = 0; i < candidates.size() && keep.size() < max && budget > 0; i++) {
             Candidate c = candidates.get(i);
+            // emittersFor já ordena por distância quando corta; aqui só cabe no que resta do orçamento.
+            List<EmitterSpec> emitters = c.emitters.size() <= budget ? c.emitters
+                : nearestFirst(c.emitters, lx, ly, lz).subList(0, budget);
+            budget -= emitters.size();
             TileRadio radio = c.radio;
-            List<EmitterSpec> emitters = emittersFor(world, radio, lx, ly, lz, records, clientVolume);
             final String url = radio.state.url;
             final String threadName = "AkashicFM-Direct-" + radio.xCoord + "," + radio.yCoord + "," + radio.zCoord;
             engine.touch(c.key, () -> new DirectFeed(url, threadName).start(), emitters);
             keep.add(c.key);
         }
         engine.retainOnly(keep);
+    }
+
+    private static List<EmitterSpec> nearestFirst(List<EmitterSpec> emitters, double lx, double ly, double lz) {
+        List<EmitterSpec> sorted = new ArrayList<>(emitters);
+        Collections.sort(sorted, (a, b) -> Double.compare(distSq(a, lx, ly, lz), distSq(b, lx, ly, lz)));
+        return sorted;
     }
 
     /** Fontes da rádio (par estéreo) e das caixas carregadas, com o ganho de cada uma para este ouvinte. */
@@ -141,10 +164,8 @@ public final class RadioAudioController {
                 records,
                 clientVolume);
         }
-        if (out.size() > MAX_VOICES_PER_RADIO) {
-            Collections.sort(out, (a, b) -> Double.compare(distSq(a, lx, ly, lz), distSq(b, lx, ly, lz)));
-            out = new ArrayList<>(out.subList(0, MAX_VOICES_PER_RADIO));
-        }
+        if (out.size() > MAX_VOICES_PER_RADIO)
+            out = new ArrayList<>(nearestFirst(out, lx, ly, lz).subList(0, MAX_VOICES_PER_RADIO));
         return out;
     }
 

@@ -41,6 +41,9 @@ final class Playback {
     private boolean retryPending;
     private long retryAfterNanos;
     long lastTouchedNanos;
+    /** Diagnóstico: frames entregues ao OpenAL e quantas vezes o feed não acompanhou. */
+    long framesQueued;
+    int underruns;
 
     private final short[] stereo = new short[CHUNK_FRAMES * 2];
     private final ShortBuffer mono = BufferUtils.createShortBuffer(CHUNK_FRAMES);
@@ -57,6 +60,13 @@ final class Playback {
 
     int voiceCount() {
         return voices.size();
+    }
+
+    /** Vozes com a fonte AL em AL_PLAYING. Só com o contexto válido (chama o OpenAL). */
+    int playingVoices() {
+        int n = 0;
+        for (Voice v : voices) if (v.isCreated() && v.state() == AL10.AL_PLAYING) n++;
+        return n;
     }
 
     /** Controlador (thread principal): fontes desejadas e ganhos-alvo deste tick. */
@@ -119,6 +129,7 @@ final class Playback {
                     // Underrun (o feed não acompanhou): para tudo e recomeça junto depois do prebuffer.
                     for (Voice v : voices) v.resetQueue();
                     state = State.WAITING;
+                    underruns++;
                 }
             }
         }
@@ -135,6 +146,7 @@ final class Playback {
             else return;
             int got = feed.read(stereo, frames);
             if (got <= 0) return;
+            framesQueued += got;
             for (Voice v : voices) {
                 fillMono(v, got);
                 if (!v.queue(mono, AudioFeed.SAMPLE_RATE)) return;

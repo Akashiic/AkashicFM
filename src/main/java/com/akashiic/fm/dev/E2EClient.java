@@ -1,0 +1,648 @@
+package com.akashiic.fm.dev;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiMainMenu;
+import net.minecraft.client.multiplayer.GuiConnecting;
+import net.minecraft.util.MathHelper;
+import net.minecraft.util.ScreenShotHelper;
+import net.minecraftforge.client.event.ClientChatReceivedEvent;
+import net.minecraftforge.common.MinecraftForge;
+
+import com.akashiic.fm.client.ClientRadioRegistry;
+import com.akashiic.fm.client.audio.AudioEngine;
+import com.akashiic.fm.client.audio.RadioAudioController;
+import com.akashiic.fm.client.gui.GuiRadio;
+import com.akashiic.fm.common.Pos;
+import com.akashiic.fm.common.RadioAccess;
+import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.content.TileRadio;
+import com.akashiic.fm.network.C2SRadioAction;
+import com.akashiic.fm.network.C2SRadioAction.Action;
+import com.akashiic.fm.network.FmNetwork;
+import com.akashiic.fm.network.S2CRadioNotice;
+import com.akashiic.fm.network.S2CRadioPerms;
+
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import cpw.mods.fml.common.gameevent.TickEvent;
+
+/**
+ * Lado cliente do E2E: um roteiro de passos executado tick a tick, com prazo em cada passo. Usa só caminhos
+ * reais (comandos de chat, pacotes do mod pela rede, o controlador e a engine de áudio de verdade) e escreve
+ * "[E2E] PASS/FAIL" no log. Cenários: "main" (dono/op), "main+peer" (espera o segundo cliente) e "peer".
+ */
+public final class E2EClient {
+
+    public static E2EClient INSTANCE;
+
+    private static final int TPS = 20;
+    private static final String DEFAULT_URL = "https://stream.radioparadise.com/mp3-128";
+
+    private final String scenario;
+    private final String url;
+    private final List<Step> steps = new ArrayList<>();
+    private int cleanupIndex;
+    private int index = -1;
+    private int t;
+    private int pass, fail;
+    private boolean finished;
+    private int shutdownCountdown = -1;
+
+    // Contexto compartilhado entre passos.
+    private int rx, ry, rz;
+    private final List<String> notices = new CopyOnWriteArrayList<>();
+    private final List<String> chat = new CopyOnWriteArrayList<>();
+    private volatile S2CRadioPerms lastPerms;
+
+    private E2EClient(String scenario) {
+        this.scenario = scenario;
+        String u = System.getenv("AKASHICFM_E2E_URL");
+        this.url = u == null || u.isEmpty() ? DEFAULT_URL : u;
+        if (scenario.startsWith("peer")) buildPeer();
+        else if (scenario.startsWith("listen")) buildListen();
+        else buildMain(scenario.contains("peer"));
+    }
+
+    public static void register(String scenario) {
+        INSTANCE = new E2EClient(scenario);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(INSTANCE);
+        MinecraftForge.EVENT_BUS.register(INSTANCE);
+        DevE2E.log("cliente: cenário '{}', {} passos, url {}", scenario, INSTANCE.steps.size(), INSTANCE.url);
+    }
+
+    // ---- Ganchos ----
+
+    @SubscribeEvent
+    public void onTick(TickEvent.ClientTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) advance();
+    }
+
+    @SubscribeEvent
+    public void onChat(ClientChatReceivedEvent event) {
+        if (event.message != null) chat.add(event.message.getUnformattedText());
+    }
+
+    public void onNotice(S2CRadioNotice notice) {
+        notices.add(notice.key);
+        DevE2E.log("aviso do servidor: {} '{}' (erro={})", notice.key, notice.arg, notice.error);
+    }
+
+    public void onPerms(S2CRadioPerms perms) {
+        lastPerms = perms;
+    }
+
+    // ---- Motor dos passos ----
+
+    private abstract class Step {
+
+        final String name;
+        final int timeoutTicks;
+
+        Step(String name, int timeoutSeconds) {
+            this.name = name;
+            this.timeoutTicks = timeoutSeconds * TPS;
+        }
+
+        void start() {}
+
+        /** null: continua; "": passou; outro texto: falhou, com o motivo. */
+        abstract String tick(int t);
+    }
+
+    private void advance() {
+        if (shutdownCountdown >= 0) {
+            if (shutdownCountdown-- == 0) Minecraft.getMinecraft()
+                .shutdown();
+            return;
+        }
+        if (finished) return;
+        if (index < 0) begin(0);
+        Step s = steps.get(index);
+        String r;
+        try {
+            r = s.tick(t);
+        } catch (Throwable e) {
+            r = "exceção: " + e;
+            com.akashiic.fm.AkashicFM.LOG.error("[E2E] exceção no passo", e);
+        }
+        t++;
+        if (r == null && t > s.timeoutTicks) r = "prazo de " + s.timeoutTicks / TPS + " s esgotado";
+        if (r == null) return;
+        if (r.isEmpty()) {
+            pass++;
+            DevE2E.log("PASS {} ({} ticks)", s.name, t);
+        } else {
+            fail++;
+            DevE2E.log("FAIL {}: {}", s.name, r);
+            if (index < cleanupIndex) { // os passos seguintes dependem deste: vai direto à limpeza
+                begin(cleanupIndex);
+                return;
+            }
+        }
+        if (index + 1 >= steps.size()) {
+            finished = true;
+            DevE2E.log("DONE cenario={} pass={} fail={}", scenario, pass, fail);
+            shutdownCountdown = 40;
+            return;
+        }
+        begin(index + 1);
+    }
+
+    private void begin(int i) {
+        index = i;
+        t = 0;
+        DevE2E.log("STEP {}", steps.get(i).name);
+        steps.get(i)
+            .start();
+    }
+
+    // ---- Utilidades ----
+
+    private static Minecraft mc() {
+        return Minecraft.getMinecraft();
+    }
+
+    private TileRadio radio() {
+        return ClientRadioRegistry.get(new Pos(rx, ry, rz));
+    }
+
+    private AudioEngine.PlaybackInfo info() {
+        TileRadio r = radio();
+        return r == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.keyFor(r));
+    }
+
+    private void send(Action action, int intArg, String strArg) {
+        FmNetwork.sendToServer(new C2SRadioAction(rx, ry, rz, action, intArg, strArg));
+    }
+
+    private static void say(String message) {
+        if (mc().thePlayer != null) mc().thePlayer.sendChatMessage(message);
+    }
+
+    private boolean chatSaw(String needle) {
+        for (String line : chat) if (line.contains(needle)) return true;
+        return false;
+    }
+
+    private static int liveDirectThreads() {
+        int n = 0;
+        for (Thread th : Thread.getAllStackTraces()
+            .keySet()) {
+            if (th.isAlive() && th.getName()
+                .startsWith("AkashicFM-Direct-")) n++;
+        }
+        return n;
+    }
+
+    /** Captura do último frame (dev): conferir visualmente a GUI e a tela da rádio. */
+    private static void screenshot(String name) {
+        try {
+            ScreenShotHelper
+                .saveScreenshot(mc().mcDataDir, name, mc().displayWidth, mc().displayHeight, mc().getFramebuffer());
+            DevE2E.log("captura salva: screenshots/{}", name);
+        } catch (Throwable e) {
+            DevE2E.log("captura falhou: {}", e.toString());
+        }
+    }
+
+    private static boolean inWorld() {
+        return mc().theWorld != null && mc().thePlayer != null;
+    }
+
+    // ---- Passos comuns ----
+
+    private Step join() {
+        return new Step("entrar-no-servidor", 900) {
+
+            int inWorldTicks;
+
+            @Override
+            String tick(int t) {
+                inWorldTicks = inWorld() ? inWorldTicks + 1 : 0;
+                return inWorldTicks >= 60 ? "" : null;
+            }
+        };
+    }
+
+    private Step audioPlaying(String name, int timeoutSeconds) {
+        return new Step(name, timeoutSeconds) {
+
+            @Override
+            String tick(int t) {
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null) return null;
+                if (i.feedStatus == com.akashiic.fm.client.audio.AudioFeed.Status.ERROR && i.done) {
+                    return "stream com erro: " + i.detail;
+                }
+                if (!i.playing) return null;
+                DevE2E.log(
+                    "tocando: vozes={} fontesAL={} frames={} underruns={}",
+                    i.voices,
+                    AudioEngine.INSTANCE.playingSources(),
+                    i.framesQueued,
+                    i.underruns);
+                return "";
+            }
+        };
+    }
+
+    private Step reconnect() {
+        return new Step("reconectar", 120) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiConnecting(new GuiMainMenu(), mc(), "127.0.0.1", 25565));
+            }
+
+            @Override
+            String tick(int t) {
+                return inWorld() && t > 60 ? "" : null;
+            }
+        };
+    }
+
+    private Step disconnect(String name) {
+        return new Step(name, 20) {
+
+            @Override
+            String tick(int t) {
+                // Espera 1 s antes: mensagens de chat do passo anterior precisam sair antes de fechar a conexão.
+                if (t == 20 && mc().theWorld != null) {
+                    mc().theWorld.sendQuittingDisconnectingPacket();
+                    mc().loadWorld(null);
+                    mc().displayGuiScreen(new GuiMainMenu());
+                }
+                if (t < 60) return null;
+                int active = AudioEngine.INSTANCE.activeCount();
+                int threads = liveDirectThreads();
+                if (active == 0 && threads == 0) return "";
+                return t >= 200 ? "ainda ativo: reproduções=" + active + " threads=" + threads : null;
+            }
+        };
+    }
+
+    // ---- Cenário principal (op, coloca a rádio) ----
+
+    private void buildMain(boolean expectPeer) {
+        steps.add(join());
+        steps.add(new Step("colocar-radio", 15) {
+
+            @Override
+            void start() {
+                rx = MathHelper.floor_double(mc().thePlayer.posX) + 2;
+                ry = MathHelper.floor_double(mc().thePlayer.boundingBox.minY);
+                rz = MathHelper.floor_double(mc().thePlayer.posZ);
+                // Rádios de rodadas anteriores (o mundo é persistente) param, para o teste medir só a nova.
+                for (TileRadio old : ClientRadioRegistry.snapshot()) {
+                    if (old.state.playing) FmNetwork
+                        .sendToServer(new C2SRadioAction(old.xCoord, old.yCoord, old.zCoord, Action.STOP, 0, ""));
+                }
+                // Limpa antes: o mundo pode guardar a rádio de uma rodada anterior no mesmo lugar.
+                say("/setblock " + rx + " " + ry + " " + rz + " air");
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 5) say("/setblock " + rx + " " + ry + " " + rz + " akashicfm:radio 3");
+                TileRadio r = radio();
+                return t > 5 && r != null && r.state.url.isEmpty() && !r.state.playing ? "" : null;
+            }
+        });
+        steps.add(new Step("cliente-malicioso", 20) {
+
+            @Override
+            String tick(int t) {
+                if (t == 0) say("e2e:mark before-malicious");
+                if (t == 5) {
+                    // Coordenadas que o servidor nunca pode carregar nem aceitar.
+                    FmNetwork.sendToServer(new C2SRadioAction(rx + 100_000, ry, rz, Action.PLAY, 0, url));
+                    FmNetwork.sendToServer(new C2SRadioAction(rx, -5, rz, Action.PLAY, 0, url));
+                    FmNetwork.sendToServer(new C2SRadioAction(rx, 300, rz, Action.PLAY, 0, url));
+                    FmNetwork.sendToServer(new C2SRadioAction(29_999_000, ry, 29_999_000, Action.SET_URL, 0, url));
+                    // URL interna gigante na rádio de verdade: cortada na leitura e recusada pela política.
+                    StringBuilder big = new StringBuilder("http://127.0.0.1/");
+                    while (big.length() < 15_000) big.append('x');
+                    send(Action.SET_URL, 0, big.toString());
+                }
+                if (t == 10) {
+                    for (int i = 0; i < 200; i++) send(Action.STOP, 0, "");
+                }
+                if (t == 60) {
+                    say("e2e:mark after-malicious");
+                    say("e2e:check-unloaded " + (rx + 100_000) + " " + rz);
+                    say("e2e:check-unloaded 29999000 29999000");
+                }
+                if (t < 60) return null;
+                TileRadio r = radio();
+                if (r != null && !r.state.url.isEmpty()) return "URL maliciosa foi aceita: " + r.state.url;
+                if (chatSaw("loaded=true")) return "um pacote malicioso carregou chunk no servidor";
+                boolean bothChecked = chatSaw("e2e-result chunk " + (rx + 100_000) + " " + rz + " loaded=false")
+                    && chatSaw("e2e-result chunk 29999000 29999000 loaded=false");
+                return bothChecked && notices.contains("akashicfm.policy.internal") ? "" : null;
+            }
+        });
+        steps.add(new Step("tocar-modo-direto", 20) {
+
+            @Override
+            String tick(int t) {
+                if (t == 50) send(Action.PLAY, 0, url); // espera o limitador de ações recarregar
+                if (notices.contains("akashicfm.notice.no_transport")) return "servidor sem transporte";
+                TileRadio r = radio();
+                return r != null && r.state.playing && r.state.transport == Transport.DIRECT ? "" : null;
+            }
+        });
+        steps.add(audioPlaying("audio-comeca", 45));
+        steps.add(new Step("anunciar-radio-tocando", 2) {
+
+            @Override
+            String tick(int t) {
+                say("e2e:main radio-playing");
+                return "";
+            }
+        });
+        steps.add(new Step("audio-continuo-5s", 10) {
+
+            long frames0;
+            int under0;
+
+            @Override
+            void start() {
+                AudioEngine.PlaybackInfo i = info();
+                frames0 = i == null ? 0 : i.framesQueued;
+                under0 = i == null ? 0 : i.underruns;
+            }
+
+            @Override
+            String tick(int t) {
+                if (t < 100) return null;
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null) return "reprodução sumiu";
+                long gained = i.framesQueued - frames0;
+                int sources = AudioEngine.INSTANCE.playingSources();
+                int allVoices = AudioEngine.INSTANCE.totalVoices();
+                DevE2E.log(
+                    "5 s: frames={} ({} s) underruns={} vozes={} fontesAL={}",
+                    gained,
+                    String.format("%.2f", gained / 48000.0),
+                    i.underruns - under0,
+                    i.voices,
+                    sources);
+                if (gained < 4 * 48000) return "pouco áudio entregue: " + gained + " frames";
+                // Toda voz criada está tocando, e nenhuma fonte AL do mod ficou fora da contagem.
+                if (sources != allVoices || i.voices == 0) {
+                    return "fontes AL tocando=" + sources + " vozes=" + allVoices;
+                }
+                return "";
+            }
+        });
+        steps.add(new Step("tela-da-radio-com-texto", 15) {
+
+            @Override
+            void start() {
+                send(Action.SET_SCREEN_TEXT, 0, "Radio Paradise 128k");
+                say("/time set 6000");
+                say("/tp " + (rx + 0.5) + " " + ry + " " + (rz + 2.3));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 40) {
+                    // De frente para a rádio (face sul), olhando para o centro da tela dela.
+                    mc().thePlayer.rotationYaw = 180f;
+                    mc().thePlayer.rotationPitch = 37f;
+                    mc().gameSettings.hideGUI = true;
+                }
+                if (t == 80) {
+                    screenshot("e2e-radio-tesr.png");
+                    mc().gameSettings.hideGUI = false;
+                }
+                TileRadio r = radio();
+                return t >= 80 && r != null && "Radio Paradise 128k".equals(r.state.screenText) ? "" : null;
+            }
+        });
+        steps.add(new Step("gui-abre-com-permissoes", 10) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiRadio(rx, ry, rz));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 28) screenshot("e2e-gui.png");
+                if (t < 30) return null;
+                if (!(mc().currentScreen instanceof GuiRadio)) return "a GUI fechou sozinha";
+                GuiRadio gui = (GuiRadio) mc().currentScreen;
+                boolean ok = gui.permsKnown() && gui.canAdmin();
+                mc().displayGuiScreen(null);
+                return ok ? "" : "permissões não chegaram ou op sem admin";
+            }
+        });
+        if (expectPeer) {
+            steps.add(new Step("esperar-segundo-jogador", 600) {
+
+                @Override
+                String tick(int t) {
+                    // Repete o anúncio: o segundo cliente pode ter entrado depois da primeira mensagem.
+                    if (t % 100 == 0) say("e2e:main radio-playing");
+                    return chatSaw("e2e:peer ready") ? "" : null;
+                }
+            });
+        }
+        steps.add(new Step("teleporte-1000-blocos-silencia", 15) {
+
+            double startX;
+            int movedAt = -1;
+
+            @Override
+            void start() {
+                startX = mc().thePlayer.posX;
+                say("/tp ~1000 ~ ~");
+            }
+
+            @Override
+            String tick(int t) {
+                if (!inWorld()) return null;
+                if (movedAt < 0 && Math.abs(mc().thePlayer.posX - startX) > 500) movedAt = t;
+                if (movedAt < 0) return null;
+                if (AudioEngine.INSTANCE.activeCount() == 0) {
+                    int delay = t - movedAt;
+                    DevE2E.log("silêncio {} ticks depois do teleporte", delay);
+                    return delay <= TPS ? "" : "demorou " + delay + " ticks";
+                }
+                return null;
+            }
+        });
+        steps.add(new Step("voltar-e-ouvir-de-novo", 5) {
+
+            @Override
+            void start() {
+                say("/tp ~-1000 ~ ~");
+            }
+
+            @Override
+            String tick(int t) {
+                return t >= 20 ? "" : null;
+            }
+        });
+        steps.add(audioPlaying("audio-volta", 45));
+        steps.add(new Step("parar", 5) {
+
+            @Override
+            void start() {
+                send(Action.STOP, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                return r != null && !r.state.playing && AudioEngine.INSTANCE.activeCount() == 0 ? "" : null;
+            }
+        });
+        if (expectPeer) {
+            steps.add(new Step("segundo-jogador-parou", 60) {
+
+                @Override
+                String tick(int t) {
+                    return chatSaw("e2e:peer stopped-ok") ? "" : null;
+                }
+            });
+        }
+        steps.add(new Step("tocar-de-novo", 10) {
+
+            @Override
+            void start() {
+                send(Action.PLAY, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                return r != null && r.state.playing ? "" : null;
+            }
+        });
+        steps.add(audioPlaying("audio-de-novo", 45));
+        steps.add(disconnect("desconectar-sem-som-orfao"));
+        steps.add(reconnect());
+        steps.add(audioPlaying("ouvir-depois-de-reconectar", 45));
+        cleanupIndex = steps.size();
+        steps.add(disconnect("desconectar-final"));
+    }
+
+    // ---- Cenário "listen": só entra e confere que ouve uma rádio que já estava tocando (persistência) ----
+
+    private void buildListen() {
+        steps.add(join());
+        steps.add(new Step("achar-radio-que-ja-tocava", 30) {
+
+            @Override
+            String tick(int t) {
+                for (TileRadio r : ClientRadioRegistry.snapshot()) {
+                    if (r.getWorldObj() == mc().theWorld && r.state.playing) {
+                        rx = r.xCoord;
+                        ry = r.yCoord;
+                        rz = r.zCoord;
+                        DevE2E.log(
+                            "rádio carregada do disco: {} sessão={} url={}",
+                            r.pos(),
+                            r.state.session,
+                            r.state.url);
+                        return "";
+                    }
+                }
+                return null;
+            }
+        });
+        steps.add(audioPlaying("ouvir-radio-persistida", 45));
+        cleanupIndex = steps.size();
+        steps.add(disconnect("desconectar-final"));
+    }
+
+    // ---- Cenário do segundo jogador (não-op) ----
+
+    private void buildPeer() {
+        steps.add(join());
+        steps.add(new Step("achar-radio-tocando", 900) {
+
+            @Override
+            String tick(int t) {
+                if (!chatSaw("e2e:main radio-playing")) return null;
+                for (TileRadio r : ClientRadioRegistry.snapshot()) {
+                    if (r.getWorldObj() == mc().theWorld && r.state.playing) {
+                        rx = r.xCoord;
+                        ry = r.yCoord;
+                        rz = r.zCoord;
+                        return "";
+                    }
+                }
+                return null;
+            }
+        });
+        steps.add(new Step("peer-ouve-o-mesmo-audio", 45) {
+
+            final Step inner = audioPlaying("peer-audio", 45);
+
+            @Override
+            String tick(int t) {
+                String r = inner.tick(t);
+                if ("".equals(r)) say("e2e:peer hears");
+                return r;
+            }
+        });
+        steps.add(new Step("peer-permissoes", 10) {
+
+            @Override
+            void start() {
+                lastPerms = null;
+                send(Action.REQUEST_PERMS, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                S2CRadioPerms p = lastPerms;
+                if (p == null) return null;
+                // Rádio sem dono (colocada por comando): qualquer jogador controla, só op administra.
+                return p.canControl && !p.canAdmin ? "" : "control=" + p.canControl + " admin=" + p.canAdmin;
+            }
+        });
+        steps.add(new Step("peer-sem-admin-e-recusado", 10) {
+
+            @Override
+            void start() {
+                notices.clear();
+                send(Action.SET_ACCESS, RadioAccess.PUBLIC.ordinal(), "");
+            }
+
+            @Override
+            String tick(int t) {
+                if (!notices.contains("akashicfm.notice.no_permission")) return null;
+                say("e2e:peer ready");
+                return "";
+            }
+        });
+        steps.add(new Step("peer-ve-a-parada", 900) {
+
+            int stoppedAt = -1;
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (stoppedAt < 0 && r != null && !r.state.playing) stoppedAt = t;
+                if (stoppedAt < 0) return null;
+                if (AudioEngine.INSTANCE.activeCount() == 0) {
+                    say("e2e:peer stopped-ok");
+                    return "";
+                }
+                return t - stoppedAt > 2 * TPS ? "continuou tocando depois da parada" : null;
+            }
+        });
+        cleanupIndex = steps.size();
+        steps.add(disconnect("desconectar-sem-som-orfao"));
+    }
+}

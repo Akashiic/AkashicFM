@@ -2,7 +2,6 @@ package com.akashiic.fm.content;
 
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.init.Blocks;
-import net.minecraft.init.Items;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.oredict.OreDictionary;
@@ -48,7 +47,7 @@ public final class FmContent {
     /** init: receitas padrão (o modpack pode desligar e definir as próprias). */
     public static void registerRecipes() {
         if (!FmConfig.Recipes.registerDefaultRecipes) return;
-        // Ore dictionary para aceitar qualquer madeira; lã com metadata coringa para aceitar qualquer cor.
+        // Ore dictionary (madeira, ferro e redstone de qualquer mod); lã com metadata coringa (qualquer cor).
         ItemStack anyWool = new ItemStack(Blocks.wool, 1, OreDictionary.WILDCARD_VALUE);
         GameRegistry.addRecipe(
             new ShapedOreRecipe(
@@ -59,11 +58,11 @@ public final class FmContent {
                 'P',
                 "plankWood",
                 'I',
-                Items.iron_ingot,
+                "ingotIron",
                 'N',
                 Blocks.noteblock,
                 'R',
-                Items.redstone));
+                "dustRedstone"));
         GameRegistry.addRecipe(
             new ShapedOreRecipe(
                 new ItemStack(speaker),
@@ -77,7 +76,7 @@ public final class FmContent {
                 'N',
                 Blocks.noteblock,
                 'R',
-                Items.redstone));
+                "dustRedstone"));
         GameRegistry.addRecipe(
             new ShapedOreRecipe(
                 new ItemStack(tuner),
@@ -85,9 +84,9 @@ public final class FmContent {
                 "I",
                 "S",
                 'R',
-                Items.redstone,
+                "dustRedstone",
                 'I',
-                Items.iron_ingot,
+                "ingotIron",
                 'S',
                 "stickWood"));
     }

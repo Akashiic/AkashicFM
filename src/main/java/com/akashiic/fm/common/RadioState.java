@@ -22,7 +22,7 @@ public final class RadioState {
     public int volume = RadioLimits.VOLUME_DEFAULT;
     public int range = RadioLimits.RANGE_DEFAULT;
     public RadioAccess access = RadioAccess.PRIVATE;
-    /** Dono. null = sem dono: só ops controlam. */
+    /** Dono. null = sem dono (colocada por máquina): qualquer jogador controla, só ops administram. */
     public UUID owner;
     public String ownerName = "";
     public String screenText = "";

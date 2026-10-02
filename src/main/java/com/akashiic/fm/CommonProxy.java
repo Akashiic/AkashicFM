@@ -6,6 +6,8 @@ import net.minecraftforge.common.MinecraftForge;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.content.FmContent;
 import com.akashiic.fm.content.TileRadio;
+import com.akashiic.fm.dev.DevE2E;
+import com.akashiic.fm.dev.E2EServer;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
@@ -54,7 +56,9 @@ public class CommonProxy {
         MinecraftForge.EVENT_BUS.register(events);
     }
 
-    public void serverStarting(FMLServerStartingEvent event) {}
+    public void serverStarting(FMLServerStartingEvent event) {
+        if (DevE2E.enabled()) E2EServer.register();
+    }
 
     public void serverStopped(FMLServerStoppedEvent event) {
         ServerRadioRegistry.clear();

@@ -53,6 +53,8 @@ public final class AudioEngine {
     private boolean fallbackBroken;
     private Field fieldSndManager, fieldSndSystem, fieldLoaded;
     private Object lastSoundSystem;
+    private Object lastAlContext;
+    private boolean alContextUnavailable;
 
     private AudioEngine() {}
 
@@ -74,14 +76,16 @@ public final class AudioEngine {
 
     /** Contexto AL novo pronto. */
     public void onContextCreated() {
+        int gen;
         lock.lock();
         try {
             hookSeen = true;
-            generation++;
+            gen = ++generation;
             contextReady = true;
         } finally {
             lock.unlock();
         }
+        AkashicFM.LOG.info("AkashicFM: contexto OpenAL pronto (geração {})", gen);
     }
 
     // ---- API da thread principal ----
@@ -157,7 +161,34 @@ public final class AudioEngine {
                 p.isDone(),
                 p.feed.status(),
                 p.feed.statusDetail(),
-                p.voiceCount());
+                p.voiceCount(),
+                p.framesQueued,
+                p.underruns);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Fontes AL do mod em AL_PLAYING, somando todas as reproduções (diagnóstico; thread principal). */
+    public int playingSources() {
+        lock.lock();
+        try {
+            if (!alUsable()) return 0;
+            int n = 0;
+            for (Playback p : playbacks.values()) n += p.playingVoices();
+            return n;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Vozes de todas as reproduções (diagnóstico). */
+    public int totalVoices() {
+        lock.lock();
+        try {
+            int n = 0;
+            for (Playback p : playbacks.values()) n += p.voiceCount();
+            return n;
         } finally {
             lock.unlock();
         }
@@ -238,15 +269,32 @@ public final class AudioEngine {
             Object manager = handler == null ? null : fieldSndManager.get(handler);
             boolean loaded = manager != null && fieldLoaded.getBoolean(manager);
             Object system = manager == null ? null : fieldSndSystem.get(manager);
-            if (system != lastSoundSystem) {
+            Object context = currentAlContext();
+            if (system != lastSoundSystem || context != lastAlContext) {
+                // Recriação do sound system ou do contexto: ids antigos não valem mais. Neste frame não toca;
+                // no próximo, com tudo estável, volta.
                 lastSoundSystem = system;
+                lastAlContext = context;
                 generation++;
+                contextReady = false;
+                return;
             }
             contextReady = loaded && system != null && AL.isCreated();
         } catch (Throwable t) {
             fallbackBroken = true;
             contextReady = AL.isCreated();
             AkashicFM.LOG.warn("AkashicFM: detecção do sound system por reflection indisponível", t);
+        }
+    }
+
+    /** Objeto do contexto AL atual (identidade muda a cada recriação), ou null. */
+    private Object currentAlContext() {
+        if (alContextUnavailable) return null;
+        try {
+            return AL.isCreated() ? AL.getContext() : null;
+        } catch (Throwable t) { // implementação de AL sem getContext (ex.: camada de compatibilidade)
+            alContextUnavailable = true;
+            return null;
         }
     }
 
@@ -258,13 +306,18 @@ public final class AudioEngine {
         public final AudioFeed.Status feedStatus;
         public final String detail;
         public final int voices;
+        public final long framesQueued;
+        public final int underruns;
 
-        PlaybackInfo(boolean playing, boolean done, AudioFeed.Status feedStatus, String detail, int voices) {
+        PlaybackInfo(boolean playing, boolean done, AudioFeed.Status feedStatus, String detail, int voices,
+            long framesQueued, int underruns) {
             this.playing = playing;
             this.done = done;
             this.feedStatus = feedStatus;
             this.detail = detail;
             this.voices = voices;
+            this.framesQueued = framesQueued;
+            this.underruns = underruns;
         }
     }
 }
