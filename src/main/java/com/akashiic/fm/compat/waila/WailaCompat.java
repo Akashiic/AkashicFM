@@ -2,6 +2,7 @@ package com.akashiic.fm.compat.waila;
 
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.content.TileTransmitter;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import mcp.mobius.waila.api.IWailaRegistrar;
@@ -25,5 +26,6 @@ public final class WailaCompat {
         WailaRadioProvider provider = new WailaRadioProvider();
         registrar.registerBodyProvider(provider, TileRadio.class);
         registrar.registerBodyProvider(provider, TileSpeaker.class);
+        registrar.registerBodyProvider(provider, TileTransmitter.class);
     }
 }

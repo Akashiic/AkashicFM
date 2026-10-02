@@ -11,13 +11,15 @@ import net.minecraft.world.World;
 import com.akashiic.fm.client.RadioInfo;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.content.TileTransmitter;
 
 import mcp.mobius.waila.api.IWailaConfigHandler;
 import mcp.mobius.waila.api.IWailaDataAccessor;
 import mcp.mobius.waila.api.IWailaDataProvider;
 
 /**
- * Corpo do tooltip do WAILA para a rádio e a caixa. As informações já estão no cliente (pacote do bloco), então
+ * Corpo do tooltip do WAILA para a rádio, a caixa e o transmissor. As informações já estão no cliente (pacote do
+ * bloco), então
  * não há dados extras do servidor.
  */
 final class WailaRadioProvider implements IWailaDataProvider {
@@ -39,6 +41,7 @@ final class WailaRadioProvider implements IWailaDataProvider {
         TileEntity te = accessor.getTileEntity();
         if (te instanceof TileRadio) tip.addAll(RadioInfo.lines((TileRadio) te));
         else if (te instanceof TileSpeaker) tip.addAll(RadioInfo.lines((TileSpeaker) te));
+        else if (te instanceof TileTransmitter) tip.addAll(RadioInfo.lines((TileTransmitter) te));
         return tip;
     }
 

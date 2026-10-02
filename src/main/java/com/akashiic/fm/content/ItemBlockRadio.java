@@ -16,9 +16,11 @@ import net.minecraft.world.chunk.Chunk;
 import net.minecraftforge.common.util.FakePlayer;
 
 import com.akashiic.fm.common.FmConfig;
+import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.Permissions;
 import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.TextSanitizer;
+import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.server.RadioIndex;
 
 import cpw.mods.fml.relauncher.Side;
@@ -100,6 +102,11 @@ public class ItemBlockRadio extends ItemBlock {
         if (!url.isEmpty()) {
             String shown = url.length() > 40 ? url.substring(0, 37) + "..." : url;
             lines.add(EnumChatFormatting.GRAY + StatCollector.translateToLocalFormatted("akashicfm.item.url", shown));
+        }
+        if (s.getByte("mode") == TuneMode.FREQUENCY.ordinal() && s.hasKey("frequency", 2)) {
+            lines.add(
+                EnumChatFormatting.GRAY + StatCollector
+                    .translateToLocalFormatted("akashicfm.item.frequency", Frequency.format(s.getShort("frequency"))));
         }
         int stations = Math.min(
             s.getTagList("stations", 8)

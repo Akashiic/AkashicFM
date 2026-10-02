@@ -135,7 +135,10 @@ public final class RelayService {
 
     private static boolean relayed(TileRadio r) {
         RadioState s = r.state;
-        return !r.isInvalid() && s.playing && s.transport == Transport.RELAY && !s.url.isEmpty();
+        return !r.isInvalid() && s.playing
+            && s.transport == Transport.RELAY
+            && !s.effectiveUrl()
+                .isEmpty();
     }
 
     /** Distância do jogador até a fonte mais próxima da rádio (ela mesma e as caixas, sem carregar chunk). */
@@ -163,12 +166,13 @@ public final class RelayService {
                 EntityPlayerMP player = (EntityPlayerMP) o;
                 UUID id = player.getUniqueID();
                 for (TileRadio r : radios) {
-                    boolean already = isSubscribedTo(id, r.state.url);
+                    String url = r.state.effectiveUrl();
+                    boolean already = isSubscribedTo(id, url);
                     double limit = r.state.range + (already ? HYSTERESIS : 0);
                     if (nearestEmitter(r, player.posX, player.posY, player.posZ) <= limit) {
                         wanted.computeIfAbsent(id, k -> new HashSet<>())
-                            .add(r.state.url);
-                        wantedUrls.add(r.state.url);
+                            .add(url);
+                        wantedUrls.add(url);
                     }
                 }
             }
@@ -268,7 +272,7 @@ public final class RelayService {
             if (world == null) continue;
             for (TileRadio r : ServerRadioRegistry.inDimension(world.provider.dimensionId)) {
                 if (!relayed(r)) continue;
-                Station s = HUB.get(r.state.url);
+                Station s = HUB.get(r.state.effectiveUrl());
                 if (s == null) continue;
                 String status = statusFor(s);
                 boolean changed = false;
@@ -325,9 +329,18 @@ public final class RelayService {
     public static boolean canRelay(String url) {
         if (HUB.has(url)) return true;
         Set<String> urls = new HashSet<>();
-        for (TileRadio r : ServerRadioRegistry.snapshot()) if (relayed(r)) urls.add(r.state.url);
+        for (TileRadio r : ServerRadioRegistry.snapshot()) if (relayed(r)) urls.add(r.state.effectiveUrl());
         for (Station s : HUB.all()) urls.add(s.url);
         return urls.contains(url) || urls.size() < Math.max(1, FmConfig.Relay.maxStations);
+    }
+
+    /** Título ICY atual da estação da URL, ou vazio se ninguém a está ouvindo pelo relay. */
+    public static String titleFor(String url) {
+        if (url == null || url.isEmpty()) return "";
+        Station s = HUB.get(url);
+        if (s == null) return "";
+        String title = s.streamTitle();
+        return title == null ? "" : title;
     }
 
     /** A estação da URL terminou com erro ou fim: um novo "tocar" tenta de novo com outra conexão. */

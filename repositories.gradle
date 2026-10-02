@@ -1,5 +1,20 @@
 // Add any additional repositories for your dependencies here.
 
 repositories {
-
+    // IC2 experimental (só a API, para compilar o transmissor como consumidor de EU opcional). O repositório só
+    // tem o jar (sem pom) e é o único que o tem: exclusivo, para o Gradle não perguntar a ninguém mais por ele.
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "GTNH cil.li"
+                url = "https://nexus.gtnewhorizons.com/repository/maven_cil_li/"
+                metadataSources {
+                    artifact()
+                }
+            }
+        }
+        filter {
+            includeGroup("net.industrial-craft")
+        }
+    }
 }

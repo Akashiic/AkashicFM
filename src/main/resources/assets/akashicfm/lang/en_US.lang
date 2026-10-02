@@ -3,30 +3,37 @@
 itemGroup.akashicfm=AkashicFM
 tile.akashicfm.radio.name=Radio
 tile.akashicfm.speaker.name=Speaker
+tile.akashicfm.transmitter.name=FM Transmitter
+tile.akashicfm.antenna.name=Antenna
 item.akashicfm.tuner.name=Tuner
 
 # Radio item tooltip
 akashicfm.item.url=Station: %s
 akashicfm.item.stations=Favorites: %s
+akashicfm.item.frequency=Frequency: %s MHz
 
 # Placement limits
 akashicfm.limit.chunk=This chunk already has the maximum number of radios (%s).
 akashicfm.limit.player=You already own the maximum number of radios (%s).
+akashicfm.limit.transmitters=You already own the maximum number of transmitters (%s).
 akashicfm.protection.not_yours=This block belongs to someone else.
 
 # Server replies to radio actions
-akashicfm.notice.too_far=You are too far from the radio.
+akashicfm.notice.too_far=You are too far away.
 akashicfm.notice.no_url=Enter a stream URL first.
 akashicfm.notice.url_invalid=Invalid URL. Use http:// or https:// followed by a public address.
-akashicfm.notice.no_permission=You don't have permission to do that on this radio.
+akashicfm.notice.no_permission=You don't have permission to do that here.
 akashicfm.notice.no_transport=This server has radio audio turned off (relay unavailable and direct mode disabled).
 akashicfm.notice.stations_full=Favorites are full (maximum %s).
 akashicfm.notice.relay_full=The server is already relaying the maximum number of stations (%s).
+akashicfm.notice.no_energy=The transmitter has no energy: it goes on air once it is fed EU or RF.
 
 # Station status (relay)
 akashicfm.status.reconnecting=Station reconnecting...
 akashicfm.status.error=Station error: %s (press Play to retry)
 akashicfm.status.ended=Station ended (press Play to restart)
+akashicfm.status.no_signal=No transmitter on this frequency reaches here.
+akashicfm.status.no_transport=The server has no audio transport for this station right now.
 
 # URL policy (reason the server refused a URL)
 akashicfm.policy.empty=URL rejected: empty.
@@ -108,3 +115,33 @@ akashicfm.waila.speakers=Linked speakers: %s
 akashicfm.waila.speaker.channel=Channel: %s
 akashicfm.waila.speaker.linked=Linked to the radio at %s, %s, %s
 akashicfm.waila.speaker.unlinked=No radio linked
+
+# Radio in FM mode
+akashicfm.gui.mode.url=URL
+akashicfm.gui.mode.fm=FM
+akashicfm.gui.fm.no_signal=%s FM · no signal
+akashicfm.gui.fm.signal=Signal %s%% · %s
+akashicfm.screen.no_signal=no signal
+
+# Transmitter screen
+akashicfm.gui.transmitter.title=FM Transmitter
+akashicfm.gui.transmitter.name_hint=Station name
+akashicfm.gui.transmit=On air
+akashicfm.gui.frequency=Frequency
+akashicfm.gui.transmitter.coverage=Coverage: %s blocks (%s antennas)
+akashicfm.gui.transmitter.energy=Energy: %s / %s EU
+akashicfm.gui.transmitter.energy_free=Energy: not required on this server
+akashicfm.gui.transmitter.no_energy=no energy
+akashicfm.gui.transmitter.on_air=On air at %s FM
+akashicfm.gui.transmitter.waiting_energy=Waiting for energy to go on air at %s FM
+akashicfm.gui.transmitter.off_air=Off air (%s FM)
+
+# WAILA (FM)
+akashicfm.waila.tuned=Tuned to %s FM
+akashicfm.waila.signal=Signal: %s%%
+akashicfm.waila.broadcasting=On air: %s FM
+akashicfm.waila.not_broadcasting=Off air (%s FM)
+akashicfm.waila.station_name=Station: %s
+akashicfm.waila.source=Source: %s
+akashicfm.waila.coverage=Coverage: %s blocks (%s antennas)
+akashicfm.waila.energy=Energy: %s / %s EU

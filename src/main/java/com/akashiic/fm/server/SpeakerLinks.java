@@ -11,6 +11,7 @@ import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 
@@ -112,12 +113,14 @@ public final class SpeakerLinks {
                     changed = true;
                 }
             }
-            if (s.playing && ServerPolicy.rejection(s.url) != null) {
+            // Sintonizada, quem reavalia política e transporte é o FrequencyService (a URL é a do transmissor).
+            boolean urlMode = s.mode == TuneMode.URL;
+            if (urlMode && s.playing && ServerPolicy.rejection(s.url) != null) {
                 // A allowlist mudou (config recarregado) e esta URL não vale mais: para.
                 s.playing = false;
                 changed = true;
             }
-            if (s.playing) {
+            if (urlMode && s.playing) {
                 Transport wanted = ServerPolicy.chooseTransport(s.url);
                 if (wanted != s.transport) {
                     if (wanted == Transport.NONE) {

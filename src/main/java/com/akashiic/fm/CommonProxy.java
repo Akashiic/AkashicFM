@@ -15,6 +15,7 @@ import com.akashiic.fm.network.S2CListen;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 import com.akashiic.fm.network.ServerActionQueue;
+import com.akashiic.fm.server.FrequencyService;
 import com.akashiic.fm.server.ServerEvents;
 import com.akashiic.fm.server.ServerPolicy;
 import com.akashiic.fm.server.ServerRadioRegistry;
@@ -38,6 +39,7 @@ public class CommonProxy {
             ConfigurationManager.registerConfig(FmConfig.Policy.class);
             ConfigurationManager.registerConfig(FmConfig.Limits.class);
             ConfigurationManager.registerConfig(FmConfig.Protection.class);
+            ConfigurationManager.registerConfig(FmConfig.Transmitter.class);
             ConfigurationManager.registerConfig(FmConfig.Recipes.class);
             ConfigurationManager.registerConfig(FmConfig.Client.class);
         } catch (ConfigException e) {
@@ -69,6 +71,7 @@ public class CommonProxy {
     public void serverStopped(FMLServerStoppedEvent event) {
         ServerPolicy.setRelayAvailable(false);
         RelayService.shutdown();
+        FrequencyService.clear();
         ServerRadioRegistry.clear();
         ServerActionQueue.clear();
     }
@@ -82,6 +85,8 @@ public class CommonProxy {
     public void onClientRadioUpdated(TileRadio radio) {}
 
     public void openRadioGui(World world, int x, int y, int z) {}
+
+    public void openTransmitterGui(World world, int x, int y, int z) {}
 
     /** Executa na thread principal do cliente (no servidor dedicado, descarta). */
     public void enqueueClientTask(Runnable task) {}

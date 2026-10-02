@@ -5,9 +5,13 @@ import java.util.List;
 
 import net.minecraft.util.StatCollector;
 
+import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.RadioState;
+import com.akashiic.fm.common.TransmitterState;
+import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.content.TileTransmitter;
 
 /**
  * Linhas de informação de uma rádio ou caixa, já traduzidas, para o WAILA (e qualquer outro painel). Não depende
@@ -20,11 +24,15 @@ public final class RadioInfo {
     public static List<String> lines(TileRadio radio) {
         RadioState s = radio.state;
         List<String> out = new ArrayList<>();
-        if (s.playing && !s.url.isEmpty()) {
-            out.add("§a" + t("akashicfm.waila.playing", NowPlaying.hostOf(s.url)));
+        boolean tuned = s.mode == TuneMode.FREQUENCY;
+        if (tuned) out.add(t("akashicfm.waila.tuned", Frequency.format(s.frequency)));
+        if (s.playing && !s.effectiveUrl()
+            .isEmpty()) {
+            out.add("§a" + t("akashicfm.waila.playing", NowPlaying.station(radio)));
+            if (tuned) out.add(t("akashicfm.waila.signal", s.signal));
             String title = NowPlaying.title(radio);
             if (!title.isEmpty()) out.add("♪ " + title);
-        } else {
+        } else if (!s.playing) {
             out.add("§7" + t("akashicfm.gui.status.stopped"));
         }
         out.add(t("akashicfm.gui.volume", s.volume) + " · " + t("akashicfm.gui.range", s.range));
@@ -33,6 +41,26 @@ public final class RadioInfo {
         out.add(t("akashicfm.waila.access", t("akashicfm.gui.access." + s.access.name())) + " · " + owner);
         if (!s.speakers.isEmpty()) out.add(t("akashicfm.waila.speakers", s.speakers.size()));
         if (!s.status.isEmpty()) out.add("§e" + status(s.status));
+        return out;
+    }
+
+    public static List<String> lines(TileTransmitter transmitter) {
+        TransmitterState s = transmitter.state;
+        List<String> out = new ArrayList<>();
+        String freq = Frequency.format(s.frequency);
+        if (s.active()) out.add("§a" + t("akashicfm.waila.broadcasting", freq));
+        else out.add("§7" + t("akashicfm.waila.not_broadcasting", freq));
+        if (!s.name.isEmpty()) out.add(t("akashicfm.waila.station_name", s.name));
+        if (!s.url.isEmpty()) out.add(t("akashicfm.waila.source", NowPlaying.hostOf(s.url)));
+        if (!s.nowPlaying.isEmpty()) out.add("♪ " + s.nowPlaying);
+        out.add(t("akashicfm.waila.coverage", s.range, s.antennas));
+        if (s.energyRequired) {
+            out.add(
+                (s.powered ? "" : "§c") + t("akashicfm.waila.energy", s.energy, s.energyCapacity)
+                    + (s.powered ? "" : " · " + t("akashicfm.gui.transmitter.no_energy")));
+        }
+        String owner = s.ownerName.isEmpty() ? t("akashicfm.gui.no_owner") : t("akashicfm.gui.owner", s.ownerName);
+        out.add(t("akashicfm.waila.access", t("akashicfm.gui.access." + s.access.name())) + " · " + owner);
         return out;
     }
 

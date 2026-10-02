@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import net.minecraft.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.GuiMainMenu;
@@ -28,19 +29,26 @@ import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.gui.FmConfigGui;
 import com.akashiic.fm.client.gui.GuiRadio;
+import com.akashiic.fm.client.gui.GuiTransmitter;
 import com.akashiic.fm.client.gui.NowPlayingMessage;
 import com.akashiic.fm.client.relay.ClockSync;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.client.spatial.OcclusionField;
 import com.akashiic.fm.client.spatial.RoomProbe;
+import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
+import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.SpeakerChannel;
+import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.common.TuneMode;
+import com.akashiic.fm.content.FmContent;
 import com.akashiic.fm.content.ItemTuner;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.content.TileTransmitter;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.C2SRadioAction.Action;
 import com.akashiic.fm.network.FmNetwork;
@@ -62,9 +70,12 @@ public final class E2EClient {
 
     private static final int TPS = 20;
     private static final String DEFAULT_URL = "https://stream.radioparadise.com/mp3-128";
+    /** Segunda estação (outro transmissor), para provar a troca de fonte na sintonia. */
+    private static final String DEFAULT_URL2 = "https://stream.radioparadise.com/mellow-128";
 
     private final String scenario;
     private final String url;
+    private final String url2;
     private final List<Step> steps = new ArrayList<>();
     private int cleanupIndex;
     private int index = -1;
@@ -86,6 +97,8 @@ public final class E2EClient {
         this.scenario = scenario;
         String u = System.getenv("AKASHICFM_E2E_URL");
         this.url = u == null || u.isEmpty() ? DEFAULT_URL : u;
+        String u2 = System.getenv("AKASHICFM_E2E_URL2");
+        this.url2 = u2 == null || u2.isEmpty() ? DEFAULT_URL2 : u2;
         if (scenario.startsWith("peer")) buildPeer();
         else if (scenario.startsWith("listen")) buildListen();
         else if (scenario.startsWith("soak")) buildSoak();
@@ -94,6 +107,8 @@ public final class E2EClient {
     }
 
     public static void register(String scenario) {
+        // Sob o Xvfb a janela pode ficar sem foco: sem isto o jogo abre o menu de pausa sozinho no meio do roteiro.
+        mc().gameSettings.pauseOnLostFocus = false;
         INSTANCE = new E2EClient(scenario);
         FMLCommonHandler.instance()
             .bus()
@@ -206,7 +221,7 @@ public final class E2EClient {
         TileRadio r = radio();
         if (r == null) return null;
         if (r.state.transport == Transport.RELAY) {
-            RelayFeed feed = RelayClient.feedForUrl(r.state.url);
+            RelayFeed feed = RelayClient.feedForUrl(r.state.effectiveUrl());
             return feed == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.relayKey(feed));
         }
         return AudioEngine.INSTANCE.info(RadioAudioController.keyFor(r));
@@ -869,6 +884,7 @@ public final class E2EClient {
                 }
             });
         }
+        addFrequencySteps(expectPeer);
         steps.add(new Step("teleporte-1000-blocos-silencia", 15) {
 
             double startX;
@@ -985,6 +1001,398 @@ public final class E2EClient {
         steps.add(audioPlaying("ouvir-depois-de-reconectar", 45));
         cleanupIndex = steps.size();
         steps.add(disconnect("desconectar-final"));
+    }
+
+    // ---- Fase 6a: transmissores, antenas e rádio sintonizada ----
+
+    /** Transmissores do roteiro: T3 (torre longe, chunk descarregado), T (24 blocos, 2 antenas), T2 (perto). */
+    private int t3x, tx, t2x;
+
+    private TileTransmitter transmitterAt(int x, int y, int z) {
+        TileEntity te = mc().theWorld == null ? null : mc().theWorld.getTileEntity(x, y, z);
+        return te instanceof TileTransmitter ? (TileTransmitter) te : null;
+    }
+
+    private static void sendTo(int x, int y, int z, Action action, int intArg, String strArg) {
+        FmNetwork.sendToServer(new C2SRadioAction(x, y, z, action, intArg, strArg));
+    }
+
+    /** Leva o jogador a (x, z) e espera chegar (mundo plano: a altura da rádio é o chão). */
+    private Step teleport(String name, java.util.function.IntSupplier xs, double dz) {
+        return new Step(name, 15) {
+
+            double x, z;
+
+            @Override
+            void start() {
+                x = xs.getAsInt() + 0.5;
+                z = rz + dz;
+                say("/tp " + x + " " + ry + " " + z);
+            }
+
+            @Override
+            String tick(int t) {
+                if (!inWorld()) return null;
+                double ddx = mc().thePlayer.posX - x, ddz = mc().thePlayer.posZ - z;
+                return t > 20 && ddx * ddx + ddz * ddz < 1 ? "" : null;
+            }
+        };
+    }
+
+    /**
+     * Monta um transmissor em (x, ry, rz) com {@code antennas} antenas em cima e o põe no ar. O jogador precisa estar
+     * a até 8 blocos (as ações do transmissor têm o mesmo limite de uso da rádio).
+     */
+    private Step buildTransmitter(String name, java.util.function.IntSupplier xs, int antennas, String u, int freq,
+        String station) {
+        return new Step(name, 20) {
+
+            int x;
+
+            @Override
+            void start() {
+                x = xs.getAsInt();
+                say("/setblock " + x + " " + ry + " " + rz + " air");
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 5) say("/setblock " + x + " " + ry + " " + rz + " akashicfm:transmitter 3");
+                if (t == 10 && antennas > 0) fill(x, ry + 1, rz, x, ry + antennas, rz, "akashicfm:antenna");
+                if (t == 20) {
+                    sendTo(x, ry, rz, Action.SET_URL, 0, u);
+                    sendTo(x, ry, rz, Action.SET_FREQUENCY, freq, "");
+                    sendTo(x, ry, rz, Action.SET_SCREEN_TEXT, 0, station);
+                    sendTo(x, ry, rz, Action.PLAY, 0, "");
+                }
+                TileTransmitter tr = transmitterAt(x, ry, rz);
+                if (t < 20 || tr == null) return null;
+                TransmitterState s = tr.state;
+                // Alcances do servidor de teste (o config do cliente é outro).
+                int range = DevE2E.TRANSMITTER_BASE_RANGE + antennas * DevE2E.TRANSMITTER_RANGE_PER_ANTENNA;
+                boolean ok = s.active() && u.equals(s.url)
+                    && s.frequency == freq
+                    && station.equals(s.name)
+                    && s.antennas == antennas
+                    && s.range == range;
+                if (!ok) return null;
+                DevE2E.log(
+                    "transmissor {} no ar: {} em {} MHz, {} antenas, alcance {}, energia exigida={}",
+                    station,
+                    s.url,
+                    Frequency.format(s.frequency),
+                    s.antennas,
+                    s.range,
+                    s.energyRequired);
+                // Sem IC2 nem RF no ambiente de dev: a exigência de energia não se aplica.
+                return s.energyRequired ? "energia exigida sem nenhuma API de energia instalada" : "";
+            }
+        };
+    }
+
+    /** A rádio sintonizada chegou ao estado esperado (URL do transmissor, nome e faixa de sinal). */
+    private Step tunedTo(String name, String u, String station, int minSignal, int maxSignal) {
+        return new Step(name, 20) {
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return null;
+                RadioState s = r.state;
+                if (s.mode != TuneMode.FREQUENCY || !s.playing || !u.equals(s.tunedUrl)) return null;
+                if (!station.equals(s.tunedName) || s.transport != expectedTransport()) return null;
+                DevE2E.log(
+                    "sintonizada em {} MHz: {} ({}), sinal {}%, sessão {}",
+                    Frequency.format(s.frequency),
+                    s.tunedName,
+                    s.tunedUrl,
+                    s.signal,
+                    s.session);
+                return s.signal >= minSignal && s.signal <= maxSignal ? ""
+                    : "sinal " + s.signal + "% fora de [" + minSignal + ", " + maxSignal + "]";
+            }
+        };
+    }
+
+    /** Pergunta ao servidor se o chunk do bloco está carregado e espera a resposta esperada. */
+    private Step chunkLoaded(String name, java.util.function.IntSupplier xs, boolean expected) {
+        return new Step(name, 30) {
+
+            @Override
+            String tick(int t) {
+                int x = xs.getAsInt();
+                if (t % 40 == 0) say("e2e:check-unloaded " + x + " " + rz);
+                return chatSaw("e2e-result chunk " + x + " " + rz + " loaded=" + expected) ? "" : null;
+            }
+        };
+    }
+
+    private void addFrequencySteps(boolean expectPeer) {
+        // Torre longe (150 blocos, 9 antenas, alcance 16 + 9×16 = 160) em outra frequência: depois que o jogador
+        // volta, o chunk dela descarrega (view-distance 4) e a rádio ainda a sintoniza pelo índice.
+        steps.add(teleport("fm-ir-ate-a-torre", () -> t3x = rx - 150, 2.5));
+        steps.add(buildTransmitter("fm-torre-no-ar", () -> t3x, 9, url2, 1000, "Torre"));
+        // T: 24 blocos da rádio, 2 antenas (alcance 48). Sem as antenas (16) não alcança mais a rádio.
+        steps.add(teleport("fm-ir-ate-o-transmissor", () -> tx = rx - 24, 2.5));
+        steps.add(buildTransmitter("fm-transmissor-no-ar", () -> tx, 2, url, 987, "Akashic FM"));
+        steps.add(new Step("gui-do-transmissor", 10) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiTransmitter(tx, ry, rz));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 28) screenshot("e2e-gui-transmissor.png");
+                if (t < 30) return null;
+                if (!(mc().currentScreen instanceof GuiTransmitter)) return "a GUI do transmissor fechou sozinha";
+                boolean ok = ((GuiTransmitter) mc().currentScreen).permsKnown();
+                mc().displayGuiScreen(null);
+                return ok ? "" : "permissões não chegaram";
+            }
+        });
+        steps.add(new Step("tela-do-transmissor-e-antenas", 10) {
+
+            @Override
+            void start() {
+                say("/tp " + (tx + 0.5) + " " + ry + " " + (rz + 4.5)); // longe o bastante para ver as antenas
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 20) {
+                    mc().thePlayer.rotationYaw = 180f;
+                    mc().thePlayer.rotationPitch = 2f;
+                    mc().gameSettings.hideGUI = true;
+                }
+                if (t == 45) {
+                    screenshot("e2e-transmissor.png");
+                    mc().gameSettings.hideGUI = false;
+                }
+                if (t < 45) return null;
+                TileTransmitter tr = transmitterAt(tx, ry, rz);
+                if (tr == null) return "transmissor sumiu";
+                List<String> lines = RadioInfo.lines(tr);
+                DevE2E.log("waila do transmissor: {}", lines);
+                return lines.toString()
+                    .contains("98.7") ? "" : "waila sem a frequência: " + lines;
+            }
+        });
+        steps.add(teleport("fm-voltar-para-a-radio", () -> rx, 2.3));
+        steps.add(chunkLoaded("fm-chunk-da-torre-descarregou", () -> t3x, false));
+        steps.add(new Step("fm-sintonizar-a-radio", 5) {
+
+            @Override
+            void start() {
+                send(Action.SET_SCREEN_TEXT, 0, ""); // a tela passa a mostrar a frequência e o título
+                send(Action.SET_FREQUENCY, 987, "");
+                send(Action.SET_MODE, TuneMode.FREQUENCY.ordinal(), "");
+            }
+
+            @Override
+            String tick(int t) {
+                return "";
+            }
+        });
+        // Sinal = 1 − d/alcance: T a ~24,5 blocos com alcance 48 → ~49%.
+        steps.add(tunedTo("fm-radio-ouve-o-transmissor", url, "Akashic FM", 40, 60));
+        steps.add(audioPlaying("fm-audio-sintonizado", 45));
+        // T2 a 3 blocos, sem antenas (alcance 16 → ~79%): mais de 0,1 acima do atual, assume.
+        steps.add(buildTransmitter("fm-transmissor-perto-no-ar", () -> t2x = rx - 3, 0, url2, 987, "Perto FM"));
+        steps.add(tunedTo("fm-o-mais-forte-assume", url2, "Perto FM", 70, 90));
+        steps.add(audioPlaying("fm-audio-do-mais-forte", 45));
+        steps.add(new Step("fm-tela-e-waila-da-radio", 15) {
+
+            @Override
+            String tick(int t) {
+                if (t == 5) {
+                    mc().thePlayer.rotationYaw = 180f;
+                    mc().thePlayer.rotationPitch = 37f;
+                    mc().gameSettings.hideGUI = true;
+                }
+                if (t == 60) {
+                    screenshot("e2e-radio-fm.png");
+                    mc().gameSettings.hideGUI = false;
+                }
+                if (t < 60) return null;
+                TileRadio r = radio();
+                if (r == null) return "rádio sumiu";
+                List<String> lines = RadioInfo.lines(r);
+                DevE2E.log("waila da rádio sintonizada: {}", lines);
+                return lines.toString()
+                    .contains("98.7")
+                    && lines.toString()
+                        .contains("Perto FM") ? "" : "waila incompleto: " + lines;
+            }
+        });
+        steps.add(new Step("gui-da-radio-no-fm", 10) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiRadio(rx, ry, rz));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 28) screenshot("e2e-gui-fm.png");
+                if (t < 30) return null;
+                boolean ok = mc().currentScreen instanceof GuiRadio && ((GuiRadio) mc().currentScreen).permsKnown();
+                mc().displayGuiScreen(null);
+                return ok ? "" : "a GUI da rádio no modo FM não abriu com permissões";
+            }
+        });
+        if (expectPeer) {
+            steps.add(new Step("fm-segundo-jogador-acompanha", 120) {
+
+                @Override
+                String tick(int t) {
+                    return chatSaw("e2e:peer fm-ok") ? "" : null;
+                }
+            });
+        }
+        steps.add(new Step("fm-desligar-o-perto", 5) {
+
+            @Override
+            void start() {
+                sendTo(t2x, ry, rz, Action.STOP, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                TileTransmitter tr = transmitterAt(t2x, ry, rz);
+                return tr != null && !tr.state.broadcasting ? "" : null;
+            }
+        });
+        steps.add(new Step("antena-colocada-com-a-mao", 15) {
+
+            int selectedAt = -1, clickedAt = -1;
+
+            @Override
+            void start() {
+                // O /give do 1.7.10 joga o item no chão e o jogador o pega alguns ticks depois.
+                say("/give " + mc().thePlayer.getCommandSenderName() + " akashicfm:antenna 4");
+            }
+
+            @Override
+            String tick(int t) {
+                if (selectedAt < 0) {
+                    for (int slot = 0; slot < 9; slot++) {
+                        ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+                        if (st != null && Block.getBlockFromItem(st.getItem()) == FmContent.antenna) {
+                            mc().thePlayer.inventory.currentItem = slot;
+                            selectedAt = t;
+                        }
+                    }
+                    return null;
+                }
+                // Espera a troca de item chegar ao servidor antes do clique (vai no próximo tick do controlador).
+                if (clickedAt < 0 && t >= selectedAt + 5) {
+                    rightClick(t2x, ry, rz); // na face de cima do transmissor: coloca, não abre a tela
+                    clickedAt = t;
+                }
+                // Só a tela do transmissor é falha (o menu de pausa pode abrir sozinho sem foco na janela).
+                if (mc().currentScreen instanceof GuiTransmitter) return "a tela abriu em vez de colocar a antena";
+                TileTransmitter tr = transmitterAt(t2x, ry, rz);
+                boolean placed = mc().theWorld.getBlock(t2x, ry + 1, rz) == FmContent.antenna;
+                return clickedAt >= 0 && placed && tr != null && tr.state.antennas == 1 ? "" : null;
+            }
+        });
+        steps.add(tunedTo("fm-volta-para-o-outro-transmissor", url, "Akashic FM", 40, 60));
+        steps.add(audioPlaying("fm-audio-do-outro-transmissor", 45));
+        steps.add(new Step("fm-sem-antenas-sem-sinal", 15) {
+
+            int silentTicks;
+
+            @Override
+            void start() {
+                // Sem as antenas o alcance de T cai para 16 e não chega mais à rádio, a ~24 blocos.
+                fill(tx, ry + 1, rz, tx, ry + 2, rz, "minecraft:air");
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                TileTransmitter tr = transmitterAt(tx, ry, rz);
+                if (r == null || tr == null || tr.state.antennas != 0) return null;
+                RadioState s = r.state;
+                if (!s.playing || s.mode != TuneMode.FREQUENCY || !s.tunedUrl.isEmpty()) return null;
+                if (!s.status.startsWith("akashicfm.status.no_signal")) return null;
+                // Ligada e em silêncio: nenhuma reprodução neste cliente.
+                silentTicks = AudioEngine.INSTANCE.activeCount() == 0 ? silentTicks + 1 : 0;
+                if (silentTicks < 20) return null;
+                DevE2E.log("sem sinal: status '{}', tela '{}'", s.status, RadioInfo.lines(r));
+                return "";
+            }
+        });
+        steps.add(new Step("fm-torre-em-chunk-descarregado", 5) {
+
+            @Override
+            void start() {
+                send(Action.SET_FREQUENCY, 1000, "");
+            }
+
+            @Override
+            String tick(int t) {
+                return "";
+            }
+        });
+        // Torre a ~150 blocos com alcance 160: sinal baixo, mas pega (o índice responde sem carregar o chunk).
+        steps.add(tunedTo("fm-radio-ouve-a-torre-longe", url2, "Torre", 1, 15));
+        steps.add(chunkLoaded("fm-torre-continua-descarregada", () -> t3x, false));
+        steps.add(audioPlaying("fm-audio-da-torre", 45));
+        steps.add(new Step("fm-voltar-para-url", 20) {
+
+            @Override
+            void start() {
+                send(Action.SET_MODE, TuneMode.URL.ordinal(), "");
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return null;
+                RadioState s = r.state;
+                boolean ok = s.mode == TuneMode.URL && s.playing
+                    && url.equals(s.effectiveUrl())
+                    && s.transport == expectedTransport()
+                    && s.tunedUrl.isEmpty();
+                return ok ? "" : null;
+            }
+        });
+        steps.add(audioPlaying("fm-audio-de-volta-na-url", 45));
+    }
+
+    private void addPeerFrequencySteps() {
+        steps.add(new Step("peer-segue-o-fm", 900) {
+
+            final Step inner = audioPlaying("peer-audio-fm", 45);
+            int since = -1;
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (since < 0) {
+                    if (r == null || r.state.mode != TuneMode.FREQUENCY
+                        || !url2.equals(r.state.effectiveUrl())
+                        || !"Perto FM".equals(r.state.tunedName)) return null;
+                    since = t;
+                    DevE2E.log("peer: rádio sintonizada em {} ({})", r.state.tunedName, r.state.tunedUrl);
+                }
+                String res = inner.tick(t - since);
+                if (res == null && t - since > inner.timeoutTicks) return "peer não ouviu o transmissor";
+                return res;
+            }
+        });
+        if (relayMode()) steps.add(syncCheck("peer-sincronia-no-fm"));
+        steps.add(new Step("peer-avisa-fm-ok", 2) {
+
+            @Override
+            String tick(int t) {
+                say("e2e:peer fm-ok");
+                return "";
+            }
+        });
     }
 
     // ---- Fase 4: oclusão e reverb ----
@@ -1630,6 +2038,7 @@ public final class E2EClient {
                 return "";
             }
         });
+        addPeerFrequencySteps();
         steps.add(new Step("peer-ve-a-parada", 900) {
 
             int stoppedAt = -1;

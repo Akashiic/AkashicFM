@@ -18,11 +18,13 @@ import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.common.FmConfig;
+import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.C2SRadioAction.Action;
@@ -35,7 +37,7 @@ import com.akashiic.fm.network.S2CRadioPerms;
  * que muda vira um pedido ao servidor. Os controles só habilitam depois que o servidor diz o que este
  * jogador pode fazer; a tela fecha sozinha se a rádio sumir ou o jogador se afastar.
  */
-public final class GuiRadio extends GuiScreen {
+public final class GuiRadio extends GuiScreen implements FmScreen {
 
     private static final int W = 256;
     private static final int H = 236;
@@ -49,14 +51,15 @@ public final class GuiRadio extends GuiScreen {
         0x55AAFF, 0x55FFFF, 0x60FFD0, 0xFFFF55, 0xFF8040, 0xAAAAAA };
 
     private static final int ID_PLAY = 1, ID_STOP = 2, ID_VOLUME = 3, ID_RANGE = 4, ID_SAVE = 5, ID_UP = 6, ID_DOWN = 7,
-        ID_SCREEN_OK = 8, ID_COLOR = 9, ID_ACCESS = 10, ID_REDSTONE = 11, ID_UNLINK = 12, ID_STATION_BASE = 100,
-        ID_REMOVE_BASE = 200;
+        ID_SCREEN_OK = 8, ID_COLOR = 9, ID_ACCESS = 10, ID_REDSTONE = 11, ID_UNLINK = 12, ID_MODE = 13,
+        ID_DIAL_BASE = 20, ID_STATION_BASE = 100, ID_REMOVE_BASE = 200;
 
     private final int x, y, z;
     private int left, top;
 
     private GuiTextField urlField, screenField;
-    private FlatButton play, stop, save, up, down, screenOk, color, access, redstone, unlink;
+    private FlatButton play, stop, save, up, down, screenOk, color, access, redstone, unlink, mode;
+    private FrequencyDial dial;
     private FlatSlider volume, range;
     private final FlatButton[] stationButtons = new FlatButton[VISIBLE_STATIONS];
     private final FlatButton[] removeButtons = new FlatButton[VISIBLE_STATIONS];
@@ -78,6 +81,7 @@ public final class GuiRadio extends GuiScreen {
         this.z = z;
     }
 
+    @Override
     public boolean isFor(int px, int py, int pz) {
         return px == x && py == y && pz == z;
     }
@@ -113,9 +117,13 @@ public final class GuiRadio extends GuiScreen {
         String urlText = urlField != null ? urlField.getText() : s.url;
         String screenText = screenField != null ? screenField.getText() : s.screenText;
 
-        urlField = new GuiTextField(fontRendererObj, left + 9, top + 31, 154, 14);
+        // URL ou FM: no modo FM o seletor de frequência ocupa o lugar do campo de URL.
+        mode = add(new FlatButton(ID_MODE, left + 8, top + 30, 28, 16, ""));
+        urlField = new GuiTextField(fontRendererObj, left + 41, top + 31, 122, 14);
         urlField.setMaxStringLength(RadioLimits.MAX_URL_LENGTH);
         setFieldText(urlField, urlText);
+        dial = new FrequencyDial(ID_DIAL_BASE, left + 40, top + 30, 124, f -> send(Action.SET_FREQUENCY, f, ""));
+        for (FlatButton b : dial.buttons()) add(b);
         play = add(new FlatButton(ID_PLAY, left + 168, top + 30, 38, 16, I18n.format("akashicfm.gui.play")));
         stop = add(new FlatButton(ID_STOP, left + 210, top + 30, 38, 16, I18n.format("akashicfm.gui.stop")));
 
@@ -179,6 +187,8 @@ public final class GuiRadio extends GuiScreen {
     @Override
     public void onGuiClosed() {
         Keyboard.enableRepeatEvents(false);
+        TileRadio radio = radio();
+        if (radio != null && dial != null) dial.flush(radio.state.frequency, System.currentTimeMillis());
     }
 
     @Override
@@ -191,11 +201,17 @@ public final class GuiRadio extends GuiScreen {
         }
         urlField.updateCursorCounter();
         screenField.updateCursorCounter();
+        dial.tick(radio.state.frequency, System.currentTimeMillis());
         refreshWidgets(radio.state);
+    }
+
+    private static boolean fm(RadioState s) {
+        return s.mode == TuneMode.FREQUENCY;
     }
 
     // ---- Respostas do servidor (ClientProxy, thread principal) ----
 
+    @Override
     public void onPerms(S2CRadioPerms perms) {
         permsKnown = true;
         canControl = perms.canControl;
@@ -205,6 +221,7 @@ public final class GuiRadio extends GuiScreen {
         if (radio != null) refreshWidgets(radio.state);
     }
 
+    @Override
     public void onNotice(S2CRadioNotice notice) {
         noticeText = I18n.format(notice.key, notice.arg);
         noticeError = notice.error;
@@ -232,9 +249,14 @@ public final class GuiRadio extends GuiScreen {
     private void refreshWidgets(RadioState s) {
         boolean control = permsKnown && canControl;
         boolean admin = permsKnown && canAdmin;
+        boolean fm = fm(s);
 
-        urlField.setEnabled(control);
-        if (!control) urlField.setFocused(false);
+        mode.enabled = control;
+        mode.displayString = I18n.format(fm ? "akashicfm.gui.mode.fm" : "akashicfm.gui.mode.url");
+        dial.setVisible(fm);
+        dial.setEnabled(control);
+        urlField.setEnabled(control && !fm);
+        if (!control || fm) urlField.setFocused(false);
         if (!urlEdited && !urlField.isFocused()
             && !urlField.getText()
                 .equals(s.url))
@@ -249,7 +271,8 @@ public final class GuiRadio extends GuiScreen {
         range.setValue(s.range);
 
         String typed = TextSanitizer.cleanUrl(urlField.getText(), RadioLimits.MAX_URL_LENGTH);
-        save.enabled = admin && s.stations.size() < RadioLimits.MAX_STATIONS
+        save.enabled = admin && !fm
+            && s.stations.size() < RadioLimits.MAX_STATIONS
             && !(typed.isEmpty() ? s.url : typed).isEmpty();
 
         int maxScroll = Math.max(0, s.stations.size() - VISIBLE_STATIONS);
@@ -261,7 +284,7 @@ public final class GuiRadio extends GuiScreen {
             removeButtons[i].visible = exists;
             if (!exists) continue;
             String url = s.stations.get(idx);
-            boolean current = s.playing && url.equals(s.url);
+            boolean current = !fm && s.playing && url.equals(s.url);
             stationButtons[i].displayString = (current ? "▶ " : "") + displayUrl(url);
             stationButtons[i].textColor = current ? 0xFF7CFF8A : 0;
             stationButtons[i].enabled = control;
@@ -313,7 +336,12 @@ public final class GuiRadio extends GuiScreen {
         TileRadio radio = radio();
         if (radio == null) return;
         RadioState s = radio.state;
+        if (dial.handle(button.id, s.frequency, System.currentTimeMillis())) return;
         switch (button.id) {
+            case ID_MODE:
+                dial.flush(s.frequency, System.currentTimeMillis()); // a frequência escolhida chega antes do modo
+                send(Action.SET_MODE, (fm(s) ? TuneMode.URL : TuneMode.FREQUENCY).ordinal(), "");
+                return;
             case ID_PLAY:
                 doPlay(s);
                 return;
@@ -375,6 +403,12 @@ public final class GuiRadio extends GuiScreen {
     }
 
     private void doPlay(RadioState s) {
+        if (fm(s)) {
+            // Manda a frequência escolhida antes: o servidor sintoniza nela ao ligar.
+            dial.flush(s.frequency, System.currentTimeMillis());
+            send(Action.PLAY, 0, "");
+            return;
+        }
         String typed = TextSanitizer.cleanUrl(urlField.getText(), RadioLimits.MAX_URL_LENGTH);
         if (typed.isEmpty() || typed.equals(s.url)) {
             if (s.url.isEmpty()) {
@@ -425,6 +459,11 @@ public final class GuiRadio extends GuiScreen {
             }
         }
         boolean typing = urlField.isFocused() || screenField.isFocused();
+        // Modo FM: ← e → giram o dial em 0,1 MHz.
+        if (!typing && radio != null && fm(radio.state) && canControl && permsKnown) {
+            int id = keyCode == Keyboard.KEY_LEFT ? dial.down.id : keyCode == Keyboard.KEY_RIGHT ? dial.up.id : -1;
+            if (id >= 0 && dial.handle(id, radio.state.frequency, System.currentTimeMillis())) return;
+        }
         if (keyCode == Keyboard.KEY_ESCAPE || (!typing && keyCode == mc.gameSettings.keyBindInventory.getKeyCode())) {
             mc.displayGuiScreen(null);
             mc.setIngameFocus();
@@ -435,7 +474,9 @@ public final class GuiRadio extends GuiScreen {
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
         // Campo desabilitado não ganha foco (o GuiTextField do 1.7.10 deixaria focar mesmo desabilitado).
-        if (permsKnown && canControl) urlField.mouseClicked(mouseX, mouseY, mouseButton);
+        TileRadio radio = radio();
+        boolean fm = radio != null && fm(radio.state);
+        if (permsKnown && canControl && !fm) urlField.mouseClicked(mouseX, mouseY, mouseButton);
         else urlField.setFocused(false);
         if (permsKnown && canAdmin) screenField.mouseClicked(mouseX, mouseY, mouseButton);
         else screenField.setFocused(false);
@@ -462,14 +503,18 @@ public final class GuiRadio extends GuiScreen {
             top + 17,
             0xFF9AA4B0);
 
-        urlField.drawTextBox();
-        if (urlField.getText()
-            .isEmpty() && !urlField.isFocused()) {
-            fontRendererObj.drawString(
-                fontRendererObj.trimStringToWidth(I18n.format("akashicfm.gui.url_hint"), 146),
-                left + 13,
-                top + 34,
-                0xFF606870);
+        if (fm(s)) {
+            dial.draw(fontRendererObj, s.frequency, permsKnown && canControl, System.currentTimeMillis());
+        } else {
+            urlField.drawTextBox();
+            if (urlField.getText()
+                .isEmpty() && !urlField.isFocused()) {
+                fontRendererObj.drawString(
+                    fontRendererObj.trimStringToWidth(I18n.format("akashicfm.gui.url_hint"), 114),
+                    left + 45,
+                    top + 34,
+                    0xFF606870);
+            }
         }
         fontRendererObj.drawString(
             I18n.format("akashicfm.gui.stations", s.stations.size(), RadioLimits.MAX_STATIONS),
@@ -512,8 +557,14 @@ public final class GuiRadio extends GuiScreen {
         } else if (!s.playing) {
             line = I18n.format("akashicfm.gui.status.stopped");
             color = 0xFF9AA4B0;
+        } else if (fm(s) && s.tunedUrl.isEmpty()) {
+            line = I18n.format("akashicfm.gui.fm.no_signal", Frequency.format(s.frequency));
+            color = 0xFFFFD070;
         } else {
-            line = I18n.format("akashicfm.gui.transport." + s.transport.name()) + " · " + playbackStatus(radio, s);
+            // Sintonizada: sinal e estação no lugar do transporte (que fica no WAILA), para a linha caber.
+            String head = fm(s) ? I18n.format("akashicfm.gui.fm.signal", s.signal, NowPlaying.station(radio))
+                : I18n.format("akashicfm.gui.transport." + s.transport.name());
+            line = head + " · " + playbackStatus(radio, s);
             color = 0xFFE0E6EE;
         }
         fontRendererObj.drawString(fontRendererObj.trimStringToWidth(line, width), lx, top + 205, color);
@@ -545,7 +596,7 @@ public final class GuiRadio extends GuiScreen {
             || FmConfig.Client.radioVolume <= 0) return I18n.format("akashicfm.gui.status.muted");
         String key;
         if (s.transport == Transport.RELAY) {
-            RelayFeed relay = RelayClient.feedForUrl(s.url);
+            RelayFeed relay = RelayClient.feedForUrl(s.effectiveUrl());
             if (relay == null) return I18n.format("akashicfm.gui.status.relay_waiting");
             key = RadioAudioController.relayKey(relay);
         } else {

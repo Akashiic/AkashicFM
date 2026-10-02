@@ -2,10 +2,12 @@ package com.akashiic.fm.client;
 
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
+import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.TileRadio;
 
 /**
@@ -26,10 +28,22 @@ public final class NowPlaying {
         return local.isEmpty() ? "" : TextSanitizer.clean(local, RadioLimits.MAX_TITLE_LENGTH);
     }
 
-    /** Título, ou o host da estação quando não há título. */
+    /** Título, ou a estação quando não há título. */
     public static String label(TileRadio radio) {
         String t = title(radio);
-        return t.isEmpty() ? hostOf(radio.state.url) : t;
+        return t.isEmpty() ? station(radio) : t;
+    }
+
+    /** Nome da estação: o do transmissor sintonizado (se tiver), senão o host da URL tocada. */
+    public static String station(TileRadio radio) {
+        RadioState s = radio.state;
+        if (s.mode == TuneMode.FREQUENCY && !s.tunedName.isEmpty()) return s.tunedName;
+        return hostOf(s.effectiveUrl());
+    }
+
+    /** "98.7 FM", para quem está sintonizado; vazio no modo URL. */
+    public static String dial(RadioState s) {
+        return s.mode == TuneMode.FREQUENCY ? Frequency.format(s.frequency) + " FM" : "";
     }
 
     /** Host da URL (sem esquema, usuário, porta, caminho), com IPv6 literal entre colchetes inteiro. */

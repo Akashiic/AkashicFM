@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: Fase 5
+## Estado atual: Fase 6a
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -57,6 +57,13 @@ Feito:
   - WAILA opcional.
   
   Detalhes em [`docs/FASE5-RESULTADOS.md`](docs/FASE5-RESULTADOS.md).
+- **Fase 6a:**
+  - **transmissor de FM:** transmite uma URL numa frequência (87,5 a 108,0 MHz), com nome de estação;
+  - **antenas:** empilhadas em cima do transmissor, aumentam o alcance;
+  - **rádio no modo FM:** sintoniza a frequência e toca o transmissor de sinal mais forte que cobre o lugar, sem carregar chunk (torres longe funcionam pelo índice do mundo). Fica ligada "sem sinal" e pega sozinha quando um transmissor aparece;
+  - **energia opcional:** EU (IC2, cabos do GregTech) ou RF, exigida por padrão quando um desses mods está instalado; sem eles, nunca.
+  
+  Detalhes em [`docs/FASE6-RESULTADOS.md`](docs/FASE6-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -68,7 +75,9 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 3 | Relay e sincronia: Opus, audiência, relógio, jitter buffer ✅ |
 | 4 | Oclusão e reverb (EFX), com orçamento de raios e fallback só no ganho ✅ |
 | 5 | Tocando agora (tela, GUI, aviso, WAILA), espectro e cone animado ✅ |
-| 6+ | Frequências e torres, rádio portátil e fone, admin completo |
+| 6a | Frequências, transmissor, antenas e energia opcional (EU/RF) ✅ |
+| 6b | Rádio portátil e fone |
+| 7 | Admin completo (`/fm`), integrações e release |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
 
@@ -78,7 +87,12 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
   - Na tela: volume, alcance, favoritas, texto e cor da tela, acesso (privada ou pública) e redstone (ignorar, tocar enquanto ligada, alternar no pulso).
 - **Caixa de som:** com o **sintonizador**, clique na caixa e depois na rádio para ligar as duas.
   - Agachado + clique na caixa troca o canal: mono, esquerdo, direito ou estéreo.
-- **Quebrar a rádio** devolve o item com as configurações (URL, favoritas, volume, alcance, tela).
+- **Quebrar a rádio** devolve o item com as configurações (URL, favoritas, volume, alcance, tela, modo e frequência).
+- **Transmissor de FM:** clique com o botão direito, cole a URL, escolha a frequência e o nome da estação e aperte "No ar".
+  - **Antenas:** empilhe em cima do transmissor; cada uma soma alcance (padrão: 64 blocos + 32 por antena, até 16 antenas e 512 blocos).
+  - **Energia:** com IC2 ou um mod de RF instalado, ele precisa de energia (8 EU/t por padrão, ou o equivalente em RF) para ficar no ar. Sem energia sai do ar e só volta com uma pequena reserva.
+  - **Limite:** 4 transmissores por jogador (config).
+- **Rádio no modo FM:** na tela da rádio, o botão "URL/FM" troca o modo. No FM, « ‹ › » giram a frequência (±1,0 e ±0,1 MHz; as setas ← → do teclado também) e a rádio toca o transmissor mais forte daquela frequência que alcança o lugar. A tela mostra "Sinal 73% · estação"; sem cobertura, "sem sinal".
 - **No cliente:** volume geral das rádios, limite de rádios simultâneas, a opção de recusar streams diretos, oclusão, reverb, aviso "tocando agora" e visualizador ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
 
 ## Compilar e testar
@@ -115,6 +129,7 @@ java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream
 | `policy` | `allowedHosts` (vazio = qualquer host público; endereços internos sempre recusados), `allowHighPorts` |
 | `limits` | `maxRadiosPerPlayer` (16), `maxSpeakersPerRadio` (8), `maxSpeakerDistance` (32), `maxRadiosPerChunk` (4), `maxRange` (48), `actionsPerSecond` (10) |
 | `protection` | `protectPrivateBlocks` (outros jogadores e máquinas não quebram rádio privada), `opsBypass` |
+| `transmitter` | `baseRange` (64), `rangePerAntenna` (32), `maxAntennas` (16), `maxRange` (512), `requireEnergy` (ligado; só vale com IC2 ou RF instalado), `euPerTick` (8), `energyCapacity` (8000), `maxInputPerTick` (128), `rfPerEu` (4), `maxPerPlayer` (4) |
 | `recipes` | `registerDefaultRecipes` (desligue se o modpack define as próprias) |
 | `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100), `enableOcclusion`, `enableReverb`, `acousticOverrides` (`modid:nome=absorção[,amortecimento]`), `showNowPlaying`, `radioVisualizer` |
 

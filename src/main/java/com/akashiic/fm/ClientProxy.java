@@ -12,13 +12,17 @@ import com.akashiic.fm.client.ClientEvents;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.ClientTaskQueue;
 import com.akashiic.fm.client.audio.AlCapabilityProbe;
+import com.akashiic.fm.client.gui.FmScreen;
 import com.akashiic.fm.client.gui.GuiRadio;
+import com.akashiic.fm.client.gui.GuiTransmitter;
 import com.akashiic.fm.client.relay.ClockSync;
 import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.render.TileRadioRenderer;
 import com.akashiic.fm.client.render.TileSpeakerRenderer;
+import com.akashiic.fm.client.render.TileTransmitterRenderer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.content.TileTransmitter;
 import com.akashiic.fm.dev.DevE2E;
 import com.akashiic.fm.dev.E2EClient;
 import com.akashiic.fm.network.ClockStamps;
@@ -50,6 +54,7 @@ public class ClientProxy extends CommonProxy {
         MinecraftForge.EVENT_BUS.register(events);
         ClientRegistry.bindTileEntitySpecialRenderer(TileRadio.class, new TileRadioRenderer());
         ClientRegistry.bindTileEntitySpecialRenderer(TileSpeaker.class, new TileSpeakerRenderer());
+        ClientRegistry.bindTileEntitySpecialRenderer(TileTransmitter.class, new TileTransmitterRenderer());
         AlCapabilityProbe.registerIfRequested();
         if (DevE2E.enabled()) E2EClient.register(DevE2E.SCENARIO);
     }
@@ -66,14 +71,20 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public void onClientRadioUpdated(TileRadio radio) {
-        GuiRadio gui = openGuiFor(radio.xCoord, radio.yCoord, radio.zCoord);
-        if (gui != null) gui.onStateUpdated();
+        FmScreen gui = openGuiFor(radio.xCoord, radio.yCoord, radio.zCoord);
+        if (gui instanceof GuiRadio) ((GuiRadio) gui).onStateUpdated();
     }
 
     @Override
     public void openRadioGui(World world, int x, int y, int z) {
         Minecraft.getMinecraft()
             .displayGuiScreen(new GuiRadio(x, y, z));
+    }
+
+    @Override
+    public void openTransmitterGui(World world, int x, int y, int z) {
+        Minecraft.getMinecraft()
+            .displayGuiScreen(new GuiTransmitter(x, y, z));
     }
 
     @Override
@@ -84,7 +95,7 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void onRadioNotice(S2CRadioNotice notice) {
         if (DevE2E.enabled() && E2EClient.INSTANCE != null) E2EClient.INSTANCE.onNotice(notice);
-        GuiRadio gui = openGuiFor(notice.x, notice.y, notice.z);
+        FmScreen gui = openGuiFor(notice.x, notice.y, notice.z);
         if (gui != null) {
             gui.onNotice(notice);
             return;
@@ -102,7 +113,7 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void onRadioPerms(S2CRadioPerms perms) {
         if (DevE2E.enabled() && E2EClient.INSTANCE != null) E2EClient.INSTANCE.onPerms(perms);
-        GuiRadio gui = openGuiFor(perms.x, perms.y, perms.z);
+        FmScreen gui = openGuiFor(perms.x, perms.y, perms.z);
         if (gui != null) gui.onPerms(perms);
     }
 
@@ -125,10 +136,10 @@ public class ClientProxy extends CommonProxy {
         ClockSync.onPong(message, ClockStamps.take(connection, message.t0, fallbackT3));
     }
 
-    private static GuiRadio openGuiFor(int x, int y, int z) {
+    private static FmScreen openGuiFor(int x, int y, int z) {
         GuiScreen screen = Minecraft.getMinecraft().currentScreen;
-        if (!(screen instanceof GuiRadio)) return null;
-        GuiRadio gui = (GuiRadio) screen;
+        if (!(screen instanceof FmScreen)) return null;
+        FmScreen gui = (FmScreen) screen;
         return gui.isFor(x, y, z) ? gui : null;
     }
 }

@@ -13,6 +13,14 @@ dependencies {
     shadowImplementation("org.jcraft:jorbis:0.0.17")             // OGG/Vorbis, LGPL-2.0
     shadowImplementation("de.sfuhrm:jaad:0.8.7")                 // AAC/HE-AAC, domínio público
 
+    // Energia opcional do transmissor: EU (IC2, cabos do GregTech) e RF (API do CoFH). Só para compilar: as
+    // interfaces são @Optional e somem quando o mod não está instalado.
+    compileOnly("net.industrial-craft:industrialcraft-2:2.2.654-experimental:dev") { transitive = false }
+    compileOnly("curse.maven:cofh-lib-220333:2388748") { transitive = false }
+    // Nos testes unitários não há o FML para tirar as interfaces opcionais: as APIs precisam estar lá.
+    testRuntimeOnly("net.industrial-craft:industrialcraft-2:2.2.654-experimental:dev") { transitive = false }
+    testRuntimeOnly("curse.maven:cofh-lib-220333:2388748") { transitive = false }
+
     // WAILA opcional: só a API para compilar o provider (registrado por IMC se o WAILA estiver presente).
     compileOnly("com.github.GTNewHorizons:waila:1.19.34:dev") { transitive = false }
 

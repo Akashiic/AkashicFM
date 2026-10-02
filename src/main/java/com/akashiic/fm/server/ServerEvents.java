@@ -10,6 +10,7 @@ import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Permissions;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.content.TileTransmitter;
 import com.akashiic.fm.network.ServerActionQueue;
 import com.akashiic.fm.server.relay.RelayService;
 
@@ -28,6 +29,7 @@ public final class ServerEvents {
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.START) return;
         ServerActionQueue.drain();
+        FrequencyService.tick(); // antes do relay: a audiência já vê a URL sintonizada neste tick
         RelayService.tick();
         if (++tickCounter % MAINTENANCE_INTERVAL_TICKS == 0) SpeakerLinks.maintain();
     }
@@ -51,6 +53,9 @@ public final class ServerEvents {
         boolean allowed;
         if (te instanceof TileRadio) {
             allowed = Permissions.canBreak(((TileRadio) te).state, player);
+        } else if (te instanceof TileTransmitter) {
+            TileTransmitter t = (TileTransmitter) te;
+            allowed = Permissions.canBreak(t.state.owner, t.state.access, player);
         } else if (te instanceof TileSpeaker) {
             TileSpeaker speaker = (TileSpeaker) te;
             allowed = speaker.owner == null || SpeakerLinks.canAdminSpeaker(speaker, player)

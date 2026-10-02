@@ -17,6 +17,10 @@ import com.akashiic.fm.audio.http.UrlPolicy;
 public final class RadioState {
 
     public String url = "";
+    /** URL escrita na rádio, ou a frequência sintonizada (a URL vem do transmissor mais forte). */
+    public TuneMode mode = TuneMode.URL;
+    /** Frequência sintonizada, em décimos de MHz ({@link Frequency}). */
+    public int frequency = Frequency.DEFAULT;
     public final List<String> stations = new ArrayList<>();
     public boolean playing;
     public int volume = RadioLimits.VOLUME_DEFAULT;
@@ -42,6 +46,17 @@ public final class RadioState {
     public String status = "";
     /** Título da faixa atual (ICY StreamTitle), preenchido pelo relay. */
     public String nowPlaying = "";
+    /** Modo FREQUENCY: URL do transmissor ouvido (vazia = sem sinal), escrita pelo servidor. */
+    public String tunedUrl = "";
+    /** Nome do transmissor ouvido. */
+    public String tunedName = "";
+    /** Sinal do transmissor ouvido, 0..100. */
+    public int signal;
+
+    /** O que a rádio toca de fato: a própria URL, ou a do transmissor sintonizado. */
+    public String effectiveUrl() {
+        return mode == TuneMode.FREQUENCY ? tunedUrl : url;
+    }
 
     /**
      * Corta e normaliza todos os campos. {@code maxRange} e {@code maxSpeakers} vêm do config (ou do limite rígido).
@@ -75,9 +90,15 @@ public final class RadioState {
         speakers.clear();
         speakers.addAll(cleanSpeakers);
         if (transport == null) transport = Transport.NONE;
-        if (url.isEmpty()) playing = false;
+        if (mode == null) mode = TuneMode.URL;
+        frequency = Frequency.clamp(frequency);
+        // Sintonizada numa frequência a rádio fica ligada sem sinal (pega quando um transmissor cobrir o lugar).
+        if (mode == TuneMode.URL && url.isEmpty()) playing = false;
         status = TextSanitizer.clean(status, RadioLimits.MAX_STATUS_LENGTH);
         nowPlaying = TextSanitizer.clean(nowPlaying, RadioLimits.MAX_TITLE_LENGTH);
+        tunedUrl = TextSanitizer.cleanUrl(tunedUrl, RadioLimits.MAX_URL_LENGTH);
+        tunedName = TextSanitizer.clean(tunedName, RadioLimits.MAX_SCREEN_TEXT);
+        signal = RadioLimits.clamp(signal, 0, 100);
     }
 
     public boolean isOwner(UUID player) {
@@ -87,6 +108,8 @@ public final class RadioState {
     /** Grava o estado. {@code forClient} inclui os campos transitórios (pacote de descrição). */
     public void writeToNbt(NBTTagCompound tag, boolean forClient) {
         tag.setString("url", url);
+        tag.setByte("mode", (byte) mode.ordinal());
+        tag.setShort("frequency", (short) frequency);
         tag.setTag("stations", writeStrings(stations));
         tag.setBoolean("playing", playing);
         tag.setByte("volume", (byte) volume);
@@ -110,12 +133,16 @@ public final class RadioState {
         if (forClient) {
             tag.setString("status", status);
             tag.setString("nowPlaying", nowPlaying);
+            tag.setString("tunedUrl", tunedUrl);
+            tag.setString("tunedName", tunedName);
+            tag.setByte("signal", (byte) signal);
         }
     }
 
     /** Lê e saneia. Campos ausentes voltam ao padrão. */
     public void readFromNbt(NBTTagCompound tag, int maxRange, int maxSpeakers) {
         url = str(tag, "url");
+        readTuning(tag);
         stations.clear();
         readStrings(tag.getTagList("stations", 8), stations, RadioLimits.MAX_STATIONS * 2);
         playing = tag.getBoolean("playing");
@@ -137,12 +164,23 @@ public final class RadioState {
         epoch = tag.getInteger("epoch");
         status = str(tag, "status");
         nowPlaying = str(tag, "nowPlaying");
+        tunedUrl = str(tag, "tunedUrl");
+        tunedName = str(tag, "tunedName");
+        signal = tag.getByte("signal");
         sanitize(maxRange, maxSpeakers);
+    }
+
+    /** Modo e frequência; NBT antigo (sem as chaves) cai no modo URL. */
+    private void readTuning(NBTTagCompound tag) {
+        mode = TuneMode.byOrdinal(tag.getByte("mode"));
+        frequency = tag.hasKey("frequency", 2) ? tag.getShort("frequency") : Frequency.DEFAULT;
     }
 
     /** Configurações que viajam com o item quando a rádio é quebrada (sem dono, caixas nem estado de reprodução). */
     public void writeSettings(NBTTagCompound tag) {
         tag.setString("url", url);
+        tag.setByte("mode", (byte) mode.ordinal());
+        tag.setShort("frequency", (short) frequency);
         tag.setTag("stations", writeStrings(stations));
         tag.setByte("volume", (byte) volume);
         tag.setShort("range", (short) range);
@@ -154,6 +192,7 @@ public final class RadioState {
 
     public void readSettings(NBTTagCompound tag, int maxRange, int maxSpeakers) {
         url = str(tag, "url");
+        readTuning(tag);
         stations.clear();
         readStrings(tag.getTagList("stations", 8), stations, RadioLimits.MAX_STATIONS * 2);
         if (tag.hasKey("volume")) volume = tag.getByte("volume");
@@ -177,7 +216,7 @@ public final class RadioState {
     }
 
     /** Só aceita tag de string: o getString do 1.7.10 devolveria o toString() de uma tag de outro tipo. */
-    static String str(NBTTagCompound tag, String key) {
+    public static String str(NBTTagCompound tag, String key) {
         return tag.hasKey(key, 8) ? tag.getString(key) : "";
     }
 

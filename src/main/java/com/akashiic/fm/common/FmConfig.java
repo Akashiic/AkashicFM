@@ -107,6 +107,60 @@ public final class FmConfig {
         public static boolean opsBypass;
     }
 
+    @Config(modid = AkashicFM.MODID, category = "transmitter")
+    @Config.Comment("Transmissores de FM: alcance pelas antenas e energia (EU do IC2/GregTech ou RF).")
+    public static final class Transmitter {
+
+        @Config.Comment("Alcance do transmissor sem antenas, em blocos.")
+        @Config.DefaultInt(64)
+        @Config.RangeInt(min = 8, max = 1024)
+        public static int baseRange;
+
+        @Config.Comment("Alcance extra por bloco de antena empilhado em cima do transmissor.")
+        @Config.DefaultInt(32)
+        @Config.RangeInt(min = 0, max = 512)
+        public static int rangePerAntenna;
+
+        @Config.Comment("Máximo de antenas que contam (as de cima disso não somam).")
+        @Config.DefaultInt(16)
+        @Config.RangeInt(min = 0, max = 64)
+        public static int maxAntennas;
+
+        @Config.Comment("Teto do alcance, em blocos, com quantas antenas forem.")
+        @Config.DefaultInt(512)
+        @Config.RangeInt(min = 8, max = 4096)
+        public static int maxRange;
+
+        @Config.Comment("Exige energia para transmitir. Só vale com IC2 (EU, cabos do GregTech) ou um mod de RF instalado; sem eles, nunca exige.")
+        @Config.DefaultBoolean(true)
+        public static boolean requireEnergy;
+
+        @Config.Comment("Consumo enquanto transmite, em EU por tick.")
+        @Config.DefaultInt(8)
+        @Config.RangeInt(min = 1, max = 2048)
+        public static int euPerTick;
+
+        @Config.Comment("Energia guardada no transmissor, em EU.")
+        @Config.DefaultInt(8000)
+        @Config.RangeInt(min = 100, max = 1000000)
+        public static int energyCapacity;
+
+        @Config.Comment("Entrada máxima de energia, em EU por tick (aceita qualquer tensão: um rádio não explode por isso).")
+        @Config.DefaultInt(128)
+        @Config.RangeInt(min = 1, max = 100000)
+        public static int maxInputPerTick;
+
+        @Config.Comment("Quantos RF valem 1 EU.")
+        @Config.DefaultInt(4)
+        @Config.RangeInt(min = 1, max = 100)
+        public static int rfPerEu;
+
+        @Config.Comment("Máximo de transmissores por jogador.")
+        @Config.DefaultInt(4)
+        @Config.RangeInt(min = 1, max = 256)
+        public static int maxPerPlayer;
+    }
+
     @Config(modid = AkashicFM.MODID, category = "recipes")
     @Config.Comment("Receitas padrão do mod.")
     public static final class Recipes {

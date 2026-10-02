@@ -11,6 +11,9 @@ import com.akashiic.fm.AkashicFM;
  */
 public final class DevE2E {
 
+    /** Alcances do transmissor no servidor de teste: o teste de antenas cabe perto da rádio (chunk carregado). */
+    public static final int TRANSMITTER_BASE_RANGE = 16, TRANSMITTER_RANGE_PER_ANTENNA = 16;
+
     /** Cenário pedido (ex.: "main", "main+peer", "peer"), ou null se desligado. */
     public static final String SCENARIO = resolve();
 

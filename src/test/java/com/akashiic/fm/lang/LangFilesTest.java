@@ -9,11 +9,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +27,7 @@ import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.RedstoneMode;
 import com.akashiic.fm.common.SpeakerChannel;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.common.TuneMode;
 
 /** As duas traduções têm as mesmas chaves, os mesmos argumentos e cobrem as chaves montadas a partir de enums. */
 class LangFilesTest {
@@ -89,5 +96,38 @@ class LangFilesTest {
                 c.name());
         }
         for (String code : POLICY_CODES) assertTrue(en.containsKey("akashicfm.policy." + code), code);
+    }
+
+    @Test
+    void chavesUsadasNoCodigoExistem() throws IOException {
+        // Toda chave literal "akashicfm.x.y" do código está traduzida (as que terminam em '.' são prefixos de enum).
+        Map<String, String> en = load("en_US");
+        Pattern literal = Pattern.compile("\"(akashicfm\\.[A-Za-z0-9_.]+)\"");
+        List<String> missing = new ArrayList<>();
+        try (Stream<Path> files = Files.walk(Paths.get("src", "main", "java"))) {
+            for (Path f : (Iterable<Path>) files.filter(
+                p -> p.toString()
+                    .endsWith(".java"))::iterator) {
+                Matcher m = literal.matcher(new String(Files.readAllBytes(f), StandardCharsets.UTF_8));
+                while (m.find()) {
+                    String key = m.group(1);
+                    if (!key.endsWith(".") && !en.containsKey(key)) missing.add(key + " (" + f.getFileName() + ")");
+                }
+            }
+        }
+        assertTrue(missing.isEmpty(), "sem tradução: " + missing);
+    }
+
+    @Test
+    void modosDeSintonia() throws IOException {
+        Map<String, String> en = load("en_US");
+        for (TuneMode m : TuneMode.values()) {
+            assertTrue(
+                en.containsKey(
+                    "akashicfm.gui.mode." + (m == TuneMode.FREQUENCY ? "fm"
+                        : m.name()
+                            .toLowerCase(Locale.ROOT))),
+                m.name());
+        }
     }
 }

@@ -108,9 +108,10 @@ public final class RadioAudioController {
      */
     public static String playbackKey(TileRadio radio) {
         RadioState s = radio.state;
-        if (!s.playing || s.url.isEmpty()) return null;
+        String url = s.effectiveUrl();
+        if (!s.playing || url.isEmpty()) return null;
         if (s.transport == Transport.RELAY) {
-            RelayFeed feed = RelayClient.feedForUrl(s.url);
+            RelayFeed feed = RelayClient.feedForUrl(url);
             return feed == null ? null : relayKey(feed);
         }
         return s.transport == Transport.DIRECT ? keyFor(radio) : null;
@@ -155,11 +156,13 @@ public final class RadioAudioController {
         for (TileRadio radio : ClientRadioRegistry.snapshot()) {
             if (radio.isInvalid() || radio.getWorldObj() != world) continue;
             RadioState s = radio.state;
-            if (!s.playing || s.url.isEmpty()) continue;
+            // Sintonizada, toca a URL do transmissor ouvido (vazia = sem sinal, silêncio).
+            final String url = s.effectiveUrl();
+            if (!s.playing || url.isEmpty()) continue;
             if (s.transport == Transport.DIRECT && !FmConfig.Client.allowDirectStreams) continue;
             RelayFeed relay = null;
             if (s.transport == Transport.RELAY) {
-                relay = RelayClient.feedForUrl(s.url);
+                relay = RelayClient.feedForUrl(url);
                 if (relay == null) continue; // o servidor não está mandando esta estação para nós
             } else if (s.transport != Transport.DIRECT) {
                 continue;
@@ -172,14 +175,14 @@ public final class RadioAudioController {
             double limit = s.range + (engine.has(key) ? HYSTERESIS : 0);
             if (nearest > limit) continue;
             if (relay != null) {
-                RelayGroup g = relayGroups.computeIfAbsent(key, k -> new RelayGroup(RelayClient.feedForUrl(s.url)));
+                final RelayFeed feed = relay;
+                RelayGroup g = relayGroups.computeIfAbsent(key, k -> new RelayGroup(feed));
                 g.emitters.addAll(emitters);
                 if (nearest < g.nearest) {
                     g.nearest = nearest;
                     g.radio = radio;
                 }
             } else {
-                final String url = s.url;
                 final String threadName = "AkashicFM-Direct-" + radio.xCoord + "," + radio.yCoord + "," + radio.zCoord;
                 candidates
                     .add(new Candidate(key, emitters, nearest, () -> new DirectFeed(url, threadName).start(), radio));
@@ -260,10 +263,13 @@ public final class RadioAudioController {
     private static void announceNowPlaying(Candidate loudest, float gain) {
         long now = System.currentTimeMillis();
         String title = loudest == null ? null : NowPlaying.title(loudest.radio);
-        String station = loudest == null ? null : NowPlaying.hostOf(loudest.radio.state.url);
+        String station = loudest == null ? null : NowPlaying.station(loudest.radio);
         String show = NOW_PLAYING.update(loudest == null ? null : loudest.key, title, station, gain, now);
         if (show != null && FmConfig.Client.showNowPlaying) {
-            NowPlayingMessage.INSTANCE.show(show, loudest.radio.state.screenText, now);
+            RadioState s = loudest.radio.state;
+            String dial = NowPlaying.dial(s);
+            String sub = s.screenText.isEmpty() ? dial : dial.isEmpty() ? s.screenText : dial + " · " + s.screenText;
+            NowPlayingMessage.INSTANCE.show(show, sub, now);
         }
     }
 

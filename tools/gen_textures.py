@@ -136,6 +136,84 @@ def tuner():
     return img
 
 
+def metal(img, base=(118, 122, 128), dark=(92, 96, 102)):
+    """Chapa de aço com emendas verticais."""
+    for y in range(16):
+        for x in range(16):
+            img.putpixel((x, y), jitter(dark if x in (5, 10) else base, 5))
+
+
+def rivets(img):
+    for p in ((1, 1), (14, 1), (1, 14), (14, 14)):
+        img.putpixel(p, (170, 174, 180, 255))
+
+
+def transmitter_front():
+    img = Image.new("RGBA", (16, 16))
+    metal(img)
+    frame(img, (64, 68, 74))
+    rivets(img)
+    # Visor (a TESR escreve a frequência aqui): mesma posição da tela da rádio, x 2..13, y 4..7.
+    for x in range(1, 15):
+        img.putpixel((x, 3), (40, 42, 46, 255))
+        img.putpixel((x, 8), (150, 154, 160, 255))
+    for y in range(3, 9):
+        img.putpixel((1, y), (40, 42, 46, 255))
+        img.putpixel((14, y), (150, 154, 160, 255))
+    for y in range(4, 8):
+        for x in range(2, 14):
+            img.putpixel((x, y), (26, 16, 6, 255) if (x + y) % 2 else (32, 20, 8, 255))
+    # Dois mostradores redondos e a luz "no ar".
+    for cx in (4, 9):
+        for dx, dy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            img.putpixel((cx + dx, 11 + dy), (210, 210, 200, 255) if (dx, dy) != (1, 1) else (60, 60, 60, 255))
+    img.putpixel((13, 11), (240, 50, 40, 255))
+    img.putpixel((13, 12), (150, 30, 24, 255))
+    for x in range(3, 13):  # grade de ventilação
+        img.putpixel((x, 13), (54, 58, 64, 255) if x % 2 else (80, 84, 90, 255))
+    return img
+
+
+def transmitter_side():
+    img = Image.new("RGBA", (16, 16))
+    metal(img)
+    frame(img, (64, 68, 74))
+    rivets(img)
+    for y in range(4, 12):  # aletas de dissipação
+        if y % 2 == 0:
+            for x in range(3, 13):
+                img.putpixel((x, y), (60, 64, 70, 255))
+    return img
+
+
+def transmitter_top():
+    img = Image.new("RGBA", (16, 16))
+    metal(img)
+    frame(img, (64, 68, 74))
+    rivets(img)
+    # Base da antena no centro (x/z 6..9, onde o mastro encaixa).
+    for y in range(5, 11):
+        for x in range(5, 11):
+            edge = x in (5, 10) or y in (5, 10)
+            img.putpixel((x, y), (150, 154, 160, 255) if edge else (40, 42, 46, 255))
+    return img
+
+
+def antenna():
+    """Mastro treliçado. O bloco só usa a faixa central (x 6..9): os montantes e as diagonais ficam nela."""
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y in range(16):
+        for x in range(16):
+            img.putpixel((x, y), jitter((70, 74, 80), 4))
+    for y in range(16):
+        img.putpixel((6, y), jitter((190, 194, 200), 5))
+        img.putpixel((9, y), jitter((150, 154, 160), 5))
+        # diagonal em zigue-zague entre os montantes, período de 4 px
+        d = 7 + (y % 4 if y % 4 < 2 else 3 - y % 4)
+        img.putpixel((d, y), (170, 60, 50, 255) if y % 8 < 4 else (220, 220, 225, 255))
+    return img
+
+
 def main():
     out = {
         "blocks/radio_front.png": radio_front(),
@@ -144,6 +222,11 @@ def main():
         "blocks/speaker_front.png": speaker_front(),
         "blocks/speaker_side.png": speaker_side(),
         "items/tuner.png": tuner(),
+        # Fase 6 (sempre no fim: o gerador aleatório é compartilhado, e as texturas antigas não podem mudar).
+        "blocks/transmitter_front.png": transmitter_front(),
+        "blocks/transmitter_side.png": transmitter_side(),
+        "blocks/transmitter_top.png": transmitter_top(),
+        "blocks/antenna.png": antenna(),
     }
     for rel, img in out.items():
         path = os.path.join(ROOT, rel)

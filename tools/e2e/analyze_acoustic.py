@@ -7,6 +7,8 @@ Segmentos esperados, separados por silêncio (rádio muda por 2 s):
 Para cada segmento (sem o 1º segundo e o último meio segundo): nível RMS (dBFS) e "agudos" = energia acima de
 4 kHz (passa-altas Butterworth de 2ª ordem) em relação à energia total, em dB. A música muda de um segmento
 para outro, então os limites são largos; o efeito da lã (-34 dB nos agudos, -8,6 dB no geral) passa muito deles.
+A referência dos agudos é a mediana dos quatro trechos sem parede (R0, A, D e F): um trecho só pode cair numa
+passagem musical quase sem agudos (já aconteceu: A 14 dB abaixo dos outros três), e a mediana não se deixa levar.
 
 Cauda: na parada (E e F) mede a energia de 30 a 330 ms depois do corte em relação aos 500 ms antes dele.
 A fonte é apagada no corte, então o que sobra é o reverb: na sala de pedra fica acima de -45 dB; no aberto,
@@ -188,8 +190,6 @@ def main():
     mk = marks(log)
     res = {}
     for name, (a, b) in zip(names, regs):
-        if name == 'R0':
-            continue
         if name in ('E-sala-de-pedra', 'F-aberto-parada'):
             # O fim do trecho inclui a cauda: o corte é estimado pelas marcas do roteiro e refinado pela queda.
             start_ev = 'unmute' if name.startswith('E') else 'playing'
@@ -205,7 +205,9 @@ def main():
             name, lv, hf, '' if t is None else '  cauda %6.1f dB' % t))
 
     ref_lv = (res['A-aberto'][0] + res['D-aberto'][0]) / 2
-    ref_hf = (res['A-aberto'][1] + res['D-aberto'][1]) / 2
+    open_hf = sorted(res[n][1] for n in ('R0', 'A-aberto', 'D-aberto', 'F-aberto-parada'))
+    ref_hf = (open_hf[1] + open_hf[2]) / 2
+    print('referência dos agudos (mediana dos trechos sem parede): %.1f dB' % ref_hf)
     checks = []
 
     def check(desc, ok):

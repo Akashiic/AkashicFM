@@ -28,6 +28,9 @@ public final class E2EServer {
         boolean direct = "direct".equals(DevE2E.transport());
         FmConfig.Relay.enabled = !direct;
         FmConfig.Direct.enabled = direct;
+        // Alcances curtos: o teste de antenas cabe perto da rádio, onde o chunk está carregado (view-distance 4).
+        FmConfig.Transmitter.baseRange = DevE2E.TRANSMITTER_BASE_RANGE;
+        FmConfig.Transmitter.rangePerAntenna = DevE2E.TRANSMITTER_RANGE_PER_ANTENNA;
         MinecraftForge.EVENT_BUS.register(new E2EServer());
         DevE2E.log("servidor pronto (transporte {})", direct ? "direto" : "relay");
     }

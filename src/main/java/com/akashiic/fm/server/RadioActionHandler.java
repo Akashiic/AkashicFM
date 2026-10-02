@@ -7,6 +7,7 @@ import net.minecraft.world.World;
 import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.common.FmConfig;
+import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.Permissions;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
@@ -15,8 +16,10 @@ import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.RedstoneMode;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.content.TileTransmitter;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CRadioNotice;
@@ -24,9 +27,9 @@ import com.akashiic.fm.network.S2CRadioPerms;
 import com.akashiic.fm.server.relay.RelayService;
 
 /**
- * Aplica as ações dos jogadores nas rádios. Roda na thread principal do servidor. Ordem das checagens:
- * jogador ainda conectado, chunk já carregado (nunca carrega chunk por causa de um pacote), TE certo,
- * distância de uso, permissão da ação e, por último, validação do conteúdo.
+ * Aplica as ações dos jogadores nas rádios (e despacha as do transmissor). Roda na thread principal do servidor.
+ * Ordem das checagens: jogador ainda conectado, chunk já carregado (nunca carrega chunk por causa de um pacote),
+ * TE certo, distância de uso, permissão da ação e, por último, validação do conteúdo.
  */
 public final class RadioActionHandler {
 
@@ -40,6 +43,10 @@ public final class RadioActionHandler {
         World world = player.worldObj;
         if (world == null || msg.y < 0 || msg.y > 255 || !world.blockExists(msg.x, msg.y, msg.z)) return;
         TileEntity te = world.getTileEntity(msg.x, msg.y, msg.z);
+        if (te instanceof TileTransmitter) {
+            TransmitterActionHandler.handle(player, msg, (TileTransmitter) te);
+            return;
+        }
         if (!(te instanceof TileRadio)) return;
         TileRadio radio = (TileRadio) te;
         if (player.getDistanceSq(msg.x + 0.5, msg.y + 0.5, msg.z + 0.5) > MAX_USE_DISTANCE_SQ) {
@@ -72,6 +79,7 @@ public final class RadioActionHandler {
                 if (s.playing) {
                     s.playing = false;
                     s.status = "";
+                    clearTuning(s);
                     radio.markStateChanged();
                 }
                 return;
@@ -98,7 +106,11 @@ public final class RadioActionHandler {
             case PLAY_STATION:
                 if (!control) break;
                 if (!isStationAt(s, msg.intArg, msg.strArg)) return;
-                if (setUrl(player, radio, s.stations.get(msg.intArg))) startPlaying(player, radio);
+                if (setUrl(player, radio, s.stations.get(msg.intArg))) {
+                    // Favorita é uma URL: sai do modo de frequência (sem tocar a do transmissor no caminho).
+                    if (s.mode != TuneMode.URL && setMode(radio, TuneMode.URL)) radio.markStateChanged();
+                    startPlaying(player, radio);
+                }
                 return;
             case ADD_STATION:
                 if (!admin) break;
@@ -158,6 +170,19 @@ public final class RadioActionHandler {
                     radio.markStateChanged();
                 }
                 return;
+            case SET_MODE:
+                if (!control) break;
+                if (setMode(radio, TuneMode.byOrdinal(msg.intArg))) radio.markStateChanged();
+                return;
+            case SET_FREQUENCY:
+                if (!control) break;
+                int f = Frequency.clamp(msg.intArg);
+                if (f != s.frequency) {
+                    s.frequency = f;
+                    if (s.mode == TuneMode.FREQUENCY && s.playing) FrequencyService.retune(radio);
+                    radio.markStateChanged();
+                }
+                return;
             default:
                 return;
         }
@@ -183,9 +208,19 @@ public final class RadioActionHandler {
 
     /**
      * Muta o estado para tocar, sem notificar. Quem chama decide quando marcar a mudança. A URL passa de novo
-     * pela política: pode ter vindo do item (NBT) ou ter sido salva antes de o admin mudar a allowlist.
+     * pela política: pode ter vindo do item (NBT) ou ter sido salva antes de o admin mudar a allowlist. No modo
+     * de frequência a rádio só liga "sem sinal": quem chama sintoniza em seguida ({@link #afterPlay}).
      */
     static PlayResult applyPlay(RadioState s) {
+        if (s.mode == TuneMode.FREQUENCY) {
+            if (s.playing) return PlayResult.UNCHANGED;
+            s.playing = true;
+            s.session++;
+            s.status = "";
+            s.transport = Transport.NONE;
+            clearTuning(s);
+            return PlayResult.CHANGED;
+        }
         if (s.url.isEmpty()) return PlayResult.NO_URL;
         if (ServerPolicy.rejection(s.url) != null) return PlayResult.REJECTED;
         Transport t = ServerPolicy.chooseTransport(s.url);
@@ -200,6 +235,40 @@ public final class RadioActionHandler {
         s.session++;
         s.status = "";
         return PlayResult.CHANGED;
+    }
+
+    /** Depois de ligar: no modo de frequência, sintoniza já (sem esperar o próximo ciclo do serviço). */
+    static void afterPlay(TileRadio radio) {
+        if (radio.state.mode == TuneMode.FREQUENCY && radio.state.playing) FrequencyService.retune(radio);
+    }
+
+    /** Esquece o transmissor ouvido (parou, trocou de modo). */
+    static void clearTuning(RadioState s) {
+        s.tunedUrl = "";
+        s.tunedName = "";
+        s.signal = 0;
+        s.nowPlaying = "";
+    }
+
+    /**
+     * Troca entre URL e frequência. Tocando, continua tocando no modo novo (ou para, se a URL da rádio não puder
+     * tocar). Devolve true se mudou (quem chama marca a mudança).
+     */
+    static boolean setMode(TileRadio radio, TuneMode mode) {
+        RadioState s = radio.state;
+        if (mode == s.mode) return false;
+        boolean wasPlaying = s.playing;
+        s.mode = mode;
+        s.status = "";
+        clearTuning(s);
+        if (wasPlaying) {
+            // A fonte muda (URL própria ↔ transmissor): sessão nova mesmo se o transporte for o mesmo.
+            s.playing = false;
+            s.session++;
+            if (applyPlay(s) == PlayResult.CHANGED) afterPlay(radio);
+            else s.transport = Transport.NONE;
+        }
+        return true;
     }
 
     /** Liga a reprodução a pedido de um jogador. Devolve false se recusou. */
@@ -232,6 +301,7 @@ public final class RadioActionHandler {
                 }
                 return false;
             case CHANGED:
+                afterPlay(radio);
                 radio.markStateChanged();
                 return true;
             default:
@@ -243,10 +313,12 @@ public final class RadioActionHandler {
     static boolean setUrl(EntityPlayerMP player, TileRadio radio, String raw) {
         RadioState s = radio.state;
         String url = TextSanitizer.cleanUrl(raw, RadioLimits.MAX_URL_LENGTH);
+        boolean urlMode = s.mode == TuneMode.URL;
         if (url.isEmpty()) {
-            if (!s.url.isEmpty() || s.playing) {
+            // Sem URL a rádio para, mas só se é a URL que ela toca (sintonizada, toca a do transmissor).
+            if (!s.url.isEmpty() || (urlMode && s.playing)) {
                 s.url = "";
-                s.playing = false;
+                if (urlMode) s.playing = false;
                 radio.markStateChanged();
             }
             return false;
@@ -260,8 +332,10 @@ public final class RadioActionHandler {
         }
         if (!url.equals(s.url)) {
             s.url = url;
-            if (s.playing) s.session++; // troca de estação ao vivo: clientes recomeçam com a URL nova
-            s.status = "";
+            if (urlMode) {
+                if (s.playing) s.session++; // troca de estação ao vivo: clientes recomeçam com a URL nova
+                s.status = "";
+            }
             radio.markStateChanged();
             AkashicFM.LOG.info(
                 "[audit] {} ({}) mudou a URL da rádio em dim {} [{}] para {}",
@@ -328,6 +402,7 @@ public final class RadioActionHandler {
             default:
                 break;
         }
+        if (s.playing && !wasPlaying) afterPlay(radio);
         if (s.playing != wasPlaying || s.session != oldSession) {
             radio.markStateChanged();
         } else {

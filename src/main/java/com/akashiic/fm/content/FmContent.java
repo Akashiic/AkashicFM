@@ -31,6 +31,8 @@ public final class FmContent {
     public static BlockRadio radio;
     public static BlockSpeaker speaker;
     public static ItemTuner tuner;
+    public static BlockTransmitter transmitter;
+    public static BlockAntenna antenna;
 
     /** preInit: blocos e itens precisam existir antes do init. */
     public static void registerBlocksAndItems() {
@@ -40,8 +42,13 @@ public final class FmContent {
         GameRegistry.registerBlock(speaker, "speaker");
         tuner = new ItemTuner();
         GameRegistry.registerItem(tuner, "tuner", AkashicFM.MODID);
+        transmitter = new BlockTransmitter();
+        GameRegistry.registerBlock(transmitter, ItemBlockTransmitter.class, "transmitter");
+        antenna = new BlockAntenna();
+        GameRegistry.registerBlock(antenna, "antenna");
         GameRegistry.registerTileEntity(TileRadio.class, AkashicFM.MODID + ":radio");
         GameRegistry.registerTileEntity(TileSpeaker.class, AkashicFM.MODID + ":speaker");
+        GameRegistry.registerTileEntity(TileTransmitter.class, AkashicFM.MODID + ":transmitter");
     }
 
     /** init: receitas padrão (o modpack pode desligar e definir as próprias). */
@@ -89,5 +96,21 @@ public final class FmContent {
                 "ingotIron",
                 'S',
                 "stickWood"));
+        GameRegistry.addRecipe(
+            new ShapedOreRecipe(
+                new ItemStack(transmitter),
+                "IGI",
+                "RNR",
+                "III",
+                'I',
+                "ingotIron",
+                'G',
+                Blocks.glass_pane,
+                'R',
+                "dustRedstone",
+                'N',
+                Blocks.noteblock));
+        GameRegistry.addRecipe(
+            new ShapedOreRecipe(new ItemStack(antenna, 4), "B", "I", "I", 'B', Blocks.iron_bars, 'I', "ingotIron"));
     }
 }

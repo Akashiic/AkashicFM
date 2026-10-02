@@ -23,6 +23,7 @@ import net.minecraftforge.fluids.IFluidBlock;
 
 import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.spatial.AcousticOverrides;
+import com.akashiic.fm.content.BlockAntenna;
 
 /**
  * Propriedades acústicas dos blocos, em duas grandezas diferentes:
@@ -226,7 +227,9 @@ public final class BlockAcoustics {
         if (block instanceof BlockFenceGate) return Shape.GATE;
         if (block instanceof BlockSlab) return block.isOpaqueCube() ? Shape.FULL : Shape.SLAB;
         if (block instanceof BlockStairs) return Shape.STAIRS;
-        if (block instanceof BlockFence || block instanceof BlockWall || block instanceof BlockPane) return Shape.THIN;
+        if (block instanceof BlockFence || block instanceof BlockWall
+            || block instanceof BlockPane
+            || block instanceof BlockAntenna) return Shape.THIN;
         if (block instanceof BlockCarpet) return Shape.CARPET;
         if (block instanceof BlockSnow) return Shape.SNOW_LAYER;
         if (block instanceof BlockLiquid || block instanceof IFluidBlock) return Shape.FULL;

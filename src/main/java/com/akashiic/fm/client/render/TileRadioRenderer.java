@@ -5,6 +5,7 @@ import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
 import net.minecraft.client.renderer.tileentity.TileEntitySpecialRenderer;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.StatCollector;
 
 import org.lwjgl.opengl.GL11;
 
@@ -78,12 +79,18 @@ public final class TileRadioRenderer extends TileEntitySpecialRenderer {
         GL11.glPopMatrix();
     }
 
-    /** O que a tela mostra: o texto escolhido; sem texto, o título atual ou o host da estação enquanto toca. */
+    /**
+     * O que a tela mostra: o texto escolhido; sem texto, enquanto toca, o título atual ou a estação (sintonizada,
+     * com a frequência na frente: "98.7 FM ♪ título", ou "98.7 FM · sem sinal").
+     */
     static String screenText(TileRadio radio) {
         RadioState s = radio.state;
         if (!s.screenText.isEmpty()) return s.screenText;
         if (!s.playing) return "";
-        return "\u266A " + NowPlaying.label(radio);
+        String dial = NowPlaying.dial(s);
+        if (dial.isEmpty()) return "\u266A " + NowPlaying.label(radio);
+        if (s.tunedUrl.isEmpty()) return dial + " · " + StatCollector.translateToLocal("akashicfm.screen.no_signal");
+        return dial + " \u266A " + NowPlaying.label(radio);
     }
 
     /**
