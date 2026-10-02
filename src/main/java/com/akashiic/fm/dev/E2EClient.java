@@ -21,6 +21,7 @@ import net.minecraftforge.common.MinecraftForge;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
+import com.akashiic.fm.client.gui.FmConfigGui;
 import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
@@ -76,6 +77,7 @@ public final class E2EClient {
         this.url = u == null || u.isEmpty() ? DEFAULT_URL : u;
         if (scenario.startsWith("peer")) buildPeer();
         else if (scenario.startsWith("listen")) buildListen();
+        else if (scenario.startsWith("soak")) buildSoak();
         else buildMain(scenario.contains("peer"));
     }
 
@@ -249,8 +251,73 @@ public final class E2EClient {
 
     private boolean voicesAre(int expected) {
         AudioEngine.PlaybackInfo i = info();
-        return i != null && i.voices == expected
-            && AudioEngine.INSTANCE.playingSources() == AudioEngine.INSTANCE.totalVoices();
+        return i != null && i.voices == expected && alInvariantsHold();
+    }
+
+    /**
+     * Sem vazamento e sem fonte parada: toda voz tem 1 fonte AL tocando e exatamente {@code POOL_SIZE} buffers, e
+     * não existe objeto AL do mod fora das vozes.
+     */
+    private static boolean alInvariantsHold() {
+        int voices = AudioEngine.INSTANCE.totalVoices();
+        return AudioEngine.INSTANCE.playingSources() == voices && AudioEngine.liveSources() == voices
+            && AudioEngine.liveBuffers() == voices * 10;
+    }
+
+    private static String alCounters() {
+        return "vozes=" + AudioEngine.INSTANCE.totalVoices()
+            + " tocando="
+            + AudioEngine.INSTANCE.playingSources()
+            + " fontesVivas="
+            + AudioEngine.liveSources()
+            + " buffersVivos="
+            + AudioEngine.liveBuffers()
+            + " reproducoes="
+            + AudioEngine.INSTANCE.activeCount()
+            + " threads="
+            + liveDirectThreads();
+    }
+
+    private int startsMark, underrunsMark, joinsMark;
+
+    /** Guarda os contadores da reprodução antes de mudar as caixas. */
+    private void markContinuity() {
+        AudioEngine.PlaybackInfo i = info();
+        startsMark = i == null ? 0 : i.starts;
+        underrunsMark = i == null ? 0 : i.underruns;
+        joinsMark = i == null ? 0 : i.joins;
+    }
+
+    /**
+     * "" se as mudanças de caixa não reiniciaram a reprodução: nenhum início novo, nenhum underrun e pelo
+     * menos uma voz entrou alinhada (quando havia o que entrar). Senão, o motivo.
+     */
+    private String continuityBroken() {
+        AudioEngine.PlaybackInfo i = info();
+        if (i == null) return "reprodução sumiu";
+        DevE2E.log(
+            "continuidade: inícios {} -> {}, underruns {} -> {}, vozes que entraram {} -> {}",
+            startsMark,
+            i.starts,
+            underrunsMark,
+            i.underruns,
+            joinsMark,
+            i.joins);
+        if (i.starts != startsMark) return "a reprodução reiniciou (" + startsMark + " -> " + i.starts + ")";
+        if (i.underruns != underrunsMark) return "underrun durante a troca";
+        return "";
+    }
+
+    /** Mesmo caminho do F3+T para o som: descarrega e recria o sound system (e o contexto OpenAL). */
+    private static void reloadSoundSystem() {
+        mc().getSoundHandler()
+            .onResourceManagerReload(mc().getResourceManager());
+    }
+
+    private static long usedHeapAfterGc() {
+        Runtime rt = Runtime.getRuntime();
+        System.gc();
+        return rt.totalMemory() - rt.freeMemory();
     }
 
     /** Captura do último frame (dev): conferir visualmente a GUI e a tela da rádio. */
@@ -519,6 +586,26 @@ public final class E2EClient {
                 return ok ? "" : "permissões não chegaram ou op sem admin";
             }
         });
+        steps.add(new Step("tela-de-config-do-mod", 10) {
+
+            @Override
+            void start() {
+                try {
+                    mc().displayGuiScreen(new FmConfigGui(null));
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 20) screenshot("e2e-config.png");
+                if (t < 22) return null;
+                boolean ok = mc().currentScreen instanceof FmConfigGui;
+                mc().displayGuiScreen(null);
+                return ok ? "" : "a tela de config não abriu";
+            }
+        });
         steps.add(new Step("pegar-sintonizador", 10) {
 
             @Override
@@ -557,6 +644,11 @@ public final class E2EClient {
         steps.add(new Step("ligar-caixa-com-sintonizador", 10) {
 
             @Override
+            void start() {
+                markContinuity();
+            }
+
+            @Override
             String tick(int t) {
                 if (t == 2) rightClick(sx, sy, sz); // seleciona a caixa
                 if (t == 12) rightClick(rx, ry, rz); // liga na rádio
@@ -569,11 +661,17 @@ public final class E2EClient {
 
             @Override
             String tick(int t) {
-                // Rádio em estéreo (2 fontes) + caixa em MIX (1 fonte).
-                return voicesAre(3) ? "" : null;
+                // Rádio em estéreo (2 fontes) + caixa em MIX (1 fonte), que entrou sem reiniciar as outras.
+                if (!voicesAre(3)) return null;
+                return continuityBroken();
             }
         });
         steps.add(new Step("trocar-canal-agachado-ate-estereo", 15) {
+
+            @Override
+            void start() {
+                markContinuity();
+            }
 
             @Override
             String tick(int t) {
@@ -583,13 +681,15 @@ public final class E2EClient {
                 if (t == 30) sneak(false);
                 TileSpeaker sp = speaker();
                 if (t < 30 || sp == null || sp.channel != SpeakerChannel.STEREO) return null;
-                return voicesAre(4) ? "" : null; // caixa em estéreo vira duas fontes
+                if (!voicesAre(4)) return null; // caixa em estéreo vira duas fontes
+                return continuityBroken();
             }
         });
         steps.add(new Step("desvincular-caixas", 10) {
 
             @Override
             void start() {
+                markContinuity();
                 send(Action.UNLINK_ALL_SPEAKERS, 0, "");
             }
 
@@ -598,9 +698,11 @@ public final class E2EClient {
                 TileRadio r = radio();
                 TileSpeaker sp = speaker();
                 boolean clean = r != null && r.state.speakers.isEmpty() && sp != null && sp.linkedRadio == null;
-                return clean && voicesAre(2) ? "" : null;
+                if (!clean || !voicesAre(2)) return null;
+                return continuityBroken();
             }
         });
+        steps.add(soundReload("recarregar-som-durante-reproducao"));
         if (expectPeer) {
             steps.add(new Step("esperar-segundo-jogador", 600) {
 
@@ -691,6 +793,127 @@ public final class E2EClient {
         steps.add(disconnect("desconectar-sem-som-orfao"));
         steps.add(reconnect());
         steps.add(audioPlaying("ouvir-depois-de-reconectar", 45));
+        cleanupIndex = steps.size();
+        steps.add(disconnect("desconectar-final"));
+    }
+
+    private Step soundReload(String name) {
+        return new Step(name, 40) {
+
+            int gen0;
+
+            @Override
+            void start() {
+                gen0 = AudioEngine.INSTANCE.generation();
+                DevE2E.log("antes do recarregamento: geração={} {}", gen0, alCounters());
+                reloadSoundSystem();
+            }
+
+            @Override
+            String tick(int t) {
+                // Destruição + criação do contexto: a geração anda pelo menos 2.
+                if (AudioEngine.INSTANCE.generation() < gen0 + 2) return null;
+                AudioEngine.PlaybackInfo i = info();
+                if (i == null || !i.playing || i.voices == 0 || !alInvariantsHold()) return null;
+                DevE2E.log("depois do recarregamento: geração={} {}", AudioEngine.INSTANCE.generation(), alCounters());
+                return "";
+            }
+        };
+    }
+
+    // ---- Cenário "soak": 10 min tocando, com caixa ligando/desligando e recarregamentos do som ----
+
+    private void buildSoak() {
+        steps.add(join());
+        steps.add(new Step("preparar", 30) {
+
+            @Override
+            String tick(int t) {
+                ChunkCoordinates spawn = mc().theWorld.getSpawnPoint();
+                rx = spawn.posX + 2;
+                ry = spawn.posY;
+                rz = spawn.posZ;
+                sx = rx + 3;
+                sy = ry;
+                sz = rz;
+                if (t == 0) say("/tp " + (spawn.posX + 0.5) + " " + spawn.posY + " " + (spawn.posZ + 0.5));
+                if (t == 10) say("/setblock " + rx + " " + ry + " " + rz + " akashicfm:radio 3");
+                if (t == 12) say("/setblock " + sx + " " + sy + " " + sz + " akashicfm:speaker 3");
+                if (t == 14) say("/give " + mc().thePlayer.getCommandSenderName() + " akashicfm:tuner");
+                if (t == 40) send(Action.PLAY, 0, url);
+                if (t < 40) return null;
+                for (int slot = 0; slot < 9; slot++) {
+                    ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+                    if (st != null && st.getItem() instanceof ItemTuner) mc().thePlayer.inventory.currentItem = slot;
+                }
+                AudioEngine.PlaybackInfo i = info();
+                return i != null && i.playing && speaker() != null ? "" : null;
+            }
+        });
+        steps.add(new Step("soak-10-minutos", 11 * 60) {
+
+            static final int DURATION = 10 * 60 * TPS;
+            long heapStart;
+            int under0, samples, violations, toggles, reloads, lastChange, linkAt = -1;
+            String firstViolation = "";
+
+            @Override
+            void start() {
+                heapStart = usedHeapAfterGc();
+                AudioEngine.PlaybackInfo i = info();
+                under0 = i == null ? 0 : i.underruns;
+                DevE2E.log("soak: início heap={} MB {}", heapStart >> 20, alCounters());
+            }
+
+            @Override
+            String tick(int t) {
+                if (t > 0 && t % (30 * TPS) == 0 && t < DURATION) { // caixa: liga e desliga em alternância
+                    TileRadio r = radio();
+                    if (r != null && r.state.speakers.isEmpty()) {
+                        rightClick(sx, sy, sz);
+                        linkAt = t + 10;
+                    } else {
+                        send(Action.UNLINK_ALL_SPEAKERS, 0, "");
+                    }
+                    toggles++;
+                    lastChange = t;
+                }
+                if (t == linkAt) rightClick(rx, ry, rz);
+                if (t % (150 * TPS) == 75 * TPS && t < DURATION) { // recarrega o som a cada 2,5 min
+                    reloadSoundSystem();
+                    reloads++;
+                    lastChange = t;
+                }
+                if (t % (10 * TPS) == 5 * TPS && t - lastChange > 6 * TPS) { // amostra com tudo estável
+                    samples++;
+                    boolean ok = alInvariantsHold() && liveDirectThreads() == AudioEngine.INSTANCE.activeCount()
+                        && AudioEngine.INSTANCE.activeCount() == 1;
+                    if (!ok) {
+                        violations++;
+                        if (firstViolation.isEmpty()) firstViolation = "t=" + t / TPS + "s " + alCounters();
+                    }
+                    if (samples % 6 == 0) DevE2E.log("soak t={}s {}", t / TPS, alCounters());
+                }
+                if (t < DURATION) return null;
+                long heapEnd = usedHeapAfterGc();
+                AudioEngine.PlaybackInfo i = info();
+                int underruns = i == null ? -1 : i.underruns - under0;
+                DevE2E.log(
+                    "soak: fim amostras={} violações={} trocas={} recarregamentos={} underruns={} heap {} -> {} MB",
+                    samples,
+                    violations,
+                    toggles,
+                    reloads,
+                    underruns,
+                    heapStart >> 20,
+                    heapEnd >> 20);
+                if (violations > 0) return "invariante quebrada: " + firstViolation;
+                // 60 amostras possíveis (a cada 10 s); ~24 caem a menos de 6 s de uma troca e são puladas.
+                if (samples < 30) return "poucas amostras: " + samples;
+                if (heapEnd - heapStart > 64L << 20) return "heap cresceu " + ((heapEnd - heapStart) >> 20) + " MB";
+                return "";
+            }
+        });
         cleanupIndex = steps.size();
         steps.add(disconnect("desconectar-final"));
     }

@@ -15,7 +15,8 @@ import cpw.mods.fml.common.event.FMLServerStoppedEvent;
     name = AkashicFM.NAME,
     version = Tags.VERSION,
     acceptedMinecraftVersions = "[1.7.10]",
-    dependencies = "required-after:gtnhlib")
+    dependencies = "required-after:gtnhlib",
+    guiFactory = "com.akashiic.fm.client.gui.FmGuiFactory")
 public class AkashicFM {
 
     public static final String MODID = "akashicfm";

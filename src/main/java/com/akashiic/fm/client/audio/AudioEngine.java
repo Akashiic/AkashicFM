@@ -163,7 +163,9 @@ public final class AudioEngine {
                 p.feed.statusDetail(),
                 p.voiceCount(),
                 p.framesQueued,
-                p.underruns);
+                p.underruns,
+                p.starts,
+                p.joins);
         } finally {
             lock.unlock();
         }
@@ -177,6 +179,26 @@ public final class AudioEngine {
             int n = 0;
             for (Playback p : playbacks.values()) n += p.playingVoices();
             return n;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Fontes AL do mod vivas agora (diagnóstico de vazamento). */
+    public static int liveSources() {
+        return Voice.LIVE_SOURCES.get();
+    }
+
+    /** Buffers AL do mod vivos agora (diagnóstico de vazamento). */
+    public static int liveBuffers() {
+        return Voice.LIVE_BUFFERS.get();
+    }
+
+    /** Geração atual do contexto AL (muda a cada recriação). */
+    public int generation() {
+        lock.lock();
+        try {
+            return generation;
         } finally {
             lock.unlock();
         }
@@ -308,9 +330,13 @@ public final class AudioEngine {
         public final int voices;
         public final long framesQueued;
         public final int underruns;
+        /** Vezes que todas as vozes (re)começaram juntas depois do prebuffer. */
+        public final int starts;
+        /** Vozes que entraram alinhadas com a reprodução em andamento. */
+        public final int joins;
 
         PlaybackInfo(boolean playing, boolean done, AudioFeed.Status feedStatus, String detail, int voices,
-            long framesQueued, int underruns) {
+            long framesQueued, int underruns, int starts, int joins) {
             this.playing = playing;
             this.done = done;
             this.feedStatus = feedStatus;
@@ -318,6 +344,8 @@ public final class AudioEngine {
             this.voices = voices;
             this.framesQueued = framesQueued;
             this.underruns = underruns;
+            this.starts = starts;
+            this.joins = joins;
         }
     }
 }

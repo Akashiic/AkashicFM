@@ -9,6 +9,7 @@ public final class FmConfig {
     private FmConfig() {}
 
     @Config(modid = AkashicFM.MODID, category = "relay")
+    @Config.Comment("O servidor baixa cada estação uma vez e retransmite em Opus, sincronizado, para quem está no alcance.")
     public static final class Relay {
 
         @Config.Comment("O servidor baixa cada estação uma vez e retransmite em Opus para quem está no alcance. Sincronia real e privacidade para os jogadores.")
@@ -37,6 +38,7 @@ public final class FmConfig {
     }
 
     @Config(modid = AkashicFM.MODID, category = "direct")
+    @Config.Comment("Modo direto: cada cliente baixa o stream sozinho (sem custo para o servidor, mas expõe o IP dos jogadores).")
     public static final class Direct {
 
         @Config.Comment("Permite o modo direto: cada cliente baixa o stream sozinho. Não gasta banda do servidor, mas expõe o IP dos jogadores à URL e a sincronia é aproximada.")
@@ -45,6 +47,7 @@ public final class FmConfig {
     }
 
     @Config(modid = AkashicFM.MODID, category = "policy")
+    @Config.Comment("Quais URLs as rádios podem tocar.")
     public static final class Policy {
 
         @Config.Comment("Domínios permitidos para as URLs (subdomínios incluídos). Vazio = qualquer host público. Endereços internos são sempre recusados.")
@@ -57,6 +60,7 @@ public final class FmConfig {
     }
 
     @Config(modid = AkashicFM.MODID, category = "limits")
+    @Config.Comment("Limites contra abuso: rádios por jogador e por chunk, caixas, alcance e ações por segundo.")
     public static final class Limits {
 
         @Config.Comment("Máximo de rádios por jogador.")
@@ -91,6 +95,7 @@ public final class FmConfig {
     }
 
     @Config(modid = AkashicFM.MODID, category = "protection")
+    @Config.Comment("Quem pode quebrar rádios e caixas privadas.")
     public static final class Protection {
 
         @Config.Comment("Impede que outros jogadores (e máquinas) quebrem rádios e caixas privadas. Ops sempre podem.")
@@ -103,6 +108,7 @@ public final class FmConfig {
     }
 
     @Config(modid = AkashicFM.MODID, category = "recipes")
+    @Config.Comment("Receitas padrão do mod.")
     public static final class Recipes {
 
         @Config.Comment("Registra as receitas padrão (desligue se o modpack define as próprias).")
@@ -112,6 +118,7 @@ public final class FmConfig {
     }
 
     @Config(modid = AkashicFM.MODID, category = "client")
+    @Config.Comment("Opções deste cliente: volume, quantas rádios tocam ao mesmo tempo e streams diretos.")
     public static final class Client {
 
         @Config.Comment("Liga o áudio das rádios neste cliente.")
