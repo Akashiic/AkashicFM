@@ -437,6 +437,19 @@ final class Playback {
     }
 
     /** Oclusão suavizada de cada voz (diagnóstico). */
+    /** Vozes presas a quem ouve e, delas, as sem filtro/reverb (diagnóstico do portátil e do fone). */
+    int relativeVoices() {
+        int n = 0;
+        for (Voice v : voices) if (v.relative) n++;
+        return n;
+    }
+
+    int dryVoices() {
+        int n = 0;
+        for (Voice v : voices) if (v.dry) n++;
+        return n;
+    }
+
     float[] occlusions() {
         float[] out = new float[voices.size()];
         for (int i = 0; i < out.length; i++) out[i] = voices.get(i)

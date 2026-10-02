@@ -30,6 +30,7 @@ public final class ServerEvents {
         if (event.phase != TickEvent.Phase.START) return;
         ServerActionQueue.drain();
         FrequencyService.tick(); // antes do relay: a audiência já vê a URL sintonizada neste tick
+        PortableSources.tick(); // idem: o relay já vê quem precisa das estações dos portáteis
         RelayService.tick();
         if (++tickCounter % MAINTENANCE_INTERVAL_TICKS == 0) SpeakerLinks.maintain();
     }

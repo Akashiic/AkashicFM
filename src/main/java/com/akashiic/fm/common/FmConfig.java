@@ -161,6 +161,20 @@ public final class FmConfig {
         public static int maxPerPlayer;
     }
 
+    @Config(modid = AkashicFM.MODID, category = "portable")
+    @Config.Comment("Rádio portátil (toca do inventário) e fone.")
+    public static final class Portable {
+
+        @Config.Comment("Liga o rádio portátil. Desligado, os portáteis ficam mudos.")
+        @Config.DefaultBoolean(true)
+        public static boolean enabled;
+
+        @Config.Comment("Até onde os outros jogadores ouvem o portátil de alguém (sem fone), em blocos.")
+        @Config.DefaultInt(16)
+        @Config.RangeInt(min = 4, max = 64)
+        public static int range;
+    }
+
     @Config(modid = AkashicFM.MODID, category = "recipes")
     @Config.Comment("Receitas padrão do mod.")
     public static final class Recipes {

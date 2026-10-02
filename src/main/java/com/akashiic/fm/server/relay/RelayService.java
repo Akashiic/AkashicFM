@@ -32,6 +32,7 @@ import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
 import com.akashiic.fm.network.S2CListen;
+import com.akashiic.fm.server.PortableSources;
 import com.akashiic.fm.server.ServerRadioRegistry;
 
 /**
@@ -176,6 +177,15 @@ public final class RelayService {
                     }
                 }
             }
+        }
+
+        // Rádios portáteis: o PortableSources já decidiu quem ouve cada uma (com histerese própria).
+        for (Map.Entry<UUID, Set<String>> e : PortableSources.relayWants()
+            .entrySet()) {
+            if (!online.containsKey(e.getKey())) continue;
+            wanted.computeIfAbsent(e.getKey(), k -> new HashSet<>())
+                .addAll(e.getValue());
+            wantedUrls.addAll(e.getValue());
         }
 
         // Quem não quer mais (ou saiu do jogo / da dimensão) para de receber.
@@ -330,6 +340,7 @@ public final class RelayService {
         if (HUB.has(url)) return true;
         Set<String> urls = new HashSet<>();
         for (TileRadio r : ServerRadioRegistry.snapshot()) if (relayed(r)) urls.add(r.state.effectiveUrl());
+        urls.addAll(PortableSources.relayedUrls());
         for (Station s : HUB.all()) urls.add(s.url);
         return urls.contains(url) || urls.size() < Math.max(1, FmConfig.Relay.maxStations);
     }
@@ -341,6 +352,12 @@ public final class RelayService {
         if (s == null) return "";
         String title = s.streamTitle();
         return title == null ? "" : title;
+    }
+
+    /** Status da estação da URL (reconectando, erro, fim) como chave de tradução, ou vazio. */
+    public static String statusOf(String url) {
+        Station s = url == null || url.isEmpty() ? null : HUB.get(url);
+        return s == null ? "" : statusFor(s);
     }
 
     /** A estação da URL terminou com erro ou fim: um novo "tocar" tenta de novo com outra conexão. */

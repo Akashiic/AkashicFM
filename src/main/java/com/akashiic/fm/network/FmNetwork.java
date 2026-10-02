@@ -40,6 +40,10 @@ public final class FmNetwork {
             S2CClockPong.class,
             ClockStamps.PONG_DISCRIMINATOR,
             Side.CLIENT);
+        // Fase 6b, depois dos ids fixos do relógio.
+        id = ClockStamps.PONG_DISCRIMINATOR + 1;
+        CHANNEL.registerMessage(C2SPortableAction.Handler.class, C2SPortableAction.class, id++, Side.SERVER);
+        CHANNEL.registerMessage(S2CPortableSources.Handler.class, S2CPortableSources.class, id++, Side.CLIENT);
     }
 
     public static void sendTo(IMessage message, EntityPlayerMP player) {

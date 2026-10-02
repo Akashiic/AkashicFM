@@ -9,6 +9,7 @@ import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.TileRadio;
+import com.akashiic.fm.network.S2CPortableSources;
 
 /**
  * O que a rádio está tocando, para a tela, a GUI, o aviso e o WAILA. No relay o título vem do servidor (estado
@@ -39,6 +40,25 @@ public final class NowPlaying {
         RadioState s = radio.state;
         if (s.mode == TuneMode.FREQUENCY && !s.tunedName.isEmpty()) return s.tunedName;
         return hostOf(s.effectiveUrl());
+    }
+
+    /** Título do que um portátil toca: do relay (pelo servidor) ou, no direto, o que o stream anunciou aqui. */
+    public static String portableTitle(S2CPortableSources.Entry p, String playbackKey) {
+        if (!p.title.isEmpty()) return p.title;
+        if (p.transport != Transport.DIRECT || playbackKey == null) return "";
+        String local = AudioEngine.INSTANCE.streamTitle(playbackKey);
+        return local.isEmpty() ? "" : TextSanitizer.clean(local, RadioLimits.MAX_TITLE_LENGTH);
+    }
+
+    /** Nome da estação de um portátil: o do transmissor sintonizado, ou o host da URL. */
+    public static String portableStation(S2CPortableSources.Entry p) {
+        if (p.mode == TuneMode.FREQUENCY && !p.station.isEmpty()) return p.station;
+        return hostOf(p.url);
+    }
+
+    /** "98.7 FM" para um portátil sintonizado; vazio no modo URL. */
+    public static String portableDial(S2CPortableSources.Entry p) {
+        return p.mode == TuneMode.FREQUENCY ? Frequency.format(p.frequency) + " FM" : "";
     }
 
     /** "98.7 FM", para quem está sintonizado; vazio no modo URL. */

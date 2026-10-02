@@ -1,6 +1,8 @@
 # Fase 6: resultados
 
-A Fase 6 tem duas partes. A **6a** (este documento, por enquanto) entrega as frequências: **transmissor de FM**, **antenas**, **energia opcional** (EU ou RF) e o **modo FM da rádio**. A 6b (rádio portátil e fone) vem em seguida.
+A Fase 6 tem duas partes:
+- **6a:** as frequências, com **transmissor de FM**, **antenas**, **energia opcional** (EU ou RF) e o **modo FM da rádio**;
+- **6b:** o **rádio portátil** e o **fone**.
 
 ## 6a: frequências, transmissor e antenas
 
@@ -151,3 +153,86 @@ O filtro da lã estava certo: −30 dB em relação aos trechos abertos típicos
 ### Harness E2E
 - **Passo da antena no Java 8:** a primeira versão escolhia o slot num tick fixo. O `/give` do 1.7.10 joga o item no chão e o jogador o pega alguns ticks depois; no Java 8, mais lento, o clique saiu com o sintonizador na mão e abriu a tela (comportamento certo do bloco). Agora o passo espera o item chegar e a troca de slot ir ao servidor.
 - **Menu de pausa sozinho:** sob o Xvfb a janela pode ficar sem foco, e o jogo abre o menu de pausa (`pauseOnLostFocus`). O harness desliga essa opção ao registrar o cenário.
+
+## 6b: rádio portátil e fone
+
+### Como funciona
+- **Item** (`ItemPortableRadio`): a configuração fica no NBT do próprio item (`PortableState`, saneado), e só o servidor escreve.
+  - **O que guarda:** modo (URL ou FM), URL, frequência, volume, ligado, sessão e uma identidade.
+  - **Uso:** botão direito abre a tela; agachado + botão direito liga e desliga.
+  - **Brilho:** brilha enquanto está ligado.
+- **Ações** (`C2SPortableAction`: slot, identidade, ação): passam pela mesma fila e pelo mesmo limite por jogador das ações de bloco.
+  - **Validação:** o servidor confere que o slot (0 a 35) tem um portátil e que é o mesmo que a tela via. A identidade é dada pelo servidor assim que o item entra num inventário.
+  - **Mesma política da rádio:** URL pela `UrlPolicy`/allowlist; frequência e volume limitados; auditoria da troca de URL.
+- **Fontes** (`PortableSources`, a cada 10 ticks, antes da audiência do relay), para cada jogador conectado:
+  - acha o **primeiro portátil ligado** nos 36 slots (barra e mochila);
+  - **resolve o que ele toca:** a URL do item, ou, no FM, o transmissor mais forte na posição do jogador (mesmo índice, mesma histerese);
+  - **revalida a URL pela política a cada ciclo** (o NBT de um item pode vir de qualquer lugar, até do criativo) e escolhe o transporte como o da rádio;
+  - **quem ouve:** o portador sempre; os outros da mesma dimensão até `portable.range` (16), com histerese, só se ele **não** estiver de fone;
+  - **envio:** cada ouvinte recebe a lista completa do que ouve (`S2CPortableSources`) quando ela muda, renovada a cada 2 s. O cliente esquece uma lista velha (5 s);
+  - **relay:** diz quem precisa de quais estações. São **as mesmas estações das rádios**: portátil e rádio na mesma URL tocam na mesma reprodução, sincronizados;
+  - jogador morto (com keepInventory) não toca no lugar da morte.
+- **Fone** (`ItemHeadphones`): capacete `ItemArmor` sem proteção e que não gasta.
+  - **Baubles Expanded (opcional):** `IBaubleExpanded` com os tipos `head` e `earring`, via `@Optional.Interface`, modid `Baubles|Expanded` conferido no jar. Com o Baubles Expanded instalado, o mod pede esses slots (`tryAssignSlotsUpToMinimum`).
+  - **Detecção:** pelo capacete ou por qualquer slot de bauble (`Headphones`).
+- **Cliente** (no mesmo controlador das rádios):
+  - **Portátil de outro jogador:** fonte no corpo dele, com oclusão, dentro do alcance. A posição é a da entidade; se o cliente não a vê, vale a posição que veio com a lista (ver a revisão abaixo).
+  - **O próprio, sem fone:** uma fonte **presa a quem ouve** (`AL_SOURCE_RELATIVE`) no centro, com o reverb da sala.
+  - **O próprio, de fone:** um par estéreo preso a quem ouve (±0,3), **sem filtro e sem envio ao reverb** (`EmitterSpec.relative`/`dry`, aplicados pela `Voice`).
+  - **Diagnóstico:** a engine conta as vozes relativas e as sem filtro.
+- **Tela** (`GuiPortableRadio`): URL ou FM (o mesmo seletor de frequência com envio adiado), volume, ligar e desligar, estado (sinal e estação no FM, transporte, tocando), título e se está de fone. Os avisos do servidor chegam à tela.
+- **Visual:** ícones do portátil e do fone, e a textura de armadura do fone (arco e conchas).
+- **Receitas:**
+  - portátil: ferro, bloco musical, redstone e grade de ferro;
+  - fone: lã, ferro e 2 blocos musicais.
+- **Config:** `portable.enabled` (ligado) e `portable.range` (16).
+
+### Verificação
+
+**Testes unitários** (261 no total; 19 novos nesta parte):
+- `PortableState`: item novo, ida e volta, NBT hostil saneado (modo, URL de outro tipo, frequência, volume; modo URL sem URL não fica ligado), sintonizado ligado sem URL, chave de outro tipo, URL com caracteres de controle.
+- `PortableLogicTest`:
+  - ligar sem URL não liga; URL, ligar e desligar com sessão (troca ao vivo dá sessão nova, desligado não);
+  - URL recusada pela política (e a URL que já estava no item não liga);
+  - apagar a URL desliga; sintonizado liga sem URL e a troca de modo recomeça ou desliga;
+  - frequência e volume limitados; identidade nunca zero.
+- `PortablePacketTest`: ação e lista de fontes de ida e volta, ação hostil (slot fora, ação desconhecida, texto gigante), lista limitada a 32 e valores hostis saneados (transporte e modo fora do enum, volume, alcance, coordenadas NaN/infinitas).
+- `EmitterSpecTest`: fonte relativa sem oclusão; relativa, sem filtro e no mundo são fontes AL diferentes.
+
+**E2E**: passos novos nos dois cenários (o principal anuncia cada fase e o segundo jogador confirma o que ouve). O Baubles Expanded roda no ambiente de dev (`devOnlyNonPublishable`, fora do jar) para o fone no slot de bauble ser provado de verdade.
+
+| Passo | Resultado (Java 21) |
+|---|---|
+| Pegar o portátil e ligar (URL da 2ª estação) | toca para quem carrega: **1 voz presa a quem ouve**, com reverb; tela do portátil (captura `e2e-gui-portatil.png`) |
+| Segundo jogador a ~4 blocos | ouve, **com posição** (voz no mundo, não relativa) |
+| Portador vai 60 blocos longe | continua ouvindo; o segundo jogador **para de receber** (sem fonte e sem a estação do relay) |
+| Volta | o segundo jogador ouve de novo (pela posição enviada com a lista: ver a revisão) |
+| Fone no capacete | **2 vozes relativas, as 2 sem filtro nem reverb**; o segundo jogador perde a estação |
+| Tirar o fone | volta para 1 voz relativa com reverb; o segundo jogador ouve |
+| Fone num slot de bauble (Baubles Expanded) | o slot aceita (a interface opcional existe em tempo de execução) e o resultado é o mesmo do capacete |
+| Largar o portátil (`/clear`) | para para os dois |
+
+**Matriz de regressão:**
+
+| Rodada | Resultado |
+|---|---|
+| Java 21, relay | **97/97 + 20/20** |
+| Java 8, relay | **97/97 + 20/20** |
+| Java 21, modo direto | **94/94 + 18/18** (o portátil também toca no direto, cada cliente baixando o stream) |
+| Java 21, sem EFX | **97/97 + 20/20** (fone sem EFX: só o ganho) |
+| Soak de 10 min | OK: 36 amostras, **0 violações**, 19 trocas de caixa, 4 recarregamentos do som, 0 underruns, heap 145 → 150 MB |
+| Prova acústica, com EFX | OK: lã −9,7 dB no nível e −21,5 dB nos agudos; vidro −0,0 e −4,4 dB; cauda na sala de pedra −27,0 dB; aberto sem cauda (−70,4 dB) |
+| Prova acústica, sem EFX | OK: lã −12,2 dB no nível e −4,7 dB nos agudos; sem cauda |
+
+**Sem E2E:** a energia por IC2/RF de verdade (os mods não rodam no ambiente de dev). O caminho é o padrão dessas APIs, compilado contra elas e coberto pelos testes do `EnergyBuffer`; sem os mods, o E2E prova que a exigência não se aplica e que a classe carrega sem as interfaces.
+
+### Revisão adversarial (corrigido antes do commit)
+- **Segundo jogador mudo depois de um teleporte** (achado pelo E2E): o rastreador de entidades do 1.7.10 só mostra de novo um jogador teleportado quando ele se mexe. O cliente do outro jogador não via o portador, e o controlador, que posicionava a fonte pela entidade, ficava mudo mesmo com o servidor mandando ouvir.
+  - **Correção:** a lista agora leva a posição do portador (fora da assinatura, para andar não gerar pacote). O cliente usa a entidade quando a vê e, senão, essa posição (renovada a cada 2 s).
+  - O passo continua sem o portador se mexer, provando a correção.
+- **Identidade do item:** ligar pela tela manda duas ações seguidas (URL e ligar). Com a identidade dada só na primeira ação, a segunda chegava com identidade 0 e era recusada. Agora o servidor dá a identidade assim que o item entra num inventário.
+- **NBT de qualquer lugar:** o criativo deixa o cliente escrever o NBT do item. Por isso a URL é revalidada pela política em todo ciclo, e não só ao ser gravada.
+- **Jogador morto:** com keepInventory, o portátil continuaria tocando no lugar da morte até o renascimento. Agora não toca.
+- **Slots do Baubles:** sem pedir, o Baubles Expanded pode não ter slot de cabeça/brinco. O mod pede um de cada no preInit (o jeito documentado).
+- **Dica da tela:** a dica do rodapé era cortada (captura da GUI). Agora quebra em linhas.
+

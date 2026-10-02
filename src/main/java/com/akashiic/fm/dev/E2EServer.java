@@ -1,6 +1,7 @@
 package com.akashiic.fm.dev;
 
 import net.minecraft.block.Block;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
@@ -10,10 +11,14 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.ServerChatEvent;
 
 import com.akashiic.fm.common.FmConfig;
+import com.akashiic.fm.compat.baubles.BaublesCompat;
+import com.akashiic.fm.content.FmContent;
+import com.akashiic.fm.content.ItemHeadphones;
 import com.akashiic.fm.network.ServerActionQueue;
 import com.akashiic.fm.server.ServerRadioRegistry;
 import com.akashiic.fm.server.relay.RelayService;
 
+import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 /**
@@ -57,6 +62,24 @@ public final class E2EServer {
         if (event.message.startsWith("e2e:fill ") && event.player != null) {
             fill(event.player.worldObj, event.message.split(" "));
             event.player.addChatMessage(new ChatComponentText("e2e-result fill " + event.message.substring(9)));
+        }
+        if (event.message.startsWith("e2e:headphones ") && event.player != null) {
+            // Põe o fone no capacete ("on") ou num slot de bauble ("bauble"), ou tira dos dois ("off").
+            String mode = event.message.substring("e2e:headphones ".length());
+            boolean baubles = Loader.isModLoaded("Baubles|Expanded");
+            boolean ok = true;
+            if ("on".equals(mode)) {
+                event.player.inventory.armorInventory[3] = new ItemStack(FmContent.headphones);
+            } else if ("bauble".equals(mode)) {
+                ok = baubles && BaublesCompat.equip(event.player, new ItemStack(FmContent.headphones));
+            } else {
+                event.player.inventory.armorInventory[3] = null;
+                if (baubles) BaublesCompat.removeAll(event.player, ItemHeadphones.class);
+            }
+            event.player.inventoryContainer.detectAndSendChanges();
+            DevE2E.log("fone de {}: {} ({})", event.username, mode, ok ? "ok" : "falhou");
+            event.player
+                .addChatMessage(new ChatComponentText("e2e-result headphones " + mode + (ok ? " ok" : " fail")));
         }
         if (event.message.startsWith("e2e:check-unloaded ") && event.player != null) {
             // Responde ao cliente se o chunk da coordenada está carregado (chunkExists nunca carrega).

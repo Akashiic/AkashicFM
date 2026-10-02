@@ -217,7 +217,9 @@ public final class AudioEngine {
                 p.syncErrorMs,
                 p.pitch(),
                 p.occlusions(),
-                p.appliedGains());
+                p.appliedGains(),
+                p.relativeVoices(),
+                p.dryVoices());
         } finally {
             lock.unlock();
         }
@@ -529,10 +531,14 @@ public final class AudioEngine {
         /** Oclusão suavizada de cada voz e o AL_GAIN aplicado nela. */
         public final float[] occlusions;
         public final float[] gains;
+        /** Vozes presas a quem ouve (portátil) e, delas, as do fone (sem filtro nem reverb). */
+        public final int relativeVoices, dryVoices;
 
         PlaybackInfo(boolean playing, boolean done, AudioFeed.Status feedStatus, String detail, int voices,
             long framesQueued, int underruns, int starts, int joins, int resyncs, double syncErrorMs, float pitch,
-            float[] occlusions, float[] gains) {
+            float[] occlusions, float[] gains, int relativeVoices, int dryVoices) {
+            this.relativeVoices = relativeVoices;
+            this.dryVoices = dryVoices;
             this.playing = playing;
             this.done = done;
             this.feedStatus = feedStatus;

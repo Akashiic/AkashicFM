@@ -214,6 +214,70 @@ def antenna():
     return img
 
 
+def portable_radio():
+    """Rádio portátil: caixa com alça, grade do alto-falante, visor verde e antena."""
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y in range(5, 15):
+        for x in range(2, 14):
+            img.putpixel((x, y), jitter((60, 64, 72), 4))
+    for x in range(2, 14):  # bordas
+        img.putpixel((x, 5), (96, 100, 108, 255))
+        img.putpixel((x, 14), (36, 38, 44, 255))
+    for y in range(5, 15):
+        img.putpixel((2, y), (96, 100, 108, 255))
+        img.putpixel((13, y), (36, 38, 44, 255))
+    for x in range(5, 11):  # alça
+        img.putpixel((x, 3), (120, 124, 130, 255))
+    img.putpixel((5, 4), (120, 124, 130, 255))
+    img.putpixel((10, 4), (120, 124, 130, 255))
+    for x in range(4, 12):  # visor
+        img.putpixel((x, 7), (60, 200, 110, 255) if x % 3 else (40, 150, 80, 255))
+    for y in range(9, 13):  # grade
+        for x in range(4, 9):
+            img.putpixel((x, y), (30, 32, 36, 255) if (x + y) % 2 == 0 else (80, 84, 90, 255))
+    img.putpixel((10, 10), (220, 60, 50, 255))  # botões
+    img.putpixel((11, 12), (200, 200, 210, 255))
+    for i, y in enumerate(range(0, 5)):  # antena
+        img.putpixel((12 + (1 if i < 2 else 0), y), (190, 190, 200, 255))
+    return img
+
+
+def headphones_icon():
+    """Fone: arco e as duas conchas."""
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    band = [(4, 6), (4, 5), (5, 4), (5, 3), (6, 2), (7, 2), (8, 2), (9, 2), (10, 3), (10, 4), (11, 5), (11, 6)]
+    for p in band:
+        img.putpixel(p, (70, 74, 82, 255))
+        img.putpixel((p[0], p[1] + 1) if p[1] < 6 else p, (110, 114, 122, 255))
+    for cx in (2, 11):
+        for y in range(7, 13):
+            for x in range(cx, cx + 3):
+                img.putpixel((x, y), jitter((40, 42, 48), 3))
+        for y in range(8, 12):
+            img.putpixel((cx + (2 if cx == 2 else 0), y), (76, 176, 106, 255))  # almofada
+    return img
+
+
+def headphones_armor():
+    """Textura de armadura (64x32, camada 1): arco no topo da cabeça e conchas nas laterais."""
+    img = Image.new("RGBA", (64, 32), (0, 0, 0, 0))
+    # Cabeça no modelo de armadura: topo em (8..15, 0..7), laterais em (0..7, 8..15) e (16..23, 8..15).
+    for x in range(8, 16):
+        for y in range(2, 6):
+            img.putpixel((x, y), jitter((60, 64, 72), 4))
+    for x0 in (0, 16):  # lateral direita e esquerda
+        for y in range(8, 16):
+            img.putpixel((x0 + 3, y), (70, 74, 82, 255))  # arco descendo
+            img.putpixel((x0 + 4, y), (70, 74, 82, 255))
+        for y in range(11, 16):
+            for x in range(x0 + 1, x0 + 7):
+                img.putpixel((x, y), jitter((40, 42, 48), 3))
+        for y in range(12, 15):
+            for x in range(x0 + 2, x0 + 6):
+                img.putpixel((x, y), (76, 176, 106, 255))
+    return img
+
+
 def main():
     out = {
         "blocks/radio_front.png": radio_front(),
@@ -227,6 +291,10 @@ def main():
         "blocks/transmitter_side.png": transmitter_side(),
         "blocks/transmitter_top.png": transmitter_top(),
         "blocks/antenna.png": antenna(),
+        # Fase 6b (no fim, pelo mesmo motivo).
+        "items/portable_radio.png": portable_radio(),
+        "items/headphones.png": headphones_icon(),
+        "models/armor/headphones.png": headphones_armor(),
     }
     for rel, img in out.items():
         path = os.path.join(ROOT, rel)

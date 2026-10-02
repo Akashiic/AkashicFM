@@ -12,12 +12,14 @@ import java.util.function.Supplier;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.entity.EntityClientPlayerMP;
+import net.minecraft.entity.Entity;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
 import com.akashiic.fm.audio.dsp.GainModel;
 import com.akashiic.fm.audio.spatial.OcclusionTracer;
 import com.akashiic.fm.audio.spatial.RoomModel;
+import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.NowPlaying;
 import com.akashiic.fm.client.gui.NowPlayingMessage;
@@ -34,6 +36,7 @@ import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.content.Facing;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
+import com.akashiic.fm.network.S2CPortableSources;
 
 /**
  * Decide, a cada tick do cliente, quais rádios tocam e com que ganho em cada fonte. Só rádios carregadas
@@ -71,15 +74,19 @@ public final class RadioAudioController {
         final List<EmitterSpec> emitters;
         final double nearest;
         final Supplier<AudioFeed> feed;
-        /** Uma rádio desta reprodução (para o título e o nome no aviso). */
+        /** Uma rádio desta reprodução (para o título e o nome no aviso), ou null se é só de portáteis. */
         final TileRadio radio;
+        /** O portátil desta reprodução quando não há rádio (título e nome no aviso). */
+        final S2CPortableSources.Entry portable;
 
-        Candidate(String key, List<EmitterSpec> emitters, double nearest, Supplier<AudioFeed> feed, TileRadio radio) {
+        Candidate(String key, List<EmitterSpec> emitters, double nearest, Supplier<AudioFeed> feed, TileRadio radio,
+            S2CPortableSources.Entry portable) {
             this.key = key;
             this.emitters = emitters;
             this.nearest = nearest;
             this.feed = feed;
             this.radio = radio;
+            this.portable = portable;
         }
     }
 
@@ -91,6 +98,8 @@ public final class RadioAudioController {
         double nearest = Double.MAX_VALUE;
         /** A rádio mais próxima do grupo (todas tocam a mesma estação). */
         TileRadio radio;
+        /** O portátil do grupo, quando nenhuma rádio dele toca para este jogador. */
+        S2CPortableSources.Entry portable;
 
         RelayGroup(RelayFeed feed) {
             this.feed = feed;
@@ -184,16 +193,24 @@ public final class RadioAudioController {
                 }
             } else {
                 final String threadName = "AkashicFM-Direct-" + radio.xCoord + "," + radio.yCoord + "," + radio.zCoord;
-                candidates
-                    .add(new Candidate(key, emitters, nearest, () -> new DirectFeed(url, threadName).start(), radio));
+                candidates.add(
+                    new Candidate(key, emitters, nearest, () -> new DirectFeed(url, threadName).start(), radio, null));
             }
         }
+        addPortables(world, player, lx, ly, lz, records, clientVolume, engine, candidates, relayGroups);
         for (Map.Entry<String, RelayGroup> e : relayGroups.entrySet()) {
             RelayGroup g = e.getValue();
             List<EmitterSpec> emitters = g.emitters.size() <= MAX_VOICES_PER_RADIO ? g.emitters
                 : new ArrayList<>(nearestFirst(g.emitters, lx, ly, lz).subList(0, MAX_VOICES_PER_RADIO));
             final RelayFeed feed = g.feed;
-            candidates.add(new Candidate(e.getKey(), emitters, g.nearest, () -> feed, g.radio));
+            candidates.add(
+                new Candidate(
+                    e.getKey(),
+                    emitters,
+                    g.nearest,
+                    () -> feed,
+                    g.radio,
+                    g.radio == null ? g.portable : null));
         }
         Collections.sort(candidates, (a, b) -> Double.compare(a.nearest, b.nearest));
         int max = Math.max(1, FmConfig.Client.maxSimultaneousRadios);
@@ -216,9 +233,13 @@ public final class RadioAudioController {
         }
 
         // Oclusão de todas as fontes escolhidas de uma vez: o agendador reparte o orçamento de raios entre elas.
-        double[] xyz = new double[total * 3];
+        // As presas a quem ouve (portátil de quem carrega) não têm oclusão: ficam fora.
+        int inWorld = 0;
+        for (List<EmitterSpec> list : chosenEmitters) for (EmitterSpec e : list) if (!e.relative) inWorld++;
+        double[] xyz = new double[inWorld * 3];
         int k = 0;
         for (List<EmitterSpec> list : chosenEmitters) for (EmitterSpec e : list) {
+            if (e.relative) continue;
             xyz[k++] = e.x;
             xyz[k++] = e.y;
             xyz[k++] = e.z;
@@ -232,7 +253,7 @@ public final class RadioAudioController {
             List<EmitterSpec> occluded = new ArrayList<>(list.size());
             Candidate c = chosen.get(i);
             for (EmitterSpec e : list) {
-                EmitterSpec o = e.withOcclusion(occlusion[k++]);
+                EmitterSpec o = e.relative ? e : e.withOcclusion(occlusion[k++]);
                 occluded.add(o);
             }
             engine.touch(c.key, c.feed, occluded);
@@ -259,17 +280,94 @@ public final class RadioAudioController {
         }
     }
 
-    /** Aviso "tocando agora" da rádio mais alta ouvida (o tracker decide quando). */
+    /** Aviso "tocando agora" da rádio (ou portátil) mais alta ouvida (o tracker decide quando). */
     private static void announceNowPlaying(Candidate loudest, float gain) {
         long now = System.currentTimeMillis();
-        String title = loudest == null ? null : NowPlaying.title(loudest.radio);
-        String station = loudest == null ? null : NowPlaying.station(loudest.radio);
-        String show = NOW_PLAYING.update(loudest == null ? null : loudest.key, title, station, gain, now);
-        if (show != null && FmConfig.Client.showNowPlaying) {
+        String title = null, station = null, sub = "";
+        if (loudest != null && loudest.radio != null) {
+            title = NowPlaying.title(loudest.radio);
+            station = NowPlaying.station(loudest.radio);
             RadioState s = loudest.radio.state;
             String dial = NowPlaying.dial(s);
-            String sub = s.screenText.isEmpty() ? dial : dial.isEmpty() ? s.screenText : dial + " · " + s.screenText;
-            NowPlayingMessage.INSTANCE.show(show, sub, now);
+            sub = s.screenText.isEmpty() ? dial : dial.isEmpty() ? s.screenText : dial + " · " + s.screenText;
+        } else if (loudest != null && loudest.portable != null) {
+            S2CPortableSources.Entry p = loudest.portable;
+            title = NowPlaying.portableTitle(p, loudest.key);
+            station = NowPlaying.portableStation(p);
+            sub = NowPlaying.portableDial(p);
+        }
+        String show = NOW_PLAYING.update(loudest == null ? null : loudest.key, title, station, gain, now);
+        if (show != null && FmConfig.Client.showNowPlaying) NowPlayingMessage.INSTANCE.show(show, sub, now);
+    }
+
+    /** Chave da reprodução de um portátil no modo direto (uma por portador, muda com a fonte). */
+    public static String portableKey(S2CPortableSources.Entry p) {
+        return "portable:" + p.entityId + "#" + p.session;
+    }
+
+    /** Altura das fontes do portátil de outro jogador acima dos pés (mais ou menos a mão/peito). */
+    static final double PORTABLE_HEIGHT = 1.2;
+
+    /**
+     * Os portáteis que o servidor diz que este jogador ouve. O próprio: fonte presa a quem ouve, no centro (com o
+     * reverb da sala) ou, de fone, um par estéreo a ±{@link #STEREO_HALF_WIDTH} sem filtro nem reverb. O de outro
+     * jogador: uma fonte no corpo dele, com oclusão, dentro do alcance. No relay entram no grupo da estação (as
+     * mesmas reproduções das rádios: tudo sincronizado).
+     */
+    private static void addPortables(World world, EntityClientPlayerMP player, double lx, double ly, double lz,
+        float records, int clientVolume, AudioEngine engine, List<Candidate> candidates,
+        Map<String, RelayGroup> relayGroups) {
+        for (S2CPortableSources.Entry p : ClientPortables.current(System.currentTimeMillis())) {
+            if (p.url.isEmpty()) continue;
+            if (p.transport == Transport.DIRECT && !FmConfig.Client.allowDirectStreams) continue;
+            boolean self = p.entityId == player.getEntityId();
+            Entity carrier = self ? player : world.getEntityByID(p.entityId);
+            RelayFeed relay = null;
+            if (p.transport == Transport.RELAY) {
+                relay = RelayClient.feedForUrl(p.url);
+                if (relay == null) continue;
+            } else if (p.transport != Transport.DIRECT) {
+                continue;
+            }
+            List<EmitterSpec> emitters = new ArrayList<>(2);
+            double nearest;
+            if (self) {
+                nearest = 0;
+                float gain = GainModel.sourceGain(records, clientVolume, p.volume, 0, Math.max(1, p.range), 1.0);
+                if (p.headphones) {
+                    emitters.add(EmitterSpec.relative(-STEREO_HALF_WIDTH, 0, 0, SpeakerChannel.LEFT, gain, true));
+                    emitters.add(EmitterSpec.relative(STEREO_HALF_WIDTH, 0, 0, SpeakerChannel.RIGHT, gain, true));
+                } else {
+                    emitters.add(EmitterSpec.relative(0, 0, 0, SpeakerChannel.MIX, gain, false));
+                }
+            } else {
+                if (p.headphones) continue; // o servidor já não manda; por garantia
+                // A entidade dá a posição suave; sem ela (o rastreador do 1.7.10 não mostra de novo um jogador
+                // teleportado parado), a posição que o servidor mandou com a lista.
+                double x = carrier != null ? carrier.posX : p.x;
+                double y = (carrier != null ? carrier.boundingBox.minY : p.y) + PORTABLE_HEIGHT;
+                double z = carrier != null ? carrier.posZ : p.z;
+                double dx = x - lx, dy = y - ly, dz = z - lz;
+                nearest = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                float gain = GainModel.sourceGain(records, clientVolume, p.volume, nearest, Math.max(1, p.range), 1.0);
+                emitters.add(new EmitterSpec(x, y, z, SpeakerChannel.MIX, gain));
+            }
+            String key = relay != null ? relayKey(relay) : portableKey(p);
+            double limit = p.range + (engine.has(key) ? HYSTERESIS : 0);
+            if (!self && nearest > limit) continue;
+            if (relay != null) {
+                final RelayFeed feed = relay;
+                RelayGroup g = relayGroups.computeIfAbsent(key, k -> new RelayGroup(feed));
+                g.emitters.addAll(emitters);
+                // O aviso usa a rádio do grupo, se houver; senão o portátil mais perto.
+                if (g.radio == null && (g.portable == null || nearest < g.nearest)) g.portable = p;
+                g.nearest = Math.min(g.nearest, nearest);
+            } else {
+                final String url = p.url;
+                final String threadName = "AkashicFM-Direct-portable-" + p.entityId;
+                candidates
+                    .add(new Candidate(key, emitters, nearest, () -> new DirectFeed(url, threadName).start(), null, p));
+            }
         }
     }
 
@@ -365,6 +463,7 @@ public final class RadioAudioController {
     }
 
     private static double distSq(EmitterSpec e, double lx, double ly, double lz) {
+        if (e.relative) return 0; // presa a quem ouve: sempre a mais perto
         double dx = e.x - lx, dy = e.y - ly, dz = e.z - lz;
         return dx * dx + dy * dy + dz * dz;
     }

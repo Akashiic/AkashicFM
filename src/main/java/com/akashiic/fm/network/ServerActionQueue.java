@@ -9,6 +9,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.RateLimiter;
+import com.akashiic.fm.server.PortableActionHandler;
 import com.akashiic.fm.server.RadioActionHandler;
 
 /**
@@ -25,9 +26,10 @@ public final class ServerActionQueue {
     private static final class Pending {
 
         final EntityPlayerMP player;
-        final C2SRadioAction action;
+        /** {@link C2SRadioAction} ou {@link C2SPortableAction}. */
+        final Object action;
 
-        Pending(EntityPlayerMP player, C2SRadioAction action) {
+        Pending(EntityPlayerMP player, Object action) {
             this.player = player;
             this.action = action;
         }
@@ -44,6 +46,15 @@ public final class ServerActionQueue {
 
     /** Chamado pelo handler (qualquer thread). Descarta se o jogador estourou o limite ou se a fila está cheia. */
     static void offer(EntityPlayerMP player, C2SRadioAction action) {
+        enqueue(player, action);
+    }
+
+    static void offer(EntityPlayerMP player, C2SPortableAction action) {
+        enqueue(player, action);
+    }
+
+    /** As ações de bloco e do portátil dividem o mesmo limite por jogador e a mesma fila. */
+    private static void enqueue(EntityPlayerMP player, Object action) {
         if (player == null) return;
         UUID id = player.getUniqueID();
         if (!LIMITER.tryAcquire(id, FmConfig.Limits.actionsPerSecond)) {
@@ -65,7 +76,8 @@ public final class ServerActionQueue {
             if (p == null) return;
             SIZE.decrementAndGet();
             PROCESSED.incrementAndGet();
-            RadioActionHandler.handle(p.player, p.action);
+            if (p.action instanceof C2SRadioAction) RadioActionHandler.handle(p.player, (C2SRadioAction) p.action);
+            else PortableActionHandler.handle(p.player, (C2SPortableAction) p.action);
         }
     }
 

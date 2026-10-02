@@ -22,12 +22,14 @@ import net.minecraftforge.common.MinecraftForge;
 
 import com.akashiic.fm.audio.dsp.SpectrumAnalyzer;
 import com.akashiic.fm.audio.spatial.OcclusionTracer;
+import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.NowPlaying;
 import com.akashiic.fm.client.RadioInfo;
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.gui.FmConfigGui;
+import com.akashiic.fm.client.gui.GuiPortableRadio;
 import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.client.gui.GuiTransmitter;
 import com.akashiic.fm.client.gui.NowPlayingMessage;
@@ -37,6 +39,7 @@ import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.client.spatial.OcclusionField;
 import com.akashiic.fm.client.spatial.RoomProbe;
 import com.akashiic.fm.common.Frequency;
+import com.akashiic.fm.common.PortableState;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.RadioState;
@@ -45,13 +48,17 @@ import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.FmContent;
+import com.akashiic.fm.content.ItemHeadphones;
+import com.akashiic.fm.content.ItemPortableRadio;
 import com.akashiic.fm.content.ItemTuner;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.content.TileTransmitter;
+import com.akashiic.fm.network.C2SPortableAction;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.C2SRadioAction.Action;
 import com.akashiic.fm.network.FmNetwork;
+import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 
@@ -254,6 +261,12 @@ public final class E2EClient {
 
     private static void say(String message) {
         if (mc().thePlayer != null) mc().thePlayer.sendChatMessage(message);
+    }
+
+    private int countChat(String needle) {
+        int n = 0;
+        for (String line : chat) if (line.contains(needle)) n++;
+        return n;
     }
 
     private boolean chatSaw(String needle) {
@@ -885,6 +898,7 @@ public final class E2EClient {
             });
         }
         addFrequencySteps(expectPeer);
+        addPortableSteps(expectPeer);
         steps.add(new Step("teleporte-1000-blocos-silencia", 15) {
 
             double startX;
@@ -1393,6 +1407,296 @@ public final class E2EClient {
                 return "";
             }
         });
+    }
+
+    // ---- Fase 6b: rádio portátil e fone ----
+
+    private int portableSlot = -1;
+
+    private ItemStack portableStack() {
+        if (portableSlot < 0) return null;
+        ItemStack st = mc().thePlayer.inventory.mainInventory[portableSlot];
+        return st != null && st.getItem() instanceof ItemPortableRadio ? st : null;
+    }
+
+    private void sendPortable(C2SPortableAction.Action action, int intArg, String strArg) {
+        ItemStack st = portableStack();
+        long id = st == null ? 0 : ItemPortableRadio.state(st).id;
+        FmNetwork.sendToServer(new C2SPortableAction(portableSlot, id, action, intArg, strArg));
+    }
+
+    /** A fonte de portátil que este cliente recebe do servidor para a URL (de quem for), ou null. */
+    private S2CPortableSources.Entry portableEntry(String u, boolean mine) {
+        int me = mc().thePlayer.getEntityId();
+        for (S2CPortableSources.Entry e : ClientPortables.current(System.currentTimeMillis())) {
+            if (u.equals(e.url) && (e.entityId == me) == mine) return e;
+        }
+        return null;
+    }
+
+    /** Reprodução do portátil neste cliente (no relay é a da estação), ou null. */
+    private static AudioEngine.PlaybackInfo portableInfo(S2CPortableSources.Entry e) {
+        if (e == null) return null;
+        if (e.transport == Transport.RELAY) {
+            RelayFeed feed = RelayClient.feedForUrl(e.url);
+            return feed == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.relayKey(feed));
+        }
+        return AudioEngine.INSTANCE.info(RadioAudioController.portableKey(e));
+    }
+
+    /** O portátil do outro jogador soa aqui, no mundo (fonte com posição, não presa a quem ouve). */
+    private boolean hearsOtherPortable() {
+        S2CPortableSources.Entry e = portableEntry(url2, false);
+        AudioEngine.PlaybackInfo i = portableInfo(e);
+        return i != null && i.playing && i.voices >= 1 && i.relativeVoices == 0;
+    }
+
+    /** Nada do portátil do outro jogador chega aqui: nem a fonte, nem a estação do relay, nem reprodução. */
+    private boolean otherPortableSilent() {
+        if (portableEntry(url2, false) != null) return false;
+        if (relayMode()) return RelayClient.feedForUrl(url2) == null;
+        for (S2CPortableSources.Entry e : ClientPortables.current(System.currentTimeMillis())) {
+            if (AudioEngine.INSTANCE.info(RadioAudioController.portableKey(e)) != null) return false;
+        }
+        return true;
+    }
+
+    /** Diz {@code mark} no chat a cada 5 s até ver {@code ack} (o outro cliente pode estar ocupado num passo). */
+    private Step handshake(String name, String mark, String ack) {
+        return new Step(name, 120) {
+
+            @Override
+            String tick(int t) {
+                if (t % 100 == 0) say("e2e:main " + mark);
+                return chatSaw("e2e:peer " + ack) ? "" : null;
+            }
+        };
+    }
+
+    /** O próprio portátil toca preso a quem ouve: {@code voices} vozes relativas, {@code dry} delas sem filtro. */
+    private Step ownPortable(String name, boolean headphones, int voices, int dry) {
+        return new Step(name, 45) {
+
+            @Override
+            String tick(int t) {
+                S2CPortableSources.Entry e = portableEntry(url2, true);
+                if (e == null || e.headphones != headphones || e.transport != expectedTransport()) return null;
+                AudioEngine.PlaybackInfo i = portableInfo(e);
+                if (i == null || !i.playing || i.relativeVoices != voices || i.dryVoices != dry) return null;
+                DevE2E.log(
+                    "portátil próprio: vozes={} relativas={} sem filtro={} fone={} sessão={} {}",
+                    i.voices,
+                    i.relativeVoices,
+                    i.dryVoices,
+                    e.headphones,
+                    e.session,
+                    alCounters());
+                return alInvariantsHold() ? "" : "objetos AL fora do esperado: " + alCounters();
+            }
+        };
+    }
+
+    private void addPortableSteps(boolean expectPeer) {
+        steps.add(new Step("portatil-pegar", 15) {
+
+            @Override
+            void start() {
+                say("/give " + mc().thePlayer.getCommandSenderName() + " akashicfm:portable_radio");
+            }
+
+            @Override
+            String tick(int t) {
+                // O /give joga o item no chão; o servidor dá a identidade assim que ele entra no inventário.
+                for (int slot = 0; slot < 9; slot++) {
+                    ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+                    if (st != null && st.getItem() instanceof ItemPortableRadio
+                        && ItemPortableRadio.state(st).id != 0) {
+                        portableSlot = slot;
+                        return "";
+                    }
+                }
+                return null;
+            }
+        });
+        steps.add(new Step("portatil-ligar", 10) {
+
+            @Override
+            void start() {
+                sendPortable(C2SPortableAction.Action.SET_URL, 0, url2);
+                sendPortable(C2SPortableAction.Action.TURN_ON, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                ItemStack st = portableStack();
+                if (st == null) return null;
+                PortableState s = ItemPortableRadio.state(st);
+                return s.on && url2.equals(s.url) ? "" : null;
+            }
+        });
+        steps.add(ownPortable("portatil-toca-para-quem-carrega", false, 1, 0));
+        steps.add(new Step("gui-do-portatil", 10) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiPortableRadio(portableSlot));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 28) screenshot("e2e-gui-portatil.png");
+                if (t < 30) return null;
+                boolean ok = mc().currentScreen instanceof GuiPortableRadio;
+                mc().displayGuiScreen(null);
+                return ok ? "" : "a tela do portátil não abriu";
+            }
+        });
+        if (expectPeer) steps.add(handshake("portatil-segundo-jogador-ouve", "portable-on", "portable-heard"));
+        // Longe do segundo jogador (alcance 16): ele para de receber; quem carrega continua ouvindo.
+        steps.add(teleport("portatil-ir-longe", () -> rx + 60, 2.3));
+        steps.add(ownPortable("portatil-longe-continua-tocando", false, 1, 0));
+        if (expectPeer) steps.add(handshake("portatil-longe-ninguem-mais-ouve", "portable-far", "portable-far-ok"));
+        steps.add(teleport("portatil-voltar", () -> rx, 2.3));
+        if (expectPeer) steps.add(handshake("portatil-perto-de-novo", "portable-back", "portable-back-ok"));
+        steps.add(new Step("fone-colocar", 5) {
+
+            @Override
+            void start() {
+                say("e2e:headphones on");
+            }
+
+            @Override
+            String tick(int t) {
+                ItemStack helmet = mc().thePlayer.inventory.armorItemInSlot(3);
+                return helmet != null && helmet.getItem() instanceof ItemHeadphones ? "" : null;
+            }
+        });
+        // De fone: par estéreo preso a quem ouve, sem filtro nem reverb; o segundo jogador perde a estação.
+        steps.add(ownPortable("fone-estereo-so-para-quem-usa", true, 2, 2));
+        if (expectPeer) steps.add(handshake("fone-segundo-jogador-nao-ouve", "headphones-on", "hp-on-ok"));
+        steps.add(new Step("fone-tirar", 5) {
+
+            @Override
+            void start() {
+                say("e2e:headphones off");
+            }
+
+            @Override
+            String tick(int t) {
+                return mc().thePlayer.inventory.armorItemInSlot(3) == null ? "" : null;
+            }
+        });
+        steps.add(ownPortable("sem-fone-volta-o-alto-falante", false, 1, 0));
+        if (expectPeer) steps.add(handshake("sem-fone-segundo-jogador-ouve", "headphones-off", "hp-off-ok"));
+        // O mesmo com o fone num slot de bauble (Baubles Expanded no ambiente de dev): prova a interface opcional.
+        steps.add(new Step("fone-no-slot-do-baubles", 10) {
+
+            @Override
+            void start() {
+                say("e2e:headphones bauble");
+            }
+
+            @Override
+            String tick(int t) {
+                if (chatSaw("e2e-result headphones bauble fail")) return "o slot de bauble recusou o fone";
+                return chatSaw("e2e-result headphones bauble ok") ? "" : null;
+            }
+        });
+        steps.add(ownPortable("fone-do-baubles-estereo-so-para-quem-usa", true, 2, 2));
+        if (expectPeer) steps.add(handshake("fone-do-baubles-segundo-jogador-nao-ouve", "baubles-on", "bauble-ok"));
+        steps.add(new Step("fone-do-baubles-tirar", 10) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("e2e-result headphones off ok");
+                say("e2e:headphones off");
+            }
+
+            @Override
+            String tick(int t) {
+                return countChat("e2e-result headphones off ok") > seen ? "" : null;
+            }
+        });
+        steps.add(ownPortable("sem-fone-do-baubles-volta-o-alto-falante", false, 1, 0));
+        if (expectPeer)
+            steps.add(handshake("sem-fone-do-baubles-segundo-jogador-ouve", "baubles-off", "bauble-off-ok"));
+        steps.add(new Step("largar-o-portatil-para", 15) {
+
+            int silent;
+
+            @Override
+            void start() {
+                say("/clear " + mc().thePlayer.getCommandSenderName() + " akashicfm:portable_radio");
+            }
+
+            @Override
+            String tick(int t) {
+                boolean gone = portableEntry(url2, true) == null
+                    && (relayMode() ? RelayClient.feedForUrl(url2) == null : true);
+                silent = gone ? silent + 1 : 0;
+                return silent >= 20 ? "" : null;
+            }
+        });
+        if (expectPeer)
+            steps.add(handshake("sem-portatil-segundo-jogador-silencio", "portable-gone", "portable-gone-ok"));
+    }
+
+    /** Espera o anúncio do principal, depois a condição; responde com {@code ack}. */
+    private Step peerPortable(String name, String mark, java.util.function.BooleanSupplier condition, String ack) {
+        return new Step(name, 900) {
+
+            int okTicks;
+
+            @Override
+            String tick(int t) {
+                if (!chatSaw("e2e:main " + mark)) return null;
+                okTicks = condition.getAsBoolean() ? okTicks + 1 : 0;
+                if (t % 100 == 0) DevE2E.log("peer: {}", portableDiagnostics());
+                if (okTicks < 10) return null;
+                say("e2e:peer " + ack);
+                return "";
+            }
+        };
+    }
+
+    /** O que este cliente sabe dos portáteis agora (diagnóstico dos passos que esperam ouvir ou não). */
+    private String portableDiagnostics() {
+        StringBuilder b = new StringBuilder("fontes=[");
+        for (S2CPortableSources.Entry e : ClientPortables.current(System.currentTimeMillis())) {
+            AudioEngine.PlaybackInfo i = portableInfo(e);
+            b.append("{entidade=")
+                .append(e.entityId)
+                .append(mc().theWorld.getEntityByID(e.entityId) != null ? " (vista)" : " (não vista)")
+                .append(" url=")
+                .append(e.url)
+                .append(" ")
+                .append(e.transport)
+                .append(" fone=")
+                .append(e.headphones)
+                .append(" reprodução=")
+                .append(i == null ? "nenhuma" : (i.playing ? "tocando" : "parada") + " vozes=" + i.voices)
+                .append("} ");
+        }
+        return b.append("] estação url2=")
+            .append(RelayClient.feedForUrl(url2) != null)
+            .append(" ")
+            .append(alCounters())
+            .toString();
+    }
+
+    private void addPeerPortableSteps() {
+        steps.add(peerPortable("peer-ouve-o-portatil", "portable-on", this::hearsOtherPortable, "portable-heard"));
+        steps.add(
+            peerPortable("peer-portatil-longe-silencia", "portable-far", this::otherPortableSilent, "portable-far-ok"));
+        steps.add(peerPortable("peer-portatil-volta", "portable-back", this::hearsOtherPortable, "portable-back-ok"));
+        steps.add(peerPortable("peer-fone-isola", "headphones-on", this::otherPortableSilent, "hp-on-ok"));
+        steps.add(peerPortable("peer-sem-fone-ouve", "headphones-off", this::hearsOtherPortable, "hp-off-ok"));
+        steps.add(peerPortable("peer-fone-do-baubles-isola", "baubles-on", this::otherPortableSilent, "bauble-ok"));
+        steps.add(
+            peerPortable("peer-sem-fone-do-baubles-ouve", "baubles-off", this::hearsOtherPortable, "bauble-off-ok"));
+        steps.add(peerPortable("peer-portatil-sumiu", "portable-gone", this::otherPortableSilent, "portable-gone-ok"));
     }
 
     // ---- Fase 4: oclusão e reverb ----
@@ -2039,6 +2343,7 @@ public final class E2EClient {
             }
         });
         addPeerFrequencySteps();
+        addPeerPortableSteps();
         steps.add(new Step("peer-ve-a-parada", 900) {
 
             int stoppedAt = -1;

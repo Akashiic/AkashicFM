@@ -9,10 +9,12 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 
 import com.akashiic.fm.client.ClientEvents;
+import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.ClientTaskQueue;
 import com.akashiic.fm.client.audio.AlCapabilityProbe;
 import com.akashiic.fm.client.gui.FmScreen;
+import com.akashiic.fm.client.gui.GuiPortableRadio;
 import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.client.gui.GuiTransmitter;
 import com.akashiic.fm.client.relay.ClockSync;
@@ -29,6 +31,7 @@ import com.akashiic.fm.network.ClockStamps;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
 import com.akashiic.fm.network.S2CListen;
+import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 
@@ -85,6 +88,17 @@ public class ClientProxy extends CommonProxy {
     public void openTransmitterGui(World world, int x, int y, int z) {
         Minecraft.getMinecraft()
             .displayGuiScreen(new GuiTransmitter(x, y, z));
+    }
+
+    @Override
+    public void openPortableGui(int slot) {
+        Minecraft.getMinecraft()
+            .displayGuiScreen(new GuiPortableRadio(slot));
+    }
+
+    @Override
+    public void onPortableSources(S2CPortableSources message) {
+        ClientPortables.update(message, System.currentTimeMillis());
     }
 
     @Override

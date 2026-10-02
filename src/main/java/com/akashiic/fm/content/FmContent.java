@@ -33,6 +33,8 @@ public final class FmContent {
     public static ItemTuner tuner;
     public static BlockTransmitter transmitter;
     public static BlockAntenna antenna;
+    public static ItemPortableRadio portableRadio;
+    public static ItemHeadphones headphones;
 
     /** preInit: blocos e itens precisam existir antes do init. */
     public static void registerBlocksAndItems() {
@@ -46,6 +48,10 @@ public final class FmContent {
         GameRegistry.registerBlock(transmitter, ItemBlockTransmitter.class, "transmitter");
         antenna = new BlockAntenna();
         GameRegistry.registerBlock(antenna, "antenna");
+        portableRadio = new ItemPortableRadio();
+        GameRegistry.registerItem(portableRadio, "portable_radio", AkashicFM.MODID);
+        headphones = new ItemHeadphones();
+        GameRegistry.registerItem(headphones, "headphones", AkashicFM.MODID);
         GameRegistry.registerTileEntity(TileRadio.class, AkashicFM.MODID + ":radio");
         GameRegistry.registerTileEntity(TileSpeaker.class, AkashicFM.MODID + ":speaker");
         GameRegistry.registerTileEntity(TileTransmitter.class, AkashicFM.MODID + ":transmitter");
@@ -112,5 +118,30 @@ public final class FmContent {
                 Blocks.noteblock));
         GameRegistry.addRecipe(
             new ShapedOreRecipe(new ItemStack(antenna, 4), "B", "I", "I", 'B', Blocks.iron_bars, 'I', "ingotIron"));
+        GameRegistry.addRecipe(
+            new ShapedOreRecipe(
+                new ItemStack(portableRadio),
+                "  B",
+                "INI",
+                "IRI",
+                'B',
+                Blocks.iron_bars,
+                'I',
+                "ingotIron",
+                'N',
+                Blocks.noteblock,
+                'R',
+                "dustRedstone"));
+        GameRegistry.addRecipe(
+            new ShapedOreRecipe(
+                new ItemStack(headphones),
+                "WIW",
+                "N N",
+                'W',
+                anyWool,
+                'I',
+                "ingotIron",
+                'N',
+                Blocks.noteblock));
     }
 }

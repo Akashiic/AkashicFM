@@ -42,6 +42,8 @@ final class Voice {
     private int queued;
 
     final double x, y, z;
+    /** Posição relativa a quem ouve (portátil de quem carrega) e sem filtro nem reverb (fone). */
+    final boolean relative, dry;
     private boolean positionDirty = true;
     /** Ganho do volume e da distância (sem a oclusão). */
     float targetGain;
@@ -58,6 +60,8 @@ final class Voice {
         this.x = spec.x;
         this.y = spec.y;
         this.z = spec.z;
+        this.relative = spec.relative;
+        this.dry = spec.dry;
         this.targetGain = spec.gain;
         this.targetOcclusion = spec.occlusion;
     }
@@ -77,7 +81,7 @@ final class Voice {
             return false;
         }
         LIVE_SOURCES.incrementAndGet();
-        AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_FALSE);
+        AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, relative ? AL10.AL_TRUE : AL10.AL_FALSE);
         AL10.alSourcei(source, AL10.AL_LOOPING, AL10.AL_FALSE);
         // Atenuação é do GainModel: o OpenAL só posiciona (pan/HRTF).
         AL10.alSourcef(source, AL10.AL_ROLLOFF_FACTOR, 0f);
@@ -203,7 +207,9 @@ final class Voice {
 
     /** Mesma fonte física (posição e canal) que a spec, ignorando o ganho. */
     boolean matches(EmitterSpec spec) {
-        return spec.channel == channel && Math.abs(spec.x - x) < 1e-3
+        return spec.channel == channel && spec.relative == relative
+            && spec.dry == dry
+            && Math.abs(spec.x - x) < 1e-3
             && Math.abs(spec.y - y) < 1e-3
             && Math.abs(spec.z - z) < 1e-3;
     }
@@ -240,7 +246,18 @@ final class Voice {
             if (Math.abs(targetOcclusion - occlusion) < 1e-3f) occlusion = targetOcclusion;
         }
         float occlusionGain;
-        if (efx != null) {
+        if (dry) {
+            // Fone: nem filtro nem reverb (os da sala de quem ouve não fazem sentido dentro do ouvido).
+            occlusionGain = 1f;
+            if (efx != null && efxId != efx.id) {
+                efx.detach(source);
+                efxId = efx.id;
+                appliedOcclusion = 0f;
+            } else if (efx == null) {
+                efxId = 0;
+                appliedOcclusion = -1f;
+            }
+        } else if (efx != null) {
             occlusionGain = 1f;
             if (efxId != efx.id || Math.abs(occlusion - appliedOcclusion) > OCCLUSION_EPSILON
                 || (occlusion != appliedOcclusion && occlusion == targetOcclusion)) {

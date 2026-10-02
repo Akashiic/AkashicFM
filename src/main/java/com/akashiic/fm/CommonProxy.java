@@ -4,6 +4,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 
 import com.akashiic.fm.common.FmConfig;
+import com.akashiic.fm.compat.baubles.BaublesCompat;
 import com.akashiic.fm.content.FmContent;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.dev.DevE2E;
@@ -12,10 +13,12 @@ import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
 import com.akashiic.fm.network.S2CListen;
+import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 import com.akashiic.fm.network.ServerActionQueue;
 import com.akashiic.fm.server.FrequencyService;
+import com.akashiic.fm.server.PortableSources;
 import com.akashiic.fm.server.ServerEvents;
 import com.akashiic.fm.server.ServerPolicy;
 import com.akashiic.fm.server.ServerRadioRegistry;
@@ -24,6 +27,7 @@ import com.gtnewhorizon.gtnhlib.config.ConfigException;
 import com.gtnewhorizon.gtnhlib.config.ConfigurationManager;
 
 import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
@@ -40,6 +44,7 @@ public class CommonProxy {
             ConfigurationManager.registerConfig(FmConfig.Limits.class);
             ConfigurationManager.registerConfig(FmConfig.Protection.class);
             ConfigurationManager.registerConfig(FmConfig.Transmitter.class);
+            ConfigurationManager.registerConfig(FmConfig.Portable.class);
             ConfigurationManager.registerConfig(FmConfig.Recipes.class);
             ConfigurationManager.registerConfig(FmConfig.Client.class);
         } catch (ConfigException e) {
@@ -47,6 +52,8 @@ public class CommonProxy {
         }
         FmNetwork.init();
         FmContent.registerBlocksAndItems();
+        // Fone nos slots de cabeça/brinco: com o Baubles Expanded, garante que esses slots existam.
+        if (Loader.isModLoaded("Baubles|Expanded")) BaublesCompat.requestSlots();
         AkashicFM.LOG.info(
             "AkashicFM {} carregado (relay={}, direto={})",
             Tags.VERSION,
@@ -72,6 +79,7 @@ public class CommonProxy {
         ServerPolicy.setRelayAvailable(false);
         RelayService.shutdown();
         FrequencyService.clear();
+        PortableSources.clear();
         ServerRadioRegistry.clear();
         ServerActionQueue.clear();
     }
@@ -87,6 +95,11 @@ public class CommonProxy {
     public void openRadioGui(World world, int x, int y, int z) {}
 
     public void openTransmitterGui(World world, int x, int y, int z) {}
+
+    /** Tela do rádio portátil do slot (cliente). */
+    public void openPortableGui(int slot) {}
+
+    public void onPortableSources(S2CPortableSources message) {}
 
     /** Executa na thread principal do cliente (no servidor dedicado, descarta). */
     public void enqueueClientTask(Runnable task) {}

@@ -6,6 +6,8 @@ tile.akashicfm.speaker.name=Speaker
 tile.akashicfm.transmitter.name=FM Transmitter
 tile.akashicfm.antenna.name=Antenna
 item.akashicfm.tuner.name=Tuner
+item.akashicfm.portable_radio.name=Portable Radio
+item.akashicfm.headphones.name=Headphones
 
 # Radio item tooltip
 akashicfm.item.url=Station: %s
@@ -145,3 +147,12 @@ akashicfm.waila.station_name=Station: %s
 akashicfm.waila.source=Source: %s
 akashicfm.waila.coverage=Coverage: %s blocks (%s antennas)
 akashicfm.waila.energy=Energy: %s / %s EU
+
+# Portable radio and headphones
+akashicfm.portable.on=On
+akashicfm.portable.off=Off
+akashicfm.portable.help=Right-click: settings · Sneak + right-click: on/off
+akashicfm.gui.portable.title=Portable Radio
+akashicfm.gui.portable.headphones=headphones: only you hear it
+akashicfm.gui.portable.speaker=no headphones: players nearby hear it too
+akashicfm.gui.portable.hint=Plays from any inventory slot. Wear headphones (helmet or Baubles slot) to listen alone.

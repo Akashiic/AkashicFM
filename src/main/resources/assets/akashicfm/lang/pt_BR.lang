@@ -6,6 +6,8 @@ tile.akashicfm.speaker.name=Caixa de Som
 tile.akashicfm.transmitter.name=Transmissor de FM
 tile.akashicfm.antenna.name=Antena
 item.akashicfm.tuner.name=Sintonizador
+item.akashicfm.portable_radio.name=Rádio Portátil
+item.akashicfm.headphones.name=Fone de Ouvido
 
 # Dica do item da rádio
 akashicfm.item.url=Estação: %s
@@ -145,3 +147,12 @@ akashicfm.waila.station_name=Estação: %s
 akashicfm.waila.source=Fonte: %s
 akashicfm.waila.coverage=Cobertura: %s blocos (%s antenas)
 akashicfm.waila.energy=Energia: %s / %s EU
+
+# Rádio portátil e fone
+akashicfm.portable.on=Ligado
+akashicfm.portable.off=Desligado
+akashicfm.portable.help=Botão direito: ajustes · Agachado + botão direito: liga/desliga
+akashicfm.gui.portable.title=Rádio Portátil
+akashicfm.gui.portable.headphones=com fone: só você ouve
+akashicfm.gui.portable.speaker=sem fone: quem está perto também ouve
+akashicfm.gui.portable.hint=Toca de qualquer slot do inventário. Use o fone (capacete ou slot do Baubles) para ouvir sozinho.
