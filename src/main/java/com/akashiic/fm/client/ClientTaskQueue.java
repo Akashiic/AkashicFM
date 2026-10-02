@@ -4,7 +4,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import com.akashiic.fm.AkashicFM;
 
-/** Trabalho vindo da thread de rede do cliente, executado na thread principal (ClientTickEvent). */
+/** Trabalho vindo dos handlers de rede (ou da thread do netty), executado na thread principal (ClientTickEvent). */
 public final class ClientTaskQueue {
 
     private static final int MAX_PER_TICK = 256;

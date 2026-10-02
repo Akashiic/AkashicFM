@@ -8,7 +8,7 @@ import com.akashiic.fm.network.S2CListen;
 
 /**
  * Estações do relay que o servidor está mandando para este cliente. É o servidor quem decide (pela distância);
- * o cliente só acompanha. Thread-safe: início/fim e áudio chegam pela thread de rede, a reprodução lê na
+ * o cliente só acompanha. Thread-safe: início/fim e áudio chegam pelos handlers de rede, a reprodução lê na
  * thread principal.
  */
 public final class RelayClient {

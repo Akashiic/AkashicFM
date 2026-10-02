@@ -902,14 +902,21 @@ public final class E2EClient {
                 if (i == null || !i.playing || Double.isNaN(i.syncErrorMs)) return null;
                 okTicks = Math.abs(i.syncErrorMs) < 15 ? okTicks + 1 : 0;
                 if (okTicks < 40) return null;
+                // No E2E servidor e clientes rodam na mesma máquina: o nanoTime é o mesmo relógio, então o offset
+                // verdadeiro é 0 e o estimado é o próprio erro da estimativa. Erro real = medido + offset estimado.
                 DevE2E.log(
-                    "sincronia: erro={} ms pitch={} ressincronizações={} menor RTT={} ms",
+                    "sincronia: erro={} ms offsetEstimado={} ms erroReal={} ms pitch={} ressincronizações={} menor RTT={} ms",
                     String.format("%.2f", i.syncErrorMs),
+                    String.format("%.2f", ClockSync.offsetMs()),
+                    String.format("%.2f", i.syncErrorMs + ClockSync.offsetMs()),
                     String.format("%.5f", i.pitch),
                     i.resyncs,
                     String.format("%.2f", ClockSync.bestRttMs()));
                 say("e2e:sync " + String.format("%.2f", i.syncErrorMs));
-                return "";
+                // Mesma máquina: o erro real (com offset verdadeiro 0) também precisa ficar pequeno; um relógio mal
+                // estimado (ex.: carimbo no tick em vez da chegada na rede) erra até ±25 ms.
+                double real = i.syncErrorMs + ClockSync.offsetMs();
+                return Math.abs(real) < 20 ? "" : "erro real de sincronia " + String.format("%.1f", real) + " ms";
             }
         };
     }

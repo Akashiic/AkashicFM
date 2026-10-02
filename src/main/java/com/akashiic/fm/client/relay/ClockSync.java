@@ -10,7 +10,7 @@ import com.akashiic.fm.network.S2CClockPong;
 /**
  * Relógio do servidor visto pelo cliente. Pinga a cada 250 ms até ter 4 amostras e depois a cada 5 s; a
  * estimativa é a mediana do offset das 8 trocas de menor RTT entre as últimas 16 (erro máximo = RTT/2 da
- * melhor). Pongs chegam pela thread de rede; o resto roda na thread principal.
+ * melhor). A hora de chegada dos pongs vem da camada do netty ({@code ClockStamps}).
  */
 public final class ClockSync {
 
@@ -50,6 +50,11 @@ public final class ClockSync {
     /** Agora, no relógio do servidor (ms, com fração). */
     public static double serverNowMs() {
         return (System.nanoTime() / 1000 + ESTIMATOR.offsetMicros()) / 1000.0;
+    }
+
+    /** Offset estimado (servidor − cliente), ms. Diagnóstico. */
+    public static double offsetMs() {
+        return ESTIMATOR.offsetMicros() / 1000.0;
     }
 
     /** Menor RTT visto (ms), para diagnóstico; -1 sem amostras. */

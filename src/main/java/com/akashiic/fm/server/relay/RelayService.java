@@ -108,7 +108,11 @@ public final class RelayService {
     public static void tick() {
         answerPings();
         if (!FmConfig.Relay.enabled) {
-            if (HUB.size() > 0 || !SUBS.isEmpty()) shutdown();
+            // Relay desligado no config com o servidor rodando: avisa os ouvintes e fecha tudo.
+            if (HUB.size() > 0 || !SUBS.isEmpty()) {
+                notifyStopAll();
+                shutdown();
+            }
             return;
         }
         if (++tickCounter % AUDIENCE_INTERVAL_TICKS == 0) updateAudience();
@@ -354,6 +358,17 @@ public final class RelayService {
     public static void forget(UUID player) {
         SUBS.remove(player);
         PING_LIMITER.forget(player);
+    }
+
+    /** Manda "parar" de todas as estações para cada ouvinte conectado (os clientes fecham os decoders). */
+    private static void notifyStopAll() {
+        Map<UUID, EntityPlayerMP> online = onlinePlayers();
+        for (Map.Entry<UUID, Map<Integer, Subscription>> e : SUBS.entrySet()) {
+            EntityPlayerMP player = online.get(e.getKey());
+            if (player == null) continue;
+            for (Integer id : e.getValue()
+                .keySet()) FmNetwork.sendTo(S2CListen.stop(id), player);
+        }
     }
 
     public static void shutdown() {

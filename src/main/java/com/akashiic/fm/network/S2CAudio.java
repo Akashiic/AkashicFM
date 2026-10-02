@@ -87,7 +87,7 @@ public final class S2CAudio implements IMessage {
         }
     }
 
-    /** Thread de rede do cliente: entrega direto à fila do decoder da estação (thread-safe). */
+    /** Entrega direto à fila do decoder da estação (thread-safe; a decodificação é na thread da estação). */
     public static final class Handler implements IMessageHandler<S2CAudio, IMessage> {
 
         @Override

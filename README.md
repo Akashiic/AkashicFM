@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: Fase 2
+## Estado atual: Fase 3
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -37,6 +37,13 @@ Feito:
   - soak de 10 min sem nenhum vazamento de objeto OpenAL, sem underruns e com heap estável.
   
   Detalhes em [`docs/FASE2-RESULTADOS.md`](docs/FASE2-RESULTADOS.md).
+- **Fase 3:**
+  - relay: o servidor baixa cada estação uma vez e retransmite em Opus só para quem está no alcance (o IP dos jogadores não vaza);
+  - sincronia medida de **0,6 a 6,5 ms** entre dois clientes (meta: menos de 50 ms);
+  - banda ≈ 8,5 KB/s por ouvinte;
+  - jogador fora do alcance não recebe nada.
+  
+  Detalhes em [`docs/FASE3-RESULTADOS.md`](docs/FASE3-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -45,11 +52,11 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 0 | Base, CI e spikes ✅ |
 | 1 | Núcleo seguro: blocos, estado, rede validada, GUI, engine de áudio, modo direto ✅ |
 | 2 | Áudio 3D completo: caixas sem cortes, recarregamento do som (F3+T), convivência com o Hodgepodge, soak ✅ |
-| 3 | Relay e sincronia: Opus, audiência, relógio, jitter buffer |
+| 3 | Relay e sincronia: Opus, audiência, relógio, jitter buffer ✅ |
 | 4 | Oclusão e reverb |
 | 5+ | Now playing, visual, frequências e torres, admin completo |
 
-> **Importante até a Fase 3:** o relay (transporte padrão) ainda não existe. Para as rádios tocarem, o servidor precisa de `direct.enabled=true`. No modo direto cada cliente baixa o stream sozinho, o que expõe o IP dos jogadores ao servidor do stream.
+> **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
 
 ## Como usar
 

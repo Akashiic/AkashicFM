@@ -19,6 +19,7 @@ import com.akashiic.fm.client.render.TileRadioRenderer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.dev.DevE2E;
 import com.akashiic.fm.dev.E2EClient;
+import com.akashiic.fm.network.ClockStamps;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
 import com.akashiic.fm.network.S2CListen;
@@ -113,8 +114,12 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
-    public void onClockPong(S2CClockPong message, long t3) {
-        ClockSync.onPong(message, t3);
+    public void onClockPong(S2CClockPong message, long fallbackT3) {
+        Minecraft mc = Minecraft.getMinecraft();
+        Object connection = mc.getNetHandler() == null ? null
+            : mc.getNetHandler()
+                .getNetworkManager();
+        ClockSync.onPong(message, ClockStamps.take(connection, message.t0, fallbackT3));
     }
 
     private static GuiRadio openGuiFor(int x, int y, int z) {

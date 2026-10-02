@@ -12,11 +12,13 @@ import cpw.mods.fml.relauncher.Side;
 /**
  * Canal de rede do mod. Regra: só a thread principal envia (o SimpleNetworkWrapper do 1.7.10 guarda o
  * destino em atributos de um canal compartilhado, então enviar de duas threads pode trocar o destinatário).
- * Handlers rodam na thread de rede e só enfileiram trabalho.
+ * No 1.7.10 os pacotes de mod passam pela fila do vanilla e os handlers rodam na thread principal; mesmo
+ * assim todos são seguros em qualquer thread (só enfileiram ou usam estruturas thread-safe).
  */
 public final class FmNetwork {
 
-    public static final SimpleNetworkWrapper CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel(AkashicFM.MODID);
+    public static final String CHANNEL_NAME = AkashicFM.MODID;
+    public static final SimpleNetworkWrapper CHANNEL = NetworkRegistry.INSTANCE.newSimpleChannel(CHANNEL_NAME);
 
     private FmNetwork() {}
 
@@ -27,8 +29,17 @@ public final class FmNetwork {
         CHANNEL.registerMessage(S2CRadioPerms.Handler.class, S2CRadioPerms.class, id++, Side.CLIENT);
         CHANNEL.registerMessage(S2CListen.Handler.class, S2CListen.class, id++, Side.CLIENT);
         CHANNEL.registerMessage(S2CAudio.Handler.class, S2CAudio.class, id++, Side.CLIENT);
-        CHANNEL.registerMessage(C2SClockPing.Handler.class, C2SClockPing.class, id++, Side.SERVER);
-        CHANNEL.registerMessage(S2CClockPong.Handler.class, S2CClockPong.class, id++, Side.CLIENT);
+        // ClockStamps identifica ping/pong pelo discriminador: os ids 5 e 6 não podem mudar.
+        CHANNEL.registerMessage(
+            C2SClockPing.Handler.class,
+            C2SClockPing.class,
+            ClockStamps.PING_DISCRIMINATOR,
+            Side.SERVER);
+        CHANNEL.registerMessage(
+            S2CClockPong.Handler.class,
+            S2CClockPong.class,
+            ClockStamps.PONG_DISCRIMINATOR,
+            Side.CLIENT);
     }
 
     public static void sendTo(IMessage message, EntityPlayerMP player) {

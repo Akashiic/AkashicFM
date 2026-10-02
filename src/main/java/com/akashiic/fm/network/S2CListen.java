@@ -53,7 +53,7 @@ public final class S2CListen implements IMessage {
         buf.writeShort(latencyMs);
     }
 
-    /** Thread de rede do cliente: o registro do relay é thread-safe, então trata direto (sem esperar o tick). */
+    /** O registro do relay é thread-safe: trata direto, sem passar pela fila de tarefas do cliente. */
     public static final class Handler implements IMessageHandler<S2CListen, IMessage> {
 
         @Override

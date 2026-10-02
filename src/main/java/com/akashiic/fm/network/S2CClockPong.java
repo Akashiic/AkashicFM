@@ -34,7 +34,7 @@ public final class S2CClockPong implements IMessage {
         buf.writeLong(t2);
     }
 
-    /** Thread de rede do cliente: carimba t3 na chegada, antes de qualquer fila. */
+    /** t3 é a hora de chegada na camada de rede ({@link ClockStamps}), procurada pelo proxy do cliente. */
     public static final class Handler implements IMessageHandler<S2CClockPong, IMessage> {
 
         @Override

@@ -7,7 +7,7 @@ import java.util.function.LongSupplier;
 
 /**
  * Token bucket por jogador: {@code ratePerSecond} fichas por segundo, com rajada de até 2x.
- * Thread-safe: é consultado na thread de rede, antes de o pacote entrar na fila do tick.
+ * Thread-safe: é consultado pelo handler de rede, antes de a ação entrar na fila do tick.
  */
 public final class RateLimiter {
 

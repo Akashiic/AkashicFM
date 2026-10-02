@@ -30,15 +30,16 @@ public final class C2SClockPing implements IMessage {
     }
 
     /**
-     * Thread de rede do servidor: carimba a chegada (t1) aqui mesmo, antes de qualquer fila, e deixa a resposta
-     * para o tick (só a thread principal envia). O tempo na fila entra em t2 - t1 e não vira erro.
+     * t1 é a hora de chegada na camada de rede ({@link ClockStamps}), não a hora deste handler (que roda no tick,
+     * depois da fila do vanilla). A resposta sai no tick seguinte com t2; o tempo parado entra em t2 − t1.
      */
     public static final class Handler implements IMessageHandler<C2SClockPing, IMessage> {
 
         @Override
         public IMessage onMessage(C2SClockPing message, MessageContext ctx) {
-            RelayService
-                .offerClockPing(ctx.getServerHandler().playerEntity, message.clientMicros, ServerClock.nowMicros());
+            long t1 = ClockStamps
+                .take(ctx.getServerHandler().netManager, message.clientMicros, ServerClock.nowMicros());
+            RelayService.offerClockPing(ctx.getServerHandler().playerEntity, message.clientMicros, t1);
             return null;
         }
     }

@@ -82,7 +82,10 @@ public final class C2SRadioAction implements IMessage {
             strArg.length() > RadioLimits.MAX_URL_LENGTH ? strArg.substring(0, RadioLimits.MAX_URL_LENGTH) : strArg);
     }
 
-    /** Roda na thread de rede: só enfileira (com rate limit). O processamento é no tick do servidor. */
+    /**
+     * Só enfileira (com rate limit); o processamento é no início do tick do servidor. No 1.7.10 este handler
+     * roda na thread principal (pacotes de mod passam pela fila do vanilla), mas é seguro em qualquer thread.
+     */
     public static final class Handler implements IMessageHandler<C2SRadioAction, IMessage> {
 
         @Override

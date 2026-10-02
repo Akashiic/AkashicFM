@@ -12,9 +12,10 @@ import com.akashiic.fm.common.RateLimiter;
 import com.akashiic.fm.server.RadioActionHandler;
 
 /**
- * Fila entre a thread de rede (que recebe os pacotes) e a thread principal do servidor (que mexe no mundo).
- * O 1.7.10 não tem agendamento de tarefas na thread principal; mexer em TE/chunk na thread de rede corrompe
- * o mundo, então tudo passa por aqui e é processado em {@link #drain()} no tick.
+ * Fila entre a chegada das ações (handler de rede) e o processamento no início do tick do servidor, com rate
+ * limit por jogador e orçamento por tick. No 1.7.10 o handler já roda na thread principal (fila do vanilla),
+ * mas o código não depende disso: mexer em TE/chunk fora dela corromperia o mundo, então tudo passa por aqui
+ * e é aplicado em {@link #drain()}.
  */
 public final class ServerActionQueue {
 
@@ -41,7 +42,7 @@ public final class ServerActionQueue {
 
     private ServerActionQueue() {}
 
-    /** Thread de rede. Descarta se o jogador estourou o limite de ações ou se a fila está cheia. */
+    /** Chamado pelo handler (qualquer thread). Descarta se o jogador estourou o limite ou se a fila está cheia. */
     static void offer(EntityPlayerMP player, C2SRadioAction action) {
         if (player == null) return;
         UUID id = player.getUniqueID();

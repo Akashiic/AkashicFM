@@ -11,7 +11,7 @@ import com.akashiic.fm.audio.relay.RelayDecoder;
 import com.akashiic.fm.client.audio.AudioFeed;
 
 /**
- * Uma estação do relay neste cliente: os frames Opus chegam pela thread de rede ({@link #offer}), uma thread
+ * Uma estação do relay neste cliente: os frames Opus chegam pelo handler de rede ({@link #offer}), uma thread
  * própria decodifica ({@link RelayDecoder}) para um {@link TimedPcmRing} e a reprodução lê com o PTS de cada
  * amostra. Quem cria e encerra é o {@link RelayClient}, a mando do servidor: o {@link #close()} da interface
  * (chamado quando a reprodução deste cliente acaba) não fecha a estação, que pode voltar a ser ouvida.

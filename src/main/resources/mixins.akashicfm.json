@@ -5,7 +5,9 @@
   "refmap": "mixins.akashicfm.refmap.json",
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_8",
-  "mixins": [],
+  "mixins": [
+    "common.MixinNetworkManager"
+  ],
   "client": [
     "client.MixinLibraryLWJGLOpenAL"
   ],
