@@ -25,6 +25,7 @@ import com.akashiic.fm.content.TileTransmitter;
 import com.akashiic.fm.network.ServerActionQueue;
 import com.akashiic.fm.server.FmCommand;
 import com.akashiic.fm.server.RadioIndex;
+import com.akashiic.fm.server.ServerPolicy;
 import com.akashiic.fm.server.ServerRadioRegistry;
 import com.akashiic.fm.server.TransmitterIndex;
 import com.akashiic.fm.server.relay.RelayService;
@@ -56,6 +57,31 @@ public final class E2EServer {
         // Alcances curtos: o teste de antenas cabe perto da rádio, onde o chunk está carregado (view-distance 4).
         FmConfig.Transmitter.baseRange = DevE2E.TRANSMITTER_BASE_RANGE;
         FmConfig.Transmitter.rangePerAntenna = DevE2E.TRANSMITTER_RANGE_PER_ANTENNA;
+        // iPod com o yt-dlp falso (respostas fixas, áudio público curto): o fluxo inteiro sem SoundCloud/YouTube.
+        String fake = System.getenv("AKASHICFM_E2E_YTDLP");
+        if (fake != null && !fake.isEmpty()) {
+            FmConfig.IPod.enabled = true;
+            FmConfig.IPod.autoInstallTools = false;
+            FmConfig.IPod.ytDlpPath = fake;
+            FmConfig.IPod.maxQueue = 50;
+            FmConfig.IPod.maxResolves = 2;
+            FmConfig.IPod.maxTrackMinutes = 20;
+            FmConfig.IPod.pauseTimeoutMinutes = 10;
+            // Estado do falso de uma rodada anterior (contador da URL expirada, registro): começa do zero.
+            MinecraftServer server = MinecraftServer.getServer();
+            if (server != null) {
+                java.io.File tmp = server.getFile("akashicfm/tools/tmp");
+                new java.io.File(tmp, "fake-yt-dlp.log").delete();
+                java.io.File[] state = new java.io.File(tmp, "fake-yt-dlp").listFiles();
+                if (state != null) for (java.io.File f : state) f.delete();
+            }
+        }
+    }
+
+    /** O registro de chamadas do yt-dlp falso (em {@code }, a pasta temporária das ferramentas do iPod). */
+    private static java.io.File fakeYtDlpLog() {
+        return MinecraftServer.getServer()
+            .getFile("akashicfm/tools/tmp/fake-yt-dlp.log");
     }
 
     @SubscribeEvent
@@ -126,7 +152,46 @@ public final class E2EServer {
                         + " reload="
                         + text.contains("admin.reload: ok")
                         + " purge="
-                        + text.contains("admin.purge")));
+                        + text.contains("admin.purge")
+                        + " ipod="
+                        + text.contains("ipod.add")));
+        }
+        if (event.message.startsWith("e2e:ipod-calls") && event.player != null) {
+            // Quantas vezes o iPod chamou o yt-dlp falso para cada alvo (registro do próprio script).
+            java.util.List<String> lines = java.util.Collections.emptyList();
+            try {
+                lines = java.nio.file.Files
+                    .readAllLines(fakeYtDlpLog().toPath(), java.nio.charset.StandardCharsets.UTF_8);
+            } catch (java.io.IOException e) {
+                DevE2E.log("registro do yt-dlp falso ilegível: {}", e.toString());
+            }
+            int faixaA = 0, search = 0, songOne = 0, remix = 0, preview = 0;
+            for (String l : lines) {
+                if (l.endsWith("media https://soundcloud.com/e2e/faixa-a")) faixaA++;
+                if (l.contains(" info scsearch")) search++;
+                if (l.endsWith("media https://soundcloud.com/e2e/song-one")) songOne++;
+                if (l.endsWith("media https://soundcloud.com/e2e/song-one-remix")) remix++;
+                if (l.endsWith("media https://soundcloud.com/e2e/song-one-preview")) preview++;
+            }
+            String r = "faixa-a=" + faixaA
+                + " search="
+                + search
+                + " song-one="
+                + songOne
+                + " remix="
+                + remix
+                + " preview="
+                + preview;
+            DevE2E.log("ipod: chamadas do yt-dlp falso: {}", r);
+            event.player.addChatMessage(new ChatComponentText("e2e-result ipod-calls " + r));
+        }
+        if (event.message.startsWith("e2e:relay ") && event.player != null) {
+            // O que o /fm reload faz ao ler relay.enabled (no E2E o arquivo não decide o transporte).
+            boolean on = event.message.endsWith(" on");
+            FmConfig.Relay.enabled = on;
+            ServerPolicy.setRelayAvailable(on);
+            DevE2E.log("relay {}", on ? "religado" : "desligado");
+            event.player.addChatMessage(new ChatComponentText("e2e-result relay-toggle " + (on ? "on" : "off")));
         }
         if (event.message.startsWith("e2e:oc") && event.player != null) {
             // Componentes do OpenComputers chamados pelo próprio OC (só com ele instalado).

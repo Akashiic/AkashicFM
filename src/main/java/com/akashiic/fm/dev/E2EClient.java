@@ -22,6 +22,7 @@ import net.minecraftforge.common.MinecraftForge;
 
 import com.akashiic.fm.audio.dsp.SpectrumAnalyzer;
 import com.akashiic.fm.audio.spatial.OcclusionTracer;
+import com.akashiic.fm.client.ClientIPod;
 import com.akashiic.fm.client.ClientMutes;
 import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
@@ -31,6 +32,7 @@ import com.akashiic.fm.client.RadioInfo;
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
 import com.akashiic.fm.client.gui.FmConfigGui;
+import com.akashiic.fm.client.gui.GuiIPod;
 import com.akashiic.fm.client.gui.GuiPortableRadio;
 import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.client.gui.GuiTransmitter;
@@ -42,6 +44,8 @@ import com.akashiic.fm.client.spatial.OcclusionField;
 import com.akashiic.fm.client.spatial.RoomProbe;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Frequency;
+import com.akashiic.fm.common.IPodState;
+import com.akashiic.fm.common.IPodTrack;
 import com.akashiic.fm.common.PortableState;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
@@ -52,15 +56,18 @@ import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.FmContent;
 import com.akashiic.fm.content.ItemHeadphones;
+import com.akashiic.fm.content.ItemIPod;
 import com.akashiic.fm.content.ItemPortableRadio;
 import com.akashiic.fm.content.ItemTuner;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.content.TileTransmitter;
+import com.akashiic.fm.network.C2SIPodAction;
 import com.akashiic.fm.network.C2SPortableAction;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.C2SRadioAction.Action;
 import com.akashiic.fm.network.FmNetwork;
+import com.akashiic.fm.network.S2CIPodStatus;
 import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
@@ -951,6 +958,7 @@ public final class E2EClient {
         }
         addFrequencySteps(expectPeer);
         addPortableSteps(expectPeer);
+        addIPodSteps(expectPeer);
         addAdminSteps(expectPeer);
         if (relayMode()) addPlaylistSteps(expectPeer);
         addMuteSteps();
@@ -1771,6 +1779,432 @@ public final class E2EClient {
         steps.add(
             peerPortable("peer-sem-fone-do-baubles-ouve", "baubles-off", this::hearsOtherPortable, "bauble-off-ok"));
         steps.add(peerPortable("peer-portatil-sumiu", "portable-gone", this::otherPortableSilent, "portable-gone-ok"));
+    }
+
+    // ---- Fase 8c: iPod (com o yt-dlp falso: tools/e2e/fake-yt-dlp.sh) ----
+
+    private static final String IPOD_SET = "https://soundcloud.com/e2e/sets/lista";
+    private static final String IPOD_VIDEO = "https://www.youtube.com/watch?v=e2eVideo001";
+    private static final String IPOD_LONG = "https://soundcloud.com/e2e/faixa-longa";
+    private int ipodSlot = -1;
+
+    private ItemStack ipodStack() {
+        return ipodSlot < 0 ? null : ItemIPod.at(mc().thePlayer, ipodSlot);
+    }
+
+    private IPodState ipodState() {
+        ItemStack st = ipodStack();
+        return st == null ? null : ItemIPod.state(st);
+    }
+
+    private void sendIPod(C2SIPodAction.Action action, int intArg, String strArg) {
+        IPodState s = ipodState();
+        FmNetwork.sendToServer(new C2SIPodAction(ipodSlot, s == null ? 0 : s.id, action, intArg, strArg));
+    }
+
+    /** A fonte de iPod que este cliente recebe (a própria ou a de outro jogador), ou null. */
+    private S2CPortableSources.Entry ipodEntry(boolean mine) {
+        int me = mc().thePlayer.getEntityId();
+        for (S2CPortableSources.Entry e : ClientPortables.current(System.currentTimeMillis())) {
+            if (e.url.startsWith("ipod:") && (e.entityId == me) == mine) return e;
+        }
+        return null;
+    }
+
+    private S2CIPodStatus ipodStatus() {
+        IPodState s = ipodState();
+        return s == null ? null : ClientIPod.status(s.id, System.currentTimeMillis());
+    }
+
+    /** O próprio iPod soa aqui (estação do relay com a chave dele, reprodução tocando). */
+    private boolean ownIPodPlaying() {
+        S2CPortableSources.Entry e = ipodEntry(true);
+        AudioEngine.PlaybackInfo i = portableInfo(e);
+        return e != null && e.transport == Transport.RELAY && i != null && i.playing;
+    }
+
+    /** O iPod do outro jogador soa aqui, no mundo. */
+    private boolean hearsOtherIPod() {
+        AudioEngine.PlaybackInfo i = portableInfo(ipodEntry(false));
+        return i != null && i.playing && i.voices >= 1 && i.relativeVoices == 0;
+    }
+
+    /** Nada do iPod do outro jogador chega aqui. */
+    private boolean otherIPodSilent() {
+        S2CPortableSources.Entry e = ipodEntry(false);
+        return e == null || e.url.isEmpty() || RelayClient.feedForUrl(e.url) == null;
+    }
+
+    /** Pede ao servidor as contagens de chamadas do yt-dlp falso e espera a resposta nova. */
+    private Step ipodCalls(String name, java.util.function.Predicate<String> ok) {
+        return new Step(name, 10) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("e2e-result ipod-calls");
+                say("e2e:ipod-calls");
+            }
+
+            @Override
+            String tick(int t) {
+                if (countChat("e2e-result ipod-calls") <= seen) return null;
+                String last = "";
+                for (String line : chat) if (line.contains("e2e-result ipod-calls")) last = line;
+                DevE2E.log("ipod: {}", last);
+                return ok.test(last) ? "" : "chamadas do yt-dlp fora do esperado: " + last;
+            }
+        };
+    }
+
+    private static int callCount(String line, String key) {
+        int i = line.indexOf(key + "=");
+        if (i < 0) return -1;
+        int j = i + key.length() + 1, k = j;
+        while (k < line.length() && Character.isDigit(line.charAt(k))) k++;
+        return Integer.parseInt(line.substring(j, k));
+    }
+
+    private void addIPodSteps(boolean expectPeer) {
+        steps.add(new Step("ipod-pegar", 15) {
+
+            @Override
+            void start() {
+                say("/give " + mc().thePlayer.getCommandSenderName() + " akashicfm:ipod");
+            }
+
+            @Override
+            String tick(int t) {
+                for (int slot = 0; slot < 9; slot++) {
+                    ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+                    if (st != null && st.getItem() instanceof ItemIPod && ItemIPod.state(st).id != 0) {
+                        ipodSlot = slot;
+                        return "";
+                    }
+                }
+                return null;
+            }
+        });
+        steps.add(new Step("ipod-link-de-outro-site-recusado", 10) {
+
+            int before;
+
+            @Override
+            void start() {
+                before = notices.size();
+                sendIPod(C2SIPodAction.Action.ADD, 0, "https://evil.example.com/musica.mp3");
+            }
+
+            @Override
+            String tick(int t) {
+                return notices.subList(before, notices.size())
+                    .contains("akashicfm.ipod.err.invalid") ? "" : null;
+            }
+        });
+        steps.add(new Step("ipod-adicionar-set-do-soundcloud", 30) {
+
+            @Override
+            void start() {
+                sendIPod(C2SIPodAction.Action.ADD, 0, IPOD_SET);
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                if (s == null || s.queue.size() != 3) return null;
+                return s.on && s.index >= 0 ? "" : null; // a fila parada começa sozinha pela primeira
+            }
+        });
+        if (!relayMode()) {
+            // Sem relay o iPod não toca (não há modo direto para ele): o dono vê o motivo.
+            steps.add(new Step("ipod-sem-relay-avisa", 20) {
+
+                @Override
+                String tick(int t) {
+                    S2CIPodStatus st = ipodStatus();
+                    return st != null && st.status.startsWith("akashicfm.ipod.err.no_relay") ? "" : null;
+                }
+            });
+            steps.add(new Step("ipod-limpar-sem-relay", 10) {
+
+                @Override
+                void start() {
+                    sendIPod(C2SIPodAction.Action.CLEAR, 0, "");
+                }
+
+                @Override
+                String tick(int t) {
+                    IPodState s = ipodState();
+                    return s != null && s.queue.isEmpty() && !s.on ? "" : null;
+                }
+            });
+            return;
+        }
+        // A primeira URL da "faixa-a" dá 404 (como uma assinada que expirou): toca depois de renovar.
+        steps.add(new Step("ipod-toca-depois-de-renovar-a-url", 45) {
+
+            @Override
+            String tick(int t) {
+                S2CIPodStatus st = ipodStatus();
+                return ownIPodPlaying() && st != null && st.phase == S2CIPodStatus.Phase.PLAYING ? "" : null;
+            }
+        });
+        steps.add(ipodCalls("ipod-a-url-expirada-foi-renovada", l -> callCount(l, "faixa-a") >= 2));
+        steps.add(new Step("ipod-pula-a-protegida-e-segue", 45) {
+
+            boolean sawDrm;
+
+            @Override
+            String tick(int t) {
+                S2CIPodStatus st = ipodStatus();
+                if (st != null && st.status.startsWith("akashicfm.ipod.err.drm")) sawDrm = true;
+                IPodState s = ipodState();
+                return sawDrm && s != null && s.index == 2 && ownIPodPlaying() ? "" : null;
+            }
+        });
+        steps.add(new Step("ipod-fim-da-fila-para", 30) {
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                S2CPortableSources.Entry e = ipodEntry(true);
+                return s != null && !s.on && (e == null || e.url.isEmpty()) ? "" : null;
+            }
+        });
+        steps.add(new Step("ipod-youtube-pelo-espelho", 45) {
+
+            @Override
+            void start() {
+                sendIPod(C2SIPodAction.Action.ADD, 0, IPOD_VIDEO);
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                if (s == null || s.queue.size() != 4 || s.index != 3) return null;
+                return s.current().source == IPodTrack.Source.YOUTUBE && ownIPodPlaying() ? "" : null;
+            }
+        });
+        // O espelho certo: buscou, tocou o "E2E Band - Song One" e nunca tentou a prévia nem o remix.
+        steps.add(
+            ipodCalls(
+                "ipod-espelho-escolhe-a-versao-certa",
+                l -> callCount(l, "search") >= 1 && callCount(l, "song-one") >= 1
+                    && callCount(l, "remix") == 0
+                    && callCount(l, "preview") == 0));
+        steps.add(new Step("ipod-faixa-longa", 60) {
+
+            @Override
+            void start() {
+                sendIPod(C2SIPodAction.Action.ADD, 0, IPOD_LONG);
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                return s != null && s.queue.size() == 5 && s.index == 4 && ownIPodPlaying() ? "" : null;
+            }
+        });
+        steps.add(new Step("gui-do-ipod", 10) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiIPod(ipodSlot));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 38) screenshot("e2e-gui-ipod.png");
+                if (t < 40) return null;
+                boolean ok = mc().currentScreen instanceof GuiIPod;
+                mc().displayGuiScreen(null);
+                return ok ? "" : "a tela do iPod não abriu";
+            }
+        });
+        if (expectPeer) steps.add(handshake("ipod-segundo-jogador-ouve", "ipod-on", "ipod-heard"));
+        // Pausa: o servidor para de mandar (o feed do relay fica sem frames) e a posição congela.
+        steps.add(new Step("ipod-pausa", 20) {
+
+            long frozenAt = -1;
+            int stalled;
+
+            @Override
+            void start() {
+                sendIPod(C2SIPodAction.Action.TOGGLE, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                S2CIPodStatus st = ipodStatus();
+                S2CPortableSources.Entry e = ipodEntry(true);
+                RelayFeed feed = e == null || e.url.isEmpty() ? null : RelayClient.feedForUrl(e.url);
+                if (st == null || st.phase != S2CIPodStatus.Phase.PAUSED || feed == null) return null;
+                if (feed.status() != com.akashiic.fm.client.audio.AudioFeed.Status.RECONNECTING) return null;
+                if (frozenAt < 0) frozenAt = st.positionMs;
+                stalled = st.positionMs == frozenAt ? stalled + 1 : 0;
+                if (st.positionMs != frozenAt) frozenAt = st.positionMs;
+                return stalled >= 40 ? "" : null; // 2 s com a posição parada
+            }
+        });
+        steps.add(new Step("ipod-retoma", 20) {
+
+            @Override
+            void start() {
+                sendIPod(C2SIPodAction.Action.TOGGLE, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                S2CIPodStatus st = ipodStatus();
+                S2CPortableSources.Entry e = ipodEntry(true);
+                RelayFeed feed = e == null || e.url.isEmpty() ? null : RelayClient.feedForUrl(e.url);
+                return st != null && st.phase == S2CIPodStatus.Phase.PLAYING
+                    && feed != null
+                    && feed.status() == com.akashiic.fm.client.audio.AudioFeed.Status.PLAYING
+                    && ownIPodPlaying() ? "" : null;
+            }
+        });
+        if (expectPeer)
+            steps.add(handshake("ipod-depois-da-pausa-segundo-jogador-ouve", "ipod-resumed", "ipod-resumed-ok"));
+        steps.add(new Step("ipod-fone-colocar", 5) {
+
+            @Override
+            void start() {
+                say("e2e:headphones on");
+            }
+
+            @Override
+            String tick(int t) {
+                ItemStack helmet = mc().thePlayer.inventory.armorItemInSlot(3);
+                return helmet != null && helmet.getItem() instanceof ItemHeadphones ? "" : null;
+            }
+        });
+        if (expectPeer) steps.add(handshake("ipod-fone-segundo-jogador-nao-ouve", "ipod-hp-on", "ipod-hp-ok"));
+        steps.add(new Step("ipod-fone-tirar", 5) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("e2e-result headphones off ok");
+                say("e2e:headphones off");
+            }
+
+            @Override
+            String tick(int t) {
+                return countChat("e2e-result headphones off ok") > seen ? "" : null;
+            }
+        });
+        steps.add(new Step("ipod-repetir-e-anterior", 15) {
+
+            int session = -1;
+
+            @Override
+            void start() {
+                IPodState s = ipodState();
+                session = s == null ? -1 : s.session;
+                sendIPod(C2SIPodAction.Action.REPEAT, 0, "");
+                sendIPod(C2SIPodAction.Action.PREVIOUS, 0, ""); // já tocou mais de 5 s: recomeça a mesma faixa
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                return s != null && s.repeat == IPodState.Repeat.ALL && s.index == 4 && s.session > session ? "" : null;
+            }
+        });
+        // Relay desligado com o iPod tocando (o que o /fm reload faz): para com o motivo; religado, volta sozinho.
+        steps.add(new Step("ipod-relay-desligado-para", 20) {
+
+            @Override
+            void start() {
+                say("e2e:relay off");
+            }
+
+            @Override
+            String tick(int t) {
+                S2CIPodStatus st = ipodStatus();
+                S2CPortableSources.Entry e = ipodEntry(true);
+                return st != null && st.status.startsWith("akashicfm.ipod.err.no_relay")
+                    && (e == null || e.url.isEmpty()) ? "" : null;
+            }
+        });
+        steps.add(new Step("ipod-relay-religado-volta-a-tocar", 45) {
+
+            @Override
+            void start() {
+                say("e2e:relay on");
+            }
+
+            @Override
+            String tick(int t) {
+                S2CIPodStatus st = ipodStatus();
+                IPodState s = ipodState();
+                return st != null && st.phase == S2CIPodStatus.Phase.PLAYING
+                    && s != null
+                    && s.on
+                    && s.index == 4
+                    && ownIPodPlaying() ? "" : null;
+            }
+        });
+        steps.add(new Step("ipod-parar", 20) {
+
+            String key = "";
+
+            @Override
+            void start() {
+                S2CPortableSources.Entry e = ipodEntry(true);
+                key = e == null ? "" : e.url;
+                sendIPod(C2SIPodAction.Action.STOP, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                return s != null && !s.on
+                    && ipodEntry(true) == null
+                    && (key.isEmpty() || RelayClient.feedForUrl(key) == null) ? "" : null;
+            }
+        });
+        if (expectPeer) steps.add(handshake("ipod-parado-segundo-jogador-silencio", "ipod-gone", "ipod-gone-ok"));
+        steps.add(new Step("ipod-auditoria", 10) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("e2e-result audit");
+                say("e2e:audit-tail");
+            }
+
+            @Override
+            String tick(int t) {
+                if (countChat("e2e-result audit") <= seen) return null;
+                return chatSaw("ipod=true") ? "" : "a auditoria não registrou o link do iPod";
+            }
+        });
+        steps.add(new Step("ipod-guardar", 10) {
+
+            @Override
+            void start() {
+                say("/clear " + mc().thePlayer.getCommandSenderName() + " akashicfm:ipod");
+            }
+
+            @Override
+            String tick(int t) {
+                return ipodStack() == null ? "" : null;
+            }
+        });
+    }
+
+    private void addPeerIPodSteps() {
+        if (!relayMode()) return;
+        steps.add(peerPortable("peer-ouve-o-ipod", "ipod-on", this::hearsOtherIPod, "ipod-heard"));
+        steps.add(
+            peerPortable("peer-ouve-o-ipod-depois-da-pausa", "ipod-resumed", this::hearsOtherIPod, "ipod-resumed-ok"));
+        steps.add(peerPortable("peer-fone-isola-o-ipod", "ipod-hp-on", this::otherIPodSilent, "ipod-hp-ok"));
+        steps.add(peerPortable("peer-ipod-parado", "ipod-gone", this::otherIPodSilent, "ipod-gone-ok"));
     }
 
     // ---- Fase 7a: /fm, bloqueio e auditoria ----
@@ -3187,6 +3621,7 @@ public final class E2EClient {
         });
         addPeerFrequencySteps();
         addPeerPortableSteps();
+        addPeerIPodSteps();
         addPeerAdminSteps();
         if (relayMode()) addPeerPlaylistSteps();
         steps.add(new Step("peer-ve-a-parada", 900) {

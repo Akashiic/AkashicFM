@@ -26,7 +26,7 @@ public final class PortableActionHandler {
     /** Avisos do portátil vão com esta coordenada (nenhum bloco tem y = -1): a tela do portátil os recebe. */
     public static final int NOTICE_Y = -1;
     /** Slots do inventário principal (barra + mochila). */
-    static final int SLOTS = 36;
+    public static final int SLOTS = 36;
 
     private PortableActionHandler() {}
 

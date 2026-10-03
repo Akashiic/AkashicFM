@@ -62,6 +62,7 @@ public final class ClientEvents {
             ClockSync.reset();
             RadioAudioController.resetNowPlaying();
             ClientPortables.clear();
+            ClientIPod.clear();
             ClientMutes.clear(); // o silêncio de uma rádio vale só para a sessão
             ListeningReporter.reset();
             World current = Minecraft.getMinecraft().theWorld;

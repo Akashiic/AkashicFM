@@ -19,21 +19,24 @@ import net.minecraftforge.common.util.FakePlayer;
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.FrequencyResolver;
+import com.akashiic.fm.common.IPodState;
 import com.akashiic.fm.common.PortableState;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
+import com.akashiic.fm.content.ItemIPod;
 import com.akashiic.fm.content.ItemPortableRadio;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CPortableSources;
+import com.akashiic.fm.server.ipod.IPodService;
 import com.akashiic.fm.server.relay.RelayService;
 
 /**
- * Rádios portáteis tocando. A cada {@link #INTERVAL_TICKS}, para cada jogador conectado:
+ * Rádios portáteis e iPods tocando. A cada {@link #INTERVAL_TICKS}, para cada jogador conectado:
  * <ul>
- * <li>acha o primeiro portátil ligado nos 36 slots do inventário;</li>
+ * <li>acha o primeiro aparelho ligado nos 36 slots do inventário (rádio portátil ou iPod: um por jogador);</li>
  * <li>resolve o que ele toca: a URL do item, ou o transmissor mais forte na posição do jogador (modo FM); a URL passa
  * de novo pela política (o NBT de um item pode vir de qualquer lugar) e o transporte é escolhido como o da rádio;</li>
  * <li>decide quem ouve: o portador sempre; os outros jogadores da mesma dimensão dentro do alcance, com histerese,
@@ -83,7 +86,7 @@ public final class PortableSources {
         // 1) As fontes deste ciclo.
         Map<UUID, S2CPortableSources.Entry> sources = new HashMap<>();
         for (EntityPlayerMP p : online.values()) {
-            S2CPortableSources.Entry e = FmConfig.Portable.enabled ? sourceOf(p, candidates) : null;
+            S2CPortableSources.Entry e = sourceOf(p, candidates);
             if (e != null) sources.put(p.getUniqueID(), e);
         }
         CARRIERS.keySet()
@@ -159,9 +162,11 @@ public final class PortableSources {
         Map<Integer, List<FrequencyResolver.Transmitter>> candidates) {
         if (p.isDead || p.getHealth() <= 0) return null; // morto (com keepInventory) não toca no lugar da morte
         if (Moderation.isBlocked(p)) return null; // bloqueado por um admin: o portátil fica mudo
-        PortableState s = firstOn(p);
-        if (s == null) return null;
+        ItemStack st = firstOnStack(p);
+        if (st == null) return null;
         Carrier c = CARRIERS.computeIfAbsent(p.getUniqueID(), k -> new Carrier());
+        if (st.getItem() instanceof ItemIPod) return iPodSource(p, ItemIPod.state(st), c);
+        PortableState s = ItemPortableRadio.state(st);
         String url, station = "";
         int signal = 0;
         if (s.mode == TuneMode.FREQUENCY) {
@@ -226,14 +231,51 @@ public final class PortableSources {
         return e;
     }
 
-    /** O primeiro portátil ligado do inventário (barra e mochila), ou null. */
-    static PortableState firstOn(EntityPlayerMP p) {
+    /**
+     * O iPod como fonte: a estação dele (chave {@code ipod:<id>}, sempre pelo relay) quando está tocando; resolvendo,
+     * pausado ou com erro, sem estação e com o motivo para a tela.
+     */
+    private static S2CPortableSources.Entry iPodSource(EntityPlayerMP p, IPodState s, Carrier c) {
+        c.tuned = null;
+        String url = IPodService.stationKey(p.getUniqueID(), s.id);
+        Transport transport = url.isEmpty() ? Transport.NONE : Transport.RELAY;
+        if (!url.equals(c.url) || transport != c.transport || s.session != c.itemSession) {
+            c.session++;
+            c.url = url;
+            c.transport = transport;
+            c.itemSession = s.session;
+        }
+        c.signal = 0;
+        S2CPortableSources.Entry e = new S2CPortableSources.Entry();
+        e.entityId = p.getEntityId();
+        e.session = c.session;
+        e.url = url;
+        e.transport = transport;
+        e.volume = s.volume;
+        e.range = RadioLimits.clamp(FmConfig.Portable.range, 4, 64);
+        e.headphones = Headphones.isWorn(p);
+        e.title = IPodService.title(p.getUniqueID(), s);
+        e.status = s.paused ? IPodService.STATUS_PAUSED : IPodService.status(p.getUniqueID(), s.id);
+        e.x = p.posX;
+        e.y = p.boundingBox.minY;
+        e.z = p.posZ;
+        return e;
+    }
+
+    /**
+     * O primeiro aparelho ligado do inventário (barra e mochila): rádio portátil (com os portáteis permitidos) ou iPod
+     * (com o iPod ligado no servidor). Null se não há. O {@code IPodService} usa o mesmo critério.
+     */
+    public static ItemStack firstOnStack(EntityPlayerMP p) {
         if (p.inventory == null) return null;
         for (int slot = 0; slot < PortableActionHandler.SLOTS; slot++) {
             ItemStack st = p.inventory.mainInventory[slot];
-            if (st == null || !(st.getItem() instanceof ItemPortableRadio)) continue;
-            PortableState s = ItemPortableRadio.state(st);
-            if (s.on) return s;
+            if (st == null) continue;
+            if (st.getItem() instanceof ItemPortableRadio) {
+                if (FmConfig.Portable.enabled && ItemPortableRadio.state(st).on) return st;
+            } else if (st.getItem() instanceof ItemIPod) {
+                if (FmConfig.IPod.enabled && ItemIPod.state(st).on) return st;
+            }
         }
         return null;
     }

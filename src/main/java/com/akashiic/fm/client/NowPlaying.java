@@ -53,6 +53,8 @@ public final class NowPlaying {
     /** Nome da estação de um portátil: o do transmissor sintonizado, ou o host da URL. */
     public static String portableStation(S2CPortableSources.Entry p) {
         if (p.mode == TuneMode.FREQUENCY && !p.station.isEmpty()) return p.station;
+        if (p.url.startsWith("ipod:"))
+            return net.minecraft.util.StatCollector.translateToLocal("akashicfm.nowplaying.ipod");
         return hostOf(p.url);
     }
 

@@ -278,6 +278,36 @@ def headphones_armor():
     return img
 
 
+def ipod():
+    """iPod: corpo claro de cantos arredondados, tela azulada em cima e a roda de clique embaixo."""
+    img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y in range(1, 15):
+        for x in range(4, 12):
+            corner = (x in (4, 11)) and (y in (1, 14))
+            if not corner:
+                img.putpixel((x, y), jitter((228, 230, 234), 3))
+    for y in range(2, 14):  # contorno: luz à esquerda, sombra à direita e embaixo
+        img.putpixel((4, y), (250, 250, 252, 255))
+        img.putpixel((11, y), (170, 174, 182, 255))
+    for x in range(5, 11):
+        img.putpixel((x, 1), (250, 250, 252, 255))
+        img.putpixel((x, 14), (160, 164, 172, 255))
+    for y in range(2, 7):  # tela
+        for x in range(5, 11):
+            img.putpixel((x, y), (70, 120, 190, 255) if y > 2 else (110, 160, 220, 255))
+    img.putpixel((6, 4), (230, 240, 255, 255))  # "texto" na tela
+    img.putpixel((7, 4), (230, 240, 255, 255))
+    img.putpixel((9, 5), (230, 240, 255, 255))
+    ring = [(6, 9), (7, 8), (8, 8), (9, 9), (9, 10), (9, 11), (8, 12), (7, 12), (6, 11), (6, 10)]
+    for p in ring:  # roda de clique
+        img.putpixel(p, (150, 154, 162, 255))
+    for p in ((7, 9), (8, 9), (7, 11), (8, 11), (7, 10), (8, 10)):
+        img.putpixel(p, (196, 200, 206, 255))
+    img.putpixel((7, 10), (236, 238, 242, 255))  # botão central
+    img.putpixel((8, 10), (236, 238, 242, 255))
+    return img
+
+
 def main():
     out = {
         "blocks/radio_front.png": radio_front(),
@@ -295,6 +325,7 @@ def main():
         "items/portable_radio.png": portable_radio(),
         "items/headphones.png": headphones_icon(),
         "models/armor/headphones.png": headphones_armor(),
+        "items/ipod.png": ipod(),
     }
     for rel, img in out.items():
         path = os.path.join(ROOT, rel)

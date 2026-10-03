@@ -34,6 +34,7 @@ public final class FmContent {
     public static BlockTransmitter transmitter;
     public static BlockAntenna antenna;
     public static ItemPortableRadio portableRadio;
+    public static ItemIPod ipod;
     public static ItemHeadphones headphones;
 
     /** preInit: blocos e itens precisam existir antes do init. */
@@ -50,6 +51,8 @@ public final class FmContent {
         GameRegistry.registerBlock(antenna, "antenna");
         portableRadio = new ItemPortableRadio();
         GameRegistry.registerItem(portableRadio, "portable_radio", AkashicFM.MODID);
+        ipod = new ItemIPod();
+        GameRegistry.registerItem(ipod, "ipod", AkashicFM.MODID);
         headphones = new ItemHeadphones();
         GameRegistry.registerItem(headphones, "headphones", AkashicFM.MODID);
         GameRegistry.registerTileEntity(TileRadio.class, AkashicFM.MODID + ":radio");
@@ -128,6 +131,20 @@ public final class FmContent {
                 Blocks.iron_bars,
                 'I',
                 "ingotIron",
+                'N',
+                Blocks.noteblock,
+                'R',
+                "dustRedstone"));
+        GameRegistry.addRecipe(
+            new ShapedOreRecipe(
+                new ItemStack(ipod),
+                "IGI",
+                "INI",
+                "IRI",
+                'I',
+                "ingotIron",
+                'G',
+                "paneGlass",
                 'N',
                 Blocks.noteblock,
                 'R',

@@ -11,6 +11,7 @@ import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.RateLimiter;
 import com.akashiic.fm.server.PortableActionHandler;
 import com.akashiic.fm.server.RadioActionHandler;
+import com.akashiic.fm.server.ipod.IPodActionHandler;
 
 /**
  * Fila entre a chegada das ações (handler de rede) e o processamento no início do tick do servidor, com rate
@@ -26,7 +27,7 @@ public final class ServerActionQueue {
     private static final class Pending {
 
         final EntityPlayerMP player;
-        /** {@link C2SRadioAction} ou {@link C2SPortableAction}. */
+        /** {@link C2SRadioAction}, {@link C2SPortableAction} ou {@link C2SIPodAction}. */
         final Object action;
 
         Pending(EntityPlayerMP player, Object action) {
@@ -53,7 +54,11 @@ public final class ServerActionQueue {
         enqueue(player, action);
     }
 
-    /** As ações de bloco e do portátil dividem o mesmo limite por jogador e a mesma fila. */
+    static void offer(EntityPlayerMP player, C2SIPodAction action) {
+        enqueue(player, action);
+    }
+
+    /** As ações de bloco, do portátil e do iPod dividem o mesmo limite por jogador e a mesma fila. */
     private static void enqueue(EntityPlayerMP player, Object action) {
         if (player == null) return;
         UUID id = player.getUniqueID();
@@ -77,6 +82,7 @@ public final class ServerActionQueue {
             SIZE.decrementAndGet();
             PROCESSED.incrementAndGet();
             if (p.action instanceof C2SRadioAction) RadioActionHandler.handle(p.player, (C2SRadioAction) p.action);
+            else if (p.action instanceof C2SIPodAction) IPodActionHandler.handle(p.player, (C2SIPodAction) p.action);
             else PortableActionHandler.handle(p.player, (C2SPortableAction) p.action);
         }
     }

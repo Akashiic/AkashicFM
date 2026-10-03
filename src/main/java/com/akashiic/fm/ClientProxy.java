@@ -9,12 +9,14 @@ import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 
 import com.akashiic.fm.client.ClientEvents;
+import com.akashiic.fm.client.ClientIPod;
 import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.ClientTaskQueue;
 import com.akashiic.fm.client.MuteKeys;
 import com.akashiic.fm.client.audio.AlCapabilityProbe;
 import com.akashiic.fm.client.gui.FmScreen;
+import com.akashiic.fm.client.gui.GuiIPod;
 import com.akashiic.fm.client.gui.GuiPortableRadio;
 import com.akashiic.fm.client.gui.GuiRadio;
 import com.akashiic.fm.client.gui.GuiTransmitter;
@@ -31,10 +33,12 @@ import com.akashiic.fm.dev.E2EClient;
 import com.akashiic.fm.network.ClockStamps;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
+import com.akashiic.fm.network.S2CIPodStatus;
 import com.akashiic.fm.network.S2CListen;
 import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
+import com.akashiic.fm.server.ipod.IPodActionHandler;
 
 import cpw.mods.fml.client.registry.ClientRegistry;
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -104,6 +108,17 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
+    public void openIPodGui(int slot) {
+        Minecraft.getMinecraft()
+            .displayGuiScreen(new GuiIPod(slot));
+    }
+
+    @Override
+    public void onIPodStatus(S2CIPodStatus message) {
+        ClientIPod.update(message, System.currentTimeMillis());
+    }
+
+    @Override
     public void enqueueClientTask(Runnable task) {
         ClientTaskQueue.add(task);
     }
@@ -122,7 +137,10 @@ public class ClientProxy extends CommonProxy {
         ChatComponentText line = new ChatComponentText("[AkashicFM] ");
         line.getChatStyle()
             .setColor(notice.error ? EnumChatFormatting.RED : EnumChatFormatting.GREEN);
-        line.appendSibling(new ChatComponentTranslation(notice.key, notice.arg));
+        // Os avisos do iPod podem ter vários argumentos ("a|b").
+        Object[] args = notice.y == IPodActionHandler.NOTICE_Y ? notice.arg.split("\\|", -1)
+            : new Object[] { notice.arg };
+        line.appendSibling(new ChatComponentTranslation(notice.key, args));
         mc.thePlayer.addChatMessage(line);
     }
 

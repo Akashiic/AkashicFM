@@ -13,6 +13,7 @@ import com.akashiic.fm.dev.E2EServer;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
+import com.akashiic.fm.network.S2CIPodStatus;
 import com.akashiic.fm.network.S2CListen;
 import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
@@ -27,6 +28,7 @@ import com.akashiic.fm.server.RadioScripting;
 import com.akashiic.fm.server.ServerEvents;
 import com.akashiic.fm.server.ServerPolicy;
 import com.akashiic.fm.server.ServerRadioRegistry;
+import com.akashiic.fm.server.ipod.IPodService;
 import com.akashiic.fm.server.relay.RelayService;
 import com.gtnewhorizon.gtnhlib.config.ConfigException;
 import com.gtnewhorizon.gtnhlib.config.ConfigurationManager;
@@ -95,6 +97,7 @@ public class CommonProxy {
 
     public void serverStopped(FMLServerStoppedEvent event) {
         ServerPolicy.setRelayAvailable(false);
+        IPodService.shutdown();
         RelayService.shutdown();
         FrequencyService.clear();
         PortableSources.clear();
@@ -120,6 +123,11 @@ public class CommonProxy {
 
     /** Tela do rádio portátil do slot (cliente). */
     public void openPortableGui(int slot) {}
+
+    /** Tela do iPod do slot (cliente). */
+    public void openIPodGui(int slot) {}
+
+    public void onIPodStatus(S2CIPodStatus message) {}
 
     public void onPortableSources(S2CPortableSources message) {}
 

@@ -12,6 +12,7 @@ import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.content.TileTransmitter;
 import com.akashiic.fm.network.ServerActionQueue;
+import com.akashiic.fm.server.ipod.IPodService;
 import com.akashiic.fm.server.relay.RelayService;
 
 import cpw.mods.fml.common.eventhandler.EventPriority;
@@ -31,6 +32,7 @@ public final class ServerEvents {
         FmCommand.runQueued(); // /fm que chegou pelo RCON
         ServerActionQueue.drain();
         FrequencyService.tick(); // antes do relay: a audiência já vê a URL sintonizada neste tick
+        IPodService.tick(); // antes dos portáteis: a fonte do iPod já sai com a estação deste ciclo
         PortableSources.tick(); // idem: o relay já vê quem precisa das estações dos portáteis
         RelayService.tick();
         if (++tickCounter % MAINTENANCE_INTERVAL_TICKS == 0) SpeakerLinks.maintain();

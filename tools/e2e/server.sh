@@ -10,4 +10,4 @@ mkdir -p "$ROOT/run/server"; cd "$ROOT/run/server"
 grep -q '^eula=true' eula.txt 2>/dev/null || echo 'eula=true' > eula.txt
 [[ -f server.properties ]] || printf 'online-mode=false\nlevel-type=FLAT\nspawn-protection=0\nspawn-monsters=false\nspawn-animals=false\nview-distance=4\n' > server.properties
 mapfile -t CMD < <(sed -E "s#[^:]*/build/libs/[^:]*-dev-preshadow\.jar#$JAR#" "$CMDFILE")
-exec env AKASHICFM_E2E=server "${CMD[@]}" < /dev/null
+exec env AKASHICFM_E2E=server AKASHICFM_E2E_YTDLP="$ROOT/tools/e2e/fake-yt-dlp.sh" "${CMD[@]}" < /dev/null
