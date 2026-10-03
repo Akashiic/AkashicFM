@@ -20,6 +20,7 @@ import net.minecraftforge.common.util.FakePlayer;
 
 import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.relay.FrameRing;
+import com.akashiic.fm.audio.stream.MediaLocator;
 import com.akashiic.fm.audio.stream.StreamPump;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Pos;
@@ -388,6 +389,81 @@ public final class RelayService {
         HUB.restart(url);
         AkashicFM.LOG.info("Relay: nova tentativa para {}", url);
         return true;
+    }
+
+    // ---- Estações com chave (iPod). Thread principal. ----
+
+    /** Estado de uma estação com chave, para o serviço do iPod decidir (avançar, mostrar progresso, erro). */
+    public static final class KeyedStatus {
+
+        public final StreamPump.Status status;
+        public final String detail;
+        /** Algum áudio já saiu (fim sem áudio nenhum é falha, não fim de faixa). */
+        public final boolean hadAudio;
+        /** Quanto já soou nos clientes. */
+        public final long positionMs;
+        /** Quando o último áudio guardado termina de soar nos clientes (com a latência e a folga), ou -1. */
+        public final long endHeardAtMs;
+        public final boolean paused;
+
+        KeyedStatus(StreamPump.Status status, String detail, boolean hadAudio, long positionMs, long endHeardAtMs,
+            boolean paused) {
+            this.status = status;
+            this.detail = detail;
+            this.hadAudio = hadAudio;
+            this.positionMs = positionMs;
+            this.endHeardAtMs = endHeardAtMs;
+            this.paused = paused;
+        }
+    }
+
+    /**
+     * Abre (ou troca) a estação da chave, tocando o que o {@code locator} entrega, desde já (o iPod anda mesmo sem
+     * ouvintes). Devolve false se o relay está desligado ou no limite de estações.
+     */
+    public static boolean openKeyed(String key, MediaLocator locator) {
+        if (!FmConfig.Relay.enabled || !StationHub.isKey(key)) return false;
+        HUB.register(key, locator);
+        if (HUB.acquire(key, ServerClock.nowMs()) != null) return true;
+        HUB.unregister(key);
+        return false;
+    }
+
+    /** Mantém a estação da chave viva (sem isto, ela fecha como uma estação sem ouvintes). */
+    public static void touchKeyed(String key) {
+        Station s = HUB.get(key);
+        if (s != null) s.lastWantedMs = ServerClock.nowMs();
+    }
+
+    public static void closeKeyed(String key) {
+        if (StationHub.isKey(key)) HUB.unregister(key);
+    }
+
+    /** Pausa ou retoma. Os frames que ninguém recebeu ainda ficam guardados para a volta. */
+    public static void setKeyedPaused(String key, boolean paused) {
+        Station s = HUB.get(key);
+        if (s == null || s.paused() == paused) return;
+        if (paused) s.pause(ServerClock.nowMs() + SEND_LEAD_MS);
+        else s.resume();
+    }
+
+    /** Estado da estação da chave, ou null se ela não existe (fechou, expirou ou nunca abriu). */
+    public static KeyedStatus keyedStatus(String key) {
+        Station s = HUB.get(key);
+        if (s == null || !StationHub.isKey(key)) return null;
+        long now = ServerClock.nowMs();
+        long end = s.ring.endPtsMs();
+        return new KeyedStatus(
+            s.status(),
+            s.detail(),
+            s.ring.lastSeq() >= 0,
+            s.positionMs(now, latencyMs()),
+            end < 0 ? -1 : end + latencyMs() + PlaylistService.END_MARGIN_MS,
+            s.paused());
+    }
+
+    public static long nowMs() {
+        return ServerClock.nowMs();
     }
 
     /** Diagnóstico: bytes de áudio enviados ao jogador desde o início do servidor. */

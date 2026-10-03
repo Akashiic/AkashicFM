@@ -3023,6 +3023,7 @@ public final class E2EClient {
                     mark("F-aberto-parada", "playing");
                 }
                 if (playingAt >= 0 && t == playingAt + 5 * TPS) {
+                    logAcousticState("F-aberto-parada", i); // a sala saiu: o reverb do aberto já tem que ser zero
                     mark("F-aberto-parada", "stop");
                     send(Action.STOP, 0, "");
                 }
@@ -3037,6 +3038,17 @@ public final class E2EClient {
 
     private static void mark(String segment, String event) {
         DevE2E.log("acoustic-mark {} {} ms={}", segment, event, System.currentTimeMillis());
+    }
+
+    /** Oclusão, ganho e o reverb aplicado agora (para comparar com o que o analisador mede no WAV). */
+    private static void logAcousticState(String segment, AudioEngine.PlaybackInfo i) {
+        AudioEngine.EfxInfo e = AudioEngine.INSTANCE.efxInfo();
+        DevE2E.log(
+            "acoustic-state {} oclusão={} ganho={} reverb={}",
+            segment,
+            i == null ? "-" : fmt(i.occlusions),
+            i == null ? "-" : fmt(i.gains),
+            e == null ? "sem EFX" : "ganho " + String.format("%.3f", e.slotGain) + " " + e.pushed);
     }
 
     /**
@@ -3062,16 +3074,7 @@ public final class E2EClient {
                     mark(name, "unmute");
                     send(Action.SET_VOLUME, VOLUME_ON, "");
                 }
-                if (t == 6 * TPS) {
-                    AudioEngine.PlaybackInfo i = info();
-                    AudioEngine.EfxInfo e = AudioEngine.INSTANCE.efxInfo();
-                    DevE2E.log(
-                        "acoustic-state {} oclusão={} ganho={} reverb={}",
-                        name,
-                        i == null ? "-" : fmt(i.occlusions),
-                        i == null ? "-" : fmt(i.gains),
-                        e == null ? "sem EFX" : "ganho " + String.format("%.3f", e.slotGain) + " " + e.pushed);
-                }
+                if (t == 6 * TPS) logAcousticState(name, info());
                 if (t == 8 * TPS) {
                     mark(name, stopInside ? "stop" : "mute");
                     send(stopInside ? Action.STOP : Action.SET_VOLUME, 0, "");

@@ -2,6 +2,7 @@ package com.akashiic.fm.audio.stream;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.akashiic.fm.AkashicFM;
@@ -9,6 +10,7 @@ import com.akashiic.fm.audio.decode.PcmSource;
 import com.akashiic.fm.audio.decode.StreamFormat;
 import com.akashiic.fm.audio.dsp.Resampler48k;
 import com.akashiic.fm.audio.http.IcyHttpClient;
+import com.akashiic.fm.audio.http.ResumableInputStream;
 import com.akashiic.fm.audio.http.UrlPolicy;
 
 /**
@@ -18,8 +20,9 @@ import com.akashiic.fm.audio.http.UrlPolicy;
  * <li>stream ao vivo que cai: reconecta com backoff de 1/2/4/8/15 s;</li>
  * <li>o backoff só zera depois de {@link #HEALTHY_FRAMES} de áudio: um stream que cai a cada segundo não vira
  * uma conexão por segundo para sempre;</li>
- * <li>arquivo (com tamanho e sem cabeçalhos ICY) que termina: fim; que falha no meio: erro, sem recomeçar do
- * início;</li>
+ * <li>arquivo (com tamanho e sem cabeçalhos ICY) que termina: fim; que cai no meio: se o servidor aceita
+ * {@code Range}, retoma do byte exato ({@link ResumableInputStream}, sem emenda audível); senão, erro, sem
+ * recomeçar do início;</li>
  * <li>{@link #close()} derruba o socket, então a thread sai mesmo presa num read().</li>
  * </ul>
  */
@@ -47,6 +50,7 @@ public final class StreamPump implements Runnable {
     static final long HEALTHY_FRAMES = SAMPLE_RATE * 5L;
 
     private final String url;
+    private final MediaLocator locator;
     private final UrlPolicy policy;
     private final Sink sink;
     private final Thread thread;
@@ -59,7 +63,16 @@ public final class StreamPump implements Runnable {
     private boolean currentLive;
 
     public StreamPump(String url, UrlPolicy policy, Sink sink, String threadName) {
-        this.url = url;
+        this(url, MediaLocator.fixed(url), policy, sink, threadName);
+    }
+
+    /**
+     * @param name    nome para logs e para {@link #url()} (a URL da rádio, ou a chave da estação do iPod)
+     * @param locator de onde baixar de fato
+     */
+    public StreamPump(String name, MediaLocator locator, UrlPolicy policy, Sink sink, String threadName) {
+        this.url = name;
+        this.locator = locator;
         this.policy = policy;
         this.sink = sink;
         this.thread = new Thread(this, threadName);
@@ -146,8 +159,20 @@ public final class StreamPump implements Runnable {
      */
     private boolean streamOnce()
         throws IOException, UrlPolicy.PolicyException, InterruptedException, UnsupportedFormatException {
-        IcyHttpClient.Response r = IcyHttpClient.fromSystemProperties(policy)
-            .open(url);
+        IcyHttpClient client = IcyHttpClient.fromSystemProperties(policy);
+        String target = locator.url();
+        IcyHttpClient.Response r;
+        try {
+            r = client.open(target);
+        } catch (IcyHttpClient.HttpStatusException e) {
+            // URL assinada que expirou antes de tocar (iPod): renova uma vez. Uma URL fixa (rádio) não muda e não
+            // repete o pedido aqui.
+            if (e.code != 403 && e.code != 404 && e.code != 410) throw e;
+            String renewed = locator.refresh();
+            if (renewed == null || renewed.equals(target)) throw e;
+            target = renewed;
+            r = client.open(target);
+        }
         current.set(r);
         if (closed) {
             closeResponse();
@@ -156,7 +181,12 @@ public final class StreamPump implements Runnable {
         boolean live = r.header("content-length") == null || r.header("icy-name") != null
             || r.header("icy-metaint") != null;
         currentLive = live;
-        BufferedInputStream body = new BufferedInputStream(r.body, 64 * 1024);
+        InputStream raw = r.body;
+        long length = live ? -1 : parseLength(r.header("content-length"));
+        if (length > 0 && "bytes".equalsIgnoreCase(trim(r.header("accept-ranges")))) {
+            raw = new ResumableInputStream(r.body, length, new Reopener(client, target));
+        }
+        BufferedInputStream body = new BufferedInputStream(raw, 64 * 1024);
         StreamFormat fmt = StreamFormat.detect(r.header("content-type"), body);
         if (fmt == StreamFormat.UNSUPPORTED) throw new UnsupportedFormatException();
         PcmSource pcm = StreamFormat.open(fmt, body);
@@ -194,6 +224,60 @@ public final class StreamPump implements Runnable {
             } catch (IOException ignored) {}
             closeResponse();
         }
+    }
+
+    /** Reabre o arquivo a partir de um byte; renova a URL se o servidor a recusou (URL assinada que expirou). */
+    private final class Reopener implements ResumableInputStream.Opener {
+
+        private final IcyHttpClient client;
+        private String target;
+
+        Reopener(IcyHttpClient client, String target) {
+            this.client = client;
+            this.target = target;
+        }
+
+        @Override
+        public InputStream open(long offset) throws IOException {
+            if (closed) throw new IOException("fechado"); // close() derrubou o socket: não reabre
+            IcyHttpClient.Response r;
+            try {
+                r = openAt(offset);
+            } catch (IcyHttpClient.HttpStatusException e) {
+                if (e.code != 403 && e.code != 404 && e.code != 410) throw e;
+                String renewed = locator.refresh();
+                if (renewed == null || renewed.equals(target)) throw e; // URL fixa: repetir não muda nada
+                target = renewed;
+                r = openAt(offset);
+            }
+            current.set(r);
+            if (closed) {
+                closeResponse();
+                throw new IOException("fechado");
+            }
+            AkashicFM.LOG.debug("Retomando {} a partir do byte {}", url, offset);
+            return r.body;
+        }
+
+        private IcyHttpClient.Response openAt(long offset) throws IOException {
+            try {
+                return client.open(target, offset);
+            } catch (UrlPolicy.PolicyException e) {
+                throw new IOException(e.getMessage());
+            }
+        }
+    }
+
+    private static long parseLength(String v) {
+        try {
+            return v == null ? -1 : Long.parseLong(v.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static String trim(String v) {
+        return v == null ? "" : v.trim();
     }
 
     private void fail(String message) {

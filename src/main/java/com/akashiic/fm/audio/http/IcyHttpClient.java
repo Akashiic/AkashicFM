@@ -54,10 +54,19 @@ public final class IcyHttpClient {
     }
 
     public Response open(String url) throws IOException, UrlPolicy.PolicyException {
+        return open(url, 0);
+    }
+
+    /**
+     * Abre a partir do byte {@code rangeStart} (> 0: pede {@code Range} e só aceita 206 começando ali; um servidor
+     * que devolve o arquivo inteiro com 200 seria um fluxo errado para quem retoma). {@link Response#statusCode} diz
+     * 200 ou 206.
+     */
+    public Response open(String url, long rangeStart) throws IOException, UrlPolicy.PolicyException {
         String current = url;
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
             URI uri = policy.check(current);
-            Response r = request(uri);
+            Response r = request(uri, rangeStart);
             int code = r.statusCode;
             if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                 String location = r.header("location");
@@ -67,9 +76,10 @@ public final class IcyHttpClient {
                     .toString();
                 continue;
             }
-            if (code != 200) {
+            boolean ok = rangeStart > 0 ? code == 206 && startsAt(r.header("content-range"), rangeStart) : code == 200;
+            if (!ok) {
                 r.close();
-                throw new IOException("HTTP " + code + " em " + uri);
+                throw new HttpStatusException(code, uri);
             }
             r.finalUrl = uri.toString();
             return r;
@@ -77,7 +87,25 @@ public final class IcyHttpClient {
         throw new IOException("redirects demais");
     }
 
-    private Response request(URI uri) throws IOException, UrlPolicy.PolicyException {
+    /** {@code Content-Range: bytes 1234-5678/9999} começa em {@code start}? */
+    static boolean startsAt(String contentRange, long start) {
+        if (contentRange == null) return false;
+        String v = contentRange.trim()
+            .toLowerCase(Locale.ROOT);
+        if (!v.startsWith("bytes ")) return false;
+        int dash = v.indexOf('-', 6);
+        if (dash < 0) return false;
+        try {
+            return Long.parseLong(
+                v.substring(6, dash)
+                    .trim())
+                == start;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private Response request(URI uri, long rangeStart) throws IOException, UrlPolicy.PolicyException {
         boolean tls = uri.getScheme()
             .equalsIgnoreCase("https");
         String host = uri.getHost();
@@ -118,7 +146,7 @@ public final class IcyHttpClient {
                 + Tags.VERSION
                 + " (Minecraft radio)\r\n"
                 + "Accept: */*\r\n"
-                + "Icy-MetaData: 1\r\n"
+                + (rangeStart > 0 ? "Range: bytes=" + rangeStart + "-\r\n" : "Icy-MetaData: 1\r\n")
                 + "Connection: close\r\n\r\n";
             OutputStream out = socket.getOutputStream();
             out.write(req.getBytes(StandardCharsets.ISO_8859_1));
@@ -187,6 +215,24 @@ public final class IcyHttpClient {
         }
         if (b == -1 && buf.size() == 0) throw new IOException("conexão fechada antes da resposta");
         return new String(buf.toByteArray(), StandardCharsets.ISO_8859_1);
+    }
+
+    /** Resposta HTTP com status inesperado (403/404/410: URL assinada expirada, quem resolveu pode renovar). */
+    public static final class HttpStatusException extends IOException {
+
+        public final int code;
+
+        HttpStatusException(int code, URI uri) {
+            // Sem a query: URLs assinadas e de rádios com token não vão para o log nem para a tela.
+            super(
+                "HTTP " + code
+                    + " em "
+                    + uri.getScheme()
+                    + "://"
+                    + uri.getRawAuthority()
+                    + (uri.getRawPath() == null ? "" : uri.getRawPath()));
+            this.code = code;
+        }
     }
 
     public static final class Response implements Closeable {

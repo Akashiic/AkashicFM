@@ -2,6 +2,7 @@ package com.akashiic.fm.server.relay;
 
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.audio.relay.FrameRing;
+import com.akashiic.fm.audio.stream.MediaLocator;
 import com.akashiic.fm.audio.stream.StreamPump;
 
 import io.github.jaredmdobson.concentus.OpusApplication;
@@ -13,6 +14,9 @@ import io.github.jaredmdobson.concentus.OpusSignal;
  * Uma estação do relay: o servidor baixa a URL uma vez ({@link StreamPump}, com a política do servidor e o
  * DNS na thread da estação), codifica em Opus de 20 ms e guarda no {@link FrameRing}, de onde o tick manda
  * para cada ouvinte. Uma estação serve todas as rádios com a mesma URL.
+ * <p>
+ * A estação de um iPod não tem URL de rádio: {@link #url} é a chave ({@code ipod:...}) e o áudio vem de um
+ * {@link MediaLocator} (a URL assinada que o yt-dlp resolveu). Ela pode pausar ({@link FrameRing#pause}).
  */
 final class Station {
 
@@ -36,6 +40,11 @@ final class Station {
     long lastWantedMs;
 
     Station(int id, String url, UrlPolicy policy, int bitrateKbps) {
+        this(id, url, MediaLocator.fixed(url), policy, bitrateKbps);
+    }
+
+    /** @param url a URL da rádio ou a chave da estação do iPod (o que os clientes recebem) */
+    Station(int id, String url, MediaLocator locator, UrlPolicy policy, int bitrateKbps) {
         this.id = id;
         this.url = url;
         try {
@@ -45,7 +54,7 @@ final class Station {
         } catch (OpusException e) {
             throw new IllegalStateException(e);
         }
-        this.pump = new StreamPump(url, policy, new StreamPump.Sink() {
+        this.pump = new StreamPump(url, locator, policy, new StreamPump.Sink() {
 
             @Override
             public boolean write(short[] stereo48k, int frames) throws InterruptedException {
@@ -96,6 +105,27 @@ final class Station {
 
     String streamTitle() {
         return pump.streamTitle();
+    }
+
+    /**
+     * Quanto do áudio já soou nos clientes, em ms: os frames com PTS até {@code agora − latência} (cada frame tem
+     * 20 ms e as sequências contam desde o início, pausas e lacunas fora).
+     */
+    long positionMs(long nowMs, int latencyMs) {
+        return (ring.seqBeforePts(nowMs - latencyMs) + 1) * FrameRing.FRAME_MS;
+    }
+
+    /** Pausa (iPod): guarda o que ainda não foi enviado; o download para pela contrapressão. Thread principal. */
+    void pause(long keepUntilPts) {
+        ring.pause(keepUntilPts);
+    }
+
+    void resume() {
+        ring.resume();
+    }
+
+    boolean paused() {
+        return ring.isPaused();
     }
 
     /** Terminou de vez (erro ou fim de arquivo): uma nova tentativa precisa de outra estação. */

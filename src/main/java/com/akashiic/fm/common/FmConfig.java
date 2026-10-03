@@ -209,6 +209,60 @@ public final class FmConfig {
         public static int range;
     }
 
+    @Config(modid = AkashicFM.MODID, category = "ipod")
+    @Config.Comment("iPod: toca links do SoundCloud, e do YouTube e do Spotify pelo espelho no SoundCloud. Usa o yt-dlp, que o servidor baixa sozinho. Desligado por padrão: YouTube, Spotify e SoundCloud não permitem esse uso nos termos deles, e quem liga responde por isso.")
+    public static final class IPod {
+
+        @Config.Comment("Liga o iPod. Desligado, os iPods ficam mudos e o yt-dlp não é baixado.")
+        @Config.DefaultBoolean(false)
+        @Config.Reloadable(RELOAD)
+        public static boolean enabled;
+
+        @Config.Comment("Baixa sozinho o yt-dlp oficial (e o Deno, se youtubeDirect) para akashicfm/tools/, confere o SHA-256 publicado no release e atualiza uma vez por dia. Desligado, use ytDlpPath.")
+        @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
+        public static boolean autoInstallTools;
+
+        @Config.Comment("Caminho de um yt-dlp já instalado (vazio = o baixado pelo mod).")
+        @Config.DefaultString("")
+        @Config.Reloadable(RELOAD)
+        public static String ytDlpPath;
+
+        @Config.Comment("Tenta tocar o YouTube direto antes do espelho. Só funciona em servidor que o YouTube não bloqueia (em hospedagem de datacenter ele exige PO token); baixa o Deno (~100 MB) e cada resolução usa até ~450 MB de memória fora do Java.")
+        @Config.DefaultBoolean(false)
+        @Config.Reloadable(RELOAD)
+        public static boolean youtubeDirect;
+
+        @Config.Comment("Resoluções do yt-dlp ao mesmo tempo. Cada uma usa ~100 MB de memória por alguns segundos, fora do -Xmx: no Pterodactyl, deixe essa folga no limite do servidor.")
+        @Config.DefaultInt(2)
+        @Config.RangeInt(min = 1, max = 8)
+        @Config.Reloadable(RELOAD)
+        public static int maxResolves;
+
+        @Config.Comment("Faixas na fila de um iPod (uma playlist maior é cortada).")
+        @Config.DefaultInt(50)
+        @Config.RangeInt(min = 1, max = 200)
+        @Config.Reloadable(RELOAD)
+        public static int maxQueue;
+
+        @Config.Comment("Duração máxima de uma faixa, em minutos (mixes maiores são recusados).")
+        @Config.DefaultInt(20)
+        @Config.RangeInt(min = 1, max = 240)
+        @Config.Reloadable(RELOAD)
+        public static int maxTrackMinutes;
+
+        @Config.Comment("Minutos de pausa até o iPod parar sozinho.")
+        @Config.DefaultInt(10)
+        @Config.RangeInt(min = 1, max = 120)
+        @Config.Reloadable(RELOAD)
+        public static int pauseTimeoutMinutes;
+
+        @Config.Comment("Aceita links do Spotify (faixa, álbum e playlist, até 100 faixas): lê título, artistas e duração da página pública do player embutido, sem chave, e toca a mesma música do SoundCloud.")
+        @Config.DefaultBoolean(true)
+        @Config.Reloadable(RELOAD)
+        public static boolean spotify;
+    }
+
     @Config(modid = AkashicFM.MODID, category = "opencomputers")
     @Config.Comment("Integração opcional com o OpenComputers (componentes openfm_radio e akashicfm_transmitter, por um Adaptador).")
     public static final class OpenComputers {

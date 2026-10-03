@@ -50,6 +50,7 @@ public class CommonProxy {
             ConfigurationManager.registerConfig(FmConfig.Protection.class);
             ConfigurationManager.registerConfig(FmConfig.Transmitter.class);
             ConfigurationManager.registerConfig(FmConfig.Portable.class);
+            ConfigurationManager.registerConfig(FmConfig.IPod.class);
             ConfigurationManager.registerConfig(FmConfig.OpenComputers.class);
             ConfigurationManager.registerConfig(FmConfig.Recipes.class);
             ConfigurationManager.registerConfig(FmConfig.Client.class);

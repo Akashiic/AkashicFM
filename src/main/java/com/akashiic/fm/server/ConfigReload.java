@@ -32,7 +32,7 @@ public final class ConfigReload {
 
     static final Class<?>[] SERVER_CONFIG = { FmConfig.Relay.class, FmConfig.Direct.class, FmConfig.Policy.class,
         FmConfig.Limits.class, FmConfig.Protection.class, FmConfig.Transmitter.class, FmConfig.Portable.class,
-        FmConfig.OpenComputers.class };
+        FmConfig.IPod.class, FmConfig.OpenComputers.class };
 
     /** O GTNHLib tem o recarregamento próprio (0.9.62+). */
     static final boolean NATIVE = hasNativeReload();

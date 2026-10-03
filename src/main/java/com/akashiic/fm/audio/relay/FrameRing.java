@@ -1,5 +1,6 @@
 package com.akashiic.fm.audio.relay;
 
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
@@ -13,6 +14,10 @@ import java.util.function.LongSupplier;
  * para a frente que os clientes tratam como lacuna. A escrita bloqueia enquanto o último PTS estiver mais
  * de {@code maxAheadMs} à frente do relógio: assim o burst inicial dos servidores de streaming vira folga, e
  * o TCP segura o resto, sem acumular memória.
+ * <p>
+ * Pausa (iPod): {@link #pause} tira do ring os frames que ainda não foram mandados (PTS no futuro) e os guarda; a
+ * escrita fica bloqueada até {@link #resume}, e a primeira escrita depois disso devolve os guardados antes do frame
+ * novo, com as mesmas sequências. Para os clientes, a pausa é só uma lacuna de PTS (como uma rádio que travou).
  */
 public final class FrameRing {
 
@@ -44,6 +49,9 @@ public final class FrameRing {
     private boolean hasLast;
     private boolean closed;
     private long rebases;
+    private boolean paused;
+    /** Frames tirados por {@link #pause}, na ordem: voltam antes do próximo frame novo. */
+    private final ArrayDeque<byte[]> held = new ArrayDeque<>();
 
     public FrameRing(int capacity, LongSupplier clockMs) {
         if (capacity <= 0) throw new IllegalArgumentException("capacidade inválida");
@@ -63,33 +71,78 @@ public final class FrameRing {
         byte[] copy = new byte[len];
         System.arraycopy(frame, 0, copy, 0, len);
         synchronized (this) {
-            while (!closed && hasLast && lastPts - clockMs.getAsLong() > maxAheadMs) {
+            while (!closed && (paused || hasLast && lastPts - clockMs.getAsLong() > maxAheadMs)) {
                 if (cancelled.getAsBoolean()) return false;
                 wait(FRAME_MS);
             }
             if (closed || cancelled.getAsBoolean()) return false;
-            long now = clockMs.getAsLong();
-            long p = hasLast ? lastPts + FRAME_MS : now;
-            if (p < now - rebaseLagMs) {
-                p = now;
-                rebases++;
-            }
-            int idx;
-            if (count == capacity) { // cheio: descarta o mais antigo
-                idx = head;
-                head = (head + 1) % capacity;
-            } else {
-                idx = (head + count) % capacity;
-                count++;
-            }
-            seqs[idx] = nextSeq++;
-            pts[idx] = p;
-            data[idx] = copy;
-            lastPts = p;
-            hasLast = true;
+            while (!held.isEmpty()) append(held.pollFirst(), rebaseLagMs);
+            append(copy, rebaseLagMs);
             notifyAll();
             return true;
         }
+    }
+
+    private void append(byte[] copy, long rebaseLagMs) {
+        long now = clockMs.getAsLong();
+        long p = hasLast ? lastPts + FRAME_MS : now;
+        if (p < now - rebaseLagMs) {
+            p = now;
+            rebases++;
+        }
+        int idx;
+        if (count == capacity) { // cheio: descarta o mais antigo
+            idx = head;
+            head = (head + 1) % capacity;
+        } else {
+            idx = (head + count) % capacity;
+            count++;
+        }
+        seqs[idx] = nextSeq++;
+        pts[idx] = p;
+        data[idx] = copy;
+        lastPts = p;
+        hasLast = true;
+    }
+
+    /**
+     * Pausa: a escrita bloqueia até {@link #resume}, e os frames com PTS depois de {@code keepUntilPts} (os que
+     * ninguém recebeu ainda: quem chama passa o limite de envio do relay, na mesma thread que envia) saem do ring e
+     * ficam guardados, com as sequências deles livres para quando voltarem. Devolve quantos foram guardados.
+     */
+    public synchronized int pause(long keepUntilPts) {
+        if (paused || closed) return 0;
+        paused = true;
+        int removed = 0;
+        long firstRemovedPts = -1;
+        while (count > 0) {
+            int idx = (head + count - 1) % capacity;
+            if (pts[idx] <= keepUntilPts) break;
+            held.addFirst(data[idx]);
+            nextSeq = seqs[idx];
+            firstRemovedPts = pts[idx];
+            data[idx] = null;
+            count--;
+            removed++;
+        }
+        if (removed > 0) lastPts = count > 0 ? pts[(head + count - 1) % capacity] : firstRemovedPts - FRAME_MS;
+        notifyAll();
+        return removed;
+    }
+
+    /** Volta a aceitar escrita (os guardados entram primeiro). */
+    public synchronized void resume() {
+        paused = false;
+        notifyAll();
+    }
+
+    public synchronized boolean isPaused() {
+        return paused;
+    }
+
+    /** Frames guardados pela pausa. */
+    public synchronized int heldCount() {
+        return held.size();
     }
 
     /**

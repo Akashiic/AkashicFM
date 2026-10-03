@@ -13,6 +13,8 @@ public enum StreamFormat {
     AAC_ADTS,
     OGG_VORBIS,
     OGG_OPUS,
+    /** WebM/Matroska com Opus (o áudio do YouTube). */
+    WEBM_OPUS,
     UNSUPPORTED;
 
     private static final int SNIFF = 8192;
@@ -36,6 +38,14 @@ public enum StreamFormat {
             return UNSUPPORTED; // FLAC/Speex em OGG ficam fora do MVP
         }
 
+        if (n >= 4 && (head[0] & 0xFF) == 0x1A
+            && (head[1] & 0xFF) == 0x45
+            && (head[2] & 0xFF) == 0xDF
+            && (head[3] & 0xFF) == 0xA3) {
+            // Cabeçalho EBML: só Opus (o CodecID costuma estar nos primeiros KB, na lista de trilhas).
+            String page = new String(head, 0, n, StandardCharsets.ISO_8859_1);
+            return page.contains("A_OPUS") ? WEBM_OPUS : UNSUPPORTED;
+        }
         String ct = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
         int start = 0;
         if (n >= 10 && head[0] == 'I' && head[1] == 'D' && head[2] == '3') {
@@ -63,6 +73,8 @@ public enum StreamFormat {
                 return new OggSource(in, false);
             case OGG_OPUS:
                 return new OggSource(in, true);
+            case WEBM_OPUS:
+                return new WebmSource(in);
             default:
                 throw new IOException("formato não suportado");
         }

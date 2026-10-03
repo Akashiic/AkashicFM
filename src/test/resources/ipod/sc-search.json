@@ -1,0 +1,148 @@
+{
+ "id": "Daft Punk Get Lucky",
+ "title": "Daft Punk Get Lucky",
+ "_type": "playlist",
+ "entries": [
+  {
+   "uploader": "Daft Punk",
+   "uploader_id": "203812859",
+   "uploader_url": "https://soundcloud.com/daftpunkofficialmusic",
+   "timestamp": 1458650802,
+   "title": "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+   "track": "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+   "duration": 30.0,
+   "webpage_url": "https://soundcloud.com/daftpunkofficialmusic/get-lucky",
+   "license": "all-rights-reserved",
+   "view_count": 1836845,
+   "like_count": 70679,
+   "comment_count": 192,
+   "repost_count": 398,
+   "release_timestamp": 1369008000,
+   "modified_timestamp": 1790416008,
+   "genres": [
+    "Electronic"
+   ],
+   "artists": [
+    "Daft Punk, Pharrell Williams, Nile Rodgers"
+   ],
+   "id": "254111945",
+   "ie_key": "Soundcloud",
+   "_type": "url",
+   "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A254111945"
+  },
+  {
+   "uploader": "DJ KB",
+   "uploader_id": "8882898",
+   "uploader_url": "https://soundcloud.com/eldjkb",
+   "timestamp": 1366236325,
+   "title": "Get Lucky [Original Version] - Daft Punk",
+   "track": "Get Lucky [Original Version] - Daft Punk",
+   "duration": 246.381,
+   "webpage_url": "https://soundcloud.com/eldjkb/get-lucky-original-version",
+   "license": "all-rights-reserved",
+   "view_count": 21270080,
+   "like_count": 308605,
+   "comment_count": 5044,
+   "repost_count": 3342,
+   "modified_timestamp": 1739190392,
+   "genres": [
+    "Disco Electronic"
+   ],
+   "artists": [
+    "Daft Punk"
+   ],
+   "id": "88335161",
+   "ie_key": "Soundcloud",
+   "_type": "url",
+   "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A88335161"
+  },
+  {
+   "uploader": "999333",
+   "uploader_id": "1448972504",
+   "uploader_url": "https://soundcloud.com/niki-39860010",
+   "timestamp": 1784079117,
+   "title": "Daft Punk - Get Lucky #nightcore #bassboosted #dnr",
+   "track": "Daft Punk - Get Lucky #nightcore #bassboosted #dnr",
+   "duration": 107.822,
+   "webpage_url": "https://soundcloud.com/niki-39860010/daft-punk-get-lucky-nightcore",
+   "license": "all-rights-reserved",
+   "view_count": 113126,
+   "like_count": 1989,
+   "comment_count": 33,
+   "repost_count": 13,
+   "modified_timestamp": 1784079118,
+   "artists": [
+    "999333"
+   ],
+   "id": "2360861477",
+   "ie_key": "Soundcloud",
+   "_type": "url",
+   "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A2360861477"
+  },
+  {
+   "uploader": "Daft Punk",
+   "uploader_id": "203812859",
+   "uploader_url": "https://soundcloud.com/daftpunkofficialmusic",
+   "timestamp": 1458650795,
+   "title": "Get Lucky (Radio Edit - feat. Pharrell Williams and Nile Rodgers)",
+   "track": "Get Lucky (Radio Edit - feat. Pharrell Williams and Nile Rodgers)",
+   "duration": 30.0,
+   "webpage_url": "https://soundcloud.com/daftpunkofficialmusic/get-lucky-radio-edit",
+   "license": "all-rights-reserved",
+   "view_count": 691054,
+   "like_count": 45646,
+   "comment_count": 34,
+   "repost_count": 74,
+   "release_timestamp": 1366329600,
+   "modified_timestamp": 1790416003,
+   "genres": [
+    "Electronic"
+   ],
+   "artists": [
+    "Daft Punk, Pharrell Williams, Nile Rodgers"
+   ],
+   "id": "254111762",
+   "ie_key": "Soundcloud",
+   "_type": "url",
+   "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A254111762"
+  },
+  {
+   "uploader": "Mayday!Mayday!",
+   "uploader_id": "45954573",
+   "uploader_url": "https://soundcloud.com/dylan-tutor",
+   "timestamp": 1369601036,
+   "title": "Daft Punk - Get Lucky (Original + George Barnett cover)(Mayday Mashup)",
+   "track": "Daft Punk - Get Lucky (Original + George Barnett cover)(Mayday Mashup)",
+   "duration": 222.011,
+   "webpage_url": "https://soundcloud.com/dylan-tutor/daft-punk-get-lucky-original",
+   "license": "all-rights-reserved",
+   "view_count": 794247,
+   "like_count": 10190,
+   "comment_count": 49,
+   "repost_count": 43,
+   "modified_timestamp": 1589957402,
+   "genres": [
+    "House"
+   ],
+   "id": "94021933",
+   "ie_key": "Soundcloud",
+   "_type": "url",
+   "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A94021933"
+  }
+ ],
+ "webpage_url": "scsearch5:Daft Punk Get Lucky",
+ "original_url": "scsearch5:Daft Punk Get Lucky",
+ "webpage_url_basename": "Daft Punk Get Lucky",
+ "webpage_url_domain": null,
+ "extractor": "soundcloud:search",
+ "extractor_key": "SoundcloudSearch",
+ "release_year": null,
+ "playlist_count": 5,
+ "epoch": 1791045013,
+ "_version": {
+  "version": "2026.08.19",
+  "current_git_head": null,
+  "release_git_head": null,
+  "repository": "yt-dlp/yt-dlp"
+ }
+}

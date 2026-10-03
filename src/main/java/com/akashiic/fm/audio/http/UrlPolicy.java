@@ -15,17 +15,36 @@ import java.util.Locale;
 public final class UrlPolicy {
 
     public static final int MAX_URL_LENGTH = 512;
+    /**
+     * Limite para URLs que o servidor obteve sozinho (o yt-dlp do iPod): as assinadas dos CDNs passam de 600
+     * caracteres. Nunca vale para o que o jogador digita.
+     */
+    public static final int MAX_MEDIA_URL_LENGTH = 4096;
 
     private final String[] allowedHosts; // vazio = qualquer host público
     private final boolean allowHighPorts;
+    private final int maxUrlLength;
 
     /**
      * @param allowedHosts   domínios permitidos (subdomínios incluídos); vazio = qualquer host público
      * @param allowHighPorts aceita portas 1024-65535 além de 80/443. Portas baixas são sempre recusadas.
      */
     public UrlPolicy(String[] allowedHosts, boolean allowHighPorts) {
+        this(allowedHosts, allowHighPorts, MAX_URL_LENGTH);
+    }
+
+    public UrlPolicy(String[] allowedHosts, boolean allowHighPorts, int maxUrlLength) {
         this.allowedHosts = allowedHosts == null ? new String[0] : allowedHosts.clone();
         this.allowHighPorts = allowHighPorts;
+        this.maxUrlLength = maxUrlLength;
+    }
+
+    /**
+     * Para a mídia que o yt-dlp resolveu: qualquer host público em 80/443 (o link já passou pela allowlist do iPod e
+     * os extratores são fixos), sem endereço interno, com o limite de {@link #MAX_MEDIA_URL_LENGTH}.
+     */
+    public static UrlPolicy resolvedMedia() {
+        return new UrlPolicy(new String[0], false, MAX_MEDIA_URL_LENGTH);
     }
 
     /**
@@ -34,7 +53,7 @@ public final class UrlPolicy {
      */
     public URI check(String raw) throws PolicyException {
         if (raw == null || raw.isEmpty()) throw new PolicyException("empty", "");
-        if (raw.length() > MAX_URL_LENGTH) throw new PolicyException("too_long", String.valueOf(MAX_URL_LENGTH));
+        if (raw.length() > maxUrlLength) throw new PolicyException("too_long", String.valueOf(maxUrlLength));
         URI uri;
         try {
             uri = new URI(raw.trim());
