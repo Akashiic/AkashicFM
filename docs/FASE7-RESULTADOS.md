@@ -194,3 +194,64 @@ A Fase 7 fecha o projeto em três partes:
 - **Custo por tick:** a checagem de silenciada montava uma chave de texto por rádio a cada tick mesmo sem nada silenciado; agora sai na hora com os conjuntos vazios.
 - **Texto cortado:** o status "silenciada para você" passava da largura da tela (captura); encurtado.
 - **E2E:** as coordenadas da segunda rádio eram calculadas na montagem do roteiro, antes de a rádio ter posição ("Cannot place block outside of the world"); agora no início do passo.
+
+## 7c: OpenComputers (opcional)
+
+### Como funciona
+- **Driver, não `SimpleComponent`.** O `SimpleComponent` faria o OC injetar métodos no `TileRadio` por class transformer, e a rádio já sobrescreve `validate`, `invalidate` e NBT.
+  - **Como ficou:** os drivers (`compat/oc`: `DriverSidedTileEntity` + `prefab.ManagedEnvironment`) são registrados no init só com o OC instalado. Nenhuma classe do OC carrega sem ele, e rádio e transmissor ficam intocados.
+  - **Adaptador:** o computador alcança o bloco por um Adaptador encostado nele. No OpenFM era cabo direto; os scripts são os mesmos.
+- **Componente `openfm_radio`:** o nome e os métodos do OpenFM 1.7.10, conferidos na fonte dele.
+  - **Volume:** lê de 0 a 1 e escreve de 0 a 10. `setVol(10)` funciona: o OpenFM o recusava por um erro de arredondamento.
+  - **Passos:** `volUp`/`volDown` devolvem `false` fora da faixa.
+  - **Redstone:** `setListenRedstone` = tocar enquanto ligada.
+  - **Erros:** `false, "motivo"`, como no OpenFM.
+  - **Novos:** URL, modo URL/FM, frequência, "tocando agora", sinal e playlist.
+- **Componente `akashicfm_transmitter`:** no ar, URL, frequência, nome, alcance e energia.
+- **Lógica sem o OC:** `server/RadioScripting`, testável sem o mod. Reaproveita o caminho do jogador: `applyPlay`/`applyStop`/`setMode` e o novo `RadioActionHandler.applyUrl`, extraído do `setUrl` (as mesmas mutações, sem aviso nem jogador).
+- **Segurança** (o OpenFM não tinha nenhuma):
+  - as permissões de um jogador qualquer: controla bloco público ou sem dono; tela, redstone e nome da estação só em bloco sem dono; `opencomputers.allowPrivate` (config nova, recarregável, padrão desligado) libera tudo;
+  - dono bloqueado, sempre recusado;
+  - a mesma política de URL;
+  - 4 mudanças por segundo por bloco;
+  - trocas de URL e frequência no log de auditoria, com `oc:<endereço>` como autor.
+- **Thread:** callbacks não diretos, então o OC os roda na thread principal, um por tick por computador.
+
+### Verificação
+
+**Testes unitários** (287 no total; 7 novos): `RadioScriptingTest`:
+- permissões: pública de alguém controla mas não mexe na tela nem na redstone; privada recusada; `allowPrivate`; dono bloqueado;
+- escala de volume do OpenFM nos dois extremos;
+- URL pela política (com bytes do Lua) e na auditoria só quando muda;
+- tocar e parar;
+- limite por segundo, por bloco;
+- redstone, tela, modo e frequência;
+- transmissor.
+
+**E2E** com o OpenComputers no ambiente de dev (`devOnlyNonPublishable`, fora do jar). O roteiro acha o driver do bloco como um Adaptador acharia (`Driver.driverFor`) e chama pelo próprio OC (`Component.invoke`, que confere o `@Callback` e converte os argumentos como para um programa Lua):
+
+| Passo | Resultado (Java 21) |
+|---|---|
+| `greet` no componente da rádio | o componente se chama `openfm_radio` e responde a frase do OpenFM |
+| `setVol(5)` | devolve `[0.5]` e a rádio vai a 50% |
+| `setScreenText("OC")`, `isPlaying()` | `[true]`: a tela muda; e `[true]`: está tocando |
+| `setURL("http://10.0.0.1/live")` | `[false, URL refused: internal: 10.0.0.1]`, URL intacta |
+| `setVol(3)` com a rádio privada de um jogador | `[false, private block: …]`, volume intacto |
+| `getFrequency()` no transmissor | componente `akashicfm_transmitter`, `[98.7]` |
+
+**Matriz de regressão** (os 8 passos do OC entram em todas as rodadas com o OC no dev, Java 8 incluso):
+
+| Rodada | Resultado |
+|---|---|
+| Java 21, relay | **137/137 + 23/23** |
+| Java 8, relay | **137/137 + 23/23** |
+| Java 21, modo direto | **125/125 + 20/20** |
+| Java 21, sem EFX | **137/137 + 23/23** |
+| Soak de 10 min | OK: 36 amostras, **0 violações**, 19 trocas de caixa, 4 recarregamentos do som, 0 underruns, heap 165 → 166 MB |
+| Prova acústica, com EFX | OK: lã −10,3 dB no nível e −19,4 dB nos agudos; vidro −1,6 e −4,7 dB; cauda na sala de pedra −23,6 dB; aberto sem cauda (−70,3 dB) |
+| Prova acústica, sem EFX | OK: lã −12,3 dB no nível e +1,1 dB nos agudos; sem cauda (−64,0 dB) |
+
+### Revisão adversarial (corrigido antes do commit)
+- **Toda chamada de computador falhava** (achado pelo E2E). O OC gera, no pacote dele, uma classe que chama cada callback direto. Com as classes do adaptador package-private, isso dava `IllegalAccessError` em toda chamada. Agora são públicas.
+- **O componente não se chamaria `openfm_radio`** (achado pelo E2E). O Adaptador junta os drivers num componente só, com o nome do bloco ("akashicfm_radio"), e os scripts do OpenFM não o achariam. Os ambientes implementam `NamedBlock` com o nome preferido.
+- **Computador com mais poder que um jogador.** Numa rádio pública de alguém, o computador mudaria a tela e a redstone, que são do dono. Agora segue as mesmas permissões.

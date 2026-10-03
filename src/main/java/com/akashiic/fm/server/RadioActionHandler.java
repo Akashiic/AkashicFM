@@ -362,18 +362,27 @@ public final class RadioActionHandler {
             notice(player, radio, true, e.translationKey(), e.detail);
             return false;
         }
-        if (!url.equals(s.url)) {
-            s.url = url;
-            if (urlMode) {
-                if (s.playing) s.session++; // troca de estação ao vivo: clientes recomeçam com a URL nova
-                s.status = "";
-            }
+        if (applyUrl(s, url)) {
             radio.markStateChanged();
             AuditLog.log(
                 player.getCommandSenderName(),
                 player.getUniqueID(),
                 "radio.url",
                 "dim " + radio.dimension() + " " + radio.pos() + " -> " + url);
+        }
+        return true;
+    }
+
+    /**
+     * Troca a URL (já limpa e aprovada pela política) sem notificar ninguém: tocando no modo URL, sessão nova
+     * (os clientes recomeçam com a URL nova). Devolve true se mudou; quem chama marca a mudança e audita.
+     */
+    static boolean applyUrl(RadioState s, String url) {
+        if (url.equals(s.url)) return false;
+        s.url = url;
+        if (s.mode == TuneMode.URL) {
+            if (s.playing) s.session++;
+            s.status = "";
         }
         return true;
     }

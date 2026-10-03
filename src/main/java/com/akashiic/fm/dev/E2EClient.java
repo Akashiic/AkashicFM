@@ -66,6 +66,7 @@ import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
 
 import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
@@ -953,6 +954,7 @@ public final class E2EClient {
         addAdminSteps(expectPeer);
         if (relayMode()) addPlaylistSteps(expectPeer);
         addMuteSteps();
+        if (Loader.isModLoaded("OpenComputers")) addOcSteps();
         steps.add(new Step("teleporte-1000-blocos-silencia", 15) {
 
             double startX;
@@ -2399,6 +2401,93 @@ public final class E2EClient {
                 if (ClientMutes.any()) return "sobrou algo silenciado";
                 say("/setblock " + r2x + " " + ry + " " + r2z + " air");
                 return "";
+            }
+        });
+    }
+
+    /** Pede ao servidor uma chamada do OC e espera a resposta que contém {@code expect}. */
+    private Step ocCall(String name, java.util.function.Supplier<String> call, String expect,
+        java.util.function.Predicate<TileRadio> after) {
+        return new Step(name, 15) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("e2e-result oc ");
+                say(call.get());
+            }
+
+            @Override
+            String tick(int t) {
+                String line = chatAfter("e2e-result oc ", seen);
+                if (line == null) return null;
+                if (!line.contains(expect)) return "resposta do OC: " + line + " (esperado: " + expect + ")";
+                TileRadio r = radio();
+                if (after != null && (r == null || !after.test(r))) return t > 40 ? "a rádio não mudou: " + line : null;
+                DevE2E.log("oc: {}", line);
+                return "";
+            }
+        };
+    }
+
+    /**
+     * OpenComputers no ambiente de dev: o driver acha a rádio como um Adaptador acharia, e as chamadas pelo próprio OC
+     * mudam a rádio de verdade, com a escala do OpenFM, a política de URL e a recusa de bloco privado.
+     */
+    private void addOcSteps() {
+        final int[] volumeBefore = { -1 };
+        steps.add(ocCall("oc-componente-openfm-radio", () -> {
+            volumeBefore[0] = radio() == null ? -1 : radio().state.volume;
+            return "e2e:oc " + rx + " " + ry + " " + rz + " greet";
+        }, "openfm_radio [Lasciate ogne speranza", null));
+        steps.add(
+            ocCall(
+                "oc-volume-na-escala-do-openfm",
+                () -> "e2e:oc " + rx + " " + ry + " " + rz + " setVol 5",
+                "openfm_radio [0.5]",
+                r -> r.state.volume == 50));
+        steps.add(
+            ocCall(
+                "oc-texto-da-tela",
+                () -> "e2e:oc " + rx + " " + ry + " " + rz + " setScreenText OC",
+                "openfm_radio [true]",
+                r -> "OC".equals(r.state.screenText)));
+        steps.add(
+            ocCall(
+                "oc-tocando",
+                () -> "e2e:oc " + rx + " " + ry + " " + rz + " isPlaying",
+                "openfm_radio [true]",
+                r -> r.state.playing));
+        steps.add(
+            ocCall(
+                "oc-url-interna-recusada",
+                () -> "e2e:oc " + rx + " " + ry + " " + rz + " setURL http://10.0.0.1/live",
+                "openfm_radio [false, URL refused",
+                r -> url.equals(r.state.url)));
+        steps.add(
+            ocCall(
+                "oc-radio-privada-recusada",
+                () -> "e2e:oc-private " + rx + " " + ry + " " + rz + " setVol 3",
+                "openfm_radio [false, private block",
+                r -> r.state.volume == 50));
+        steps.add(
+            ocCall(
+                "oc-transmissor",
+                () -> "e2e:oc " + (rx - 3) + " " + ry + " " + rz + " getFrequency",
+                "akashicfm_transmitter [98.7]",
+                null));
+        steps.add(new Step("oc-devolve-a-radio", 10) {
+
+            @Override
+            String tick(int t) {
+                if (t == 0) {
+                    send(Action.SET_SCREEN_TEXT, 0, "");
+                    if (volumeBefore[0] >= 0) send(Action.SET_VOLUME, volumeBefore[0], "");
+                }
+                TileRadio r = radio();
+                return r != null && r.state.screenText.isEmpty()
+                    && (volumeBefore[0] < 0 || r.state.volume == volumeBefore[0]) ? "" : null;
             }
         });
     }

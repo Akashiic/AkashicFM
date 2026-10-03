@@ -23,7 +23,14 @@ dependencies {
     // Nos testes unitários não há o FML para tirar as interfaces opcionais: as APIs precisam estar lá.
     testRuntimeOnly("net.industrial-craft:industrialcraft-2:2.2.654-experimental:dev") { transitive = false }
     testRuntimeOnly("curse.maven:cofh-lib-220333:2388748") { transitive = false }
+    // Testes que instanciam o TileTransmitter: o javac precisa das interfaces de energia dele.
+    testCompileOnly("net.industrial-craft:industrialcraft-2:2.2.654-experimental:dev") { transitive = false }
+    testCompileOnly("curse.maven:cofh-lib-220333:2388748") { transitive = false }
     testRuntimeOnly("com.github.GTNewHorizons:Baubles-Expanded:2.2.24-GTNH:dev") { transitive = false }
+
+    // OpenComputers opcional: drivers da rádio e do transmissor (compat/oc). Roda no ambiente de dev para o E2E chamar
+    // os componentes pelo próprio OC; não vai no jar nem nas dependências publicadas. O Scala vem com o Forge 1.7.10.
+    devOnlyNonPublishable("com.github.GTNewHorizons:OpenComputers:1.12.64-GTNH:dev") { transitive = false }
 
     // WAILA opcional: só a API para compilar o provider (registrado por IMC se o WAILA estiver presente).
     compileOnly("com.github.GTNewHorizons:waila:1.19.34:dev") { transitive = false }

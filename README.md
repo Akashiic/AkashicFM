@@ -79,6 +79,9 @@ Feito:
   - **playlist:** as favoritas em sequência, sem cortar o fim de cada faixa, também para quem está ouvindo junto;
   - **teclas de silenciar:** todas as rádios (o servidor para de mandar áudio para você) ou só a que você olha;
   - **áudio robusto a engasgos:** cada fonte guarda ~1 s de áudio, então um engasgo de 700 ms do jogo não corta o som.
+- **Fase 7c:**
+  - **OpenComputers (opcional):** o componente `openfm_radio`, com os nomes e as respostas do OpenFM (scripts antigos funcionam por um Adaptador encostado na rádio), e o novo `akashicfm_transmitter`;
+  - **seguro:** o computador tem as permissões de um jogador qualquer, passa pela mesma política de URL, faz no máximo 4 mudanças por segundo por bloco e fica no log de auditoria.
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -94,7 +97,8 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 6b | Rádio portátil e fone (com Baubles opcional) ✅ |
 | 7a | Admin (`/fm`), log de auditoria e bloqueio de jogador ✅ |
 | 7b | Playlist, teclas de silenciar e áudio robusto a engasgos ✅ |
-| 7c | OpenComputers (opcional), revisão final e release 1.0.0 |
+| 7c | OpenComputers (opcional) ✅ |
+| 1.0.0 | Revisão final, teste com os jars de produção e release |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
 
@@ -119,6 +123,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 - **Silenciar:** duas teclas em Controles → AkashicFM, sem tecla padrão (escolha as suas):
   - **"Silenciar todas as rádios":** liga e desliga o som do mod, e o servidor para de mandar áudio para você;
   - **"Silenciar a rádio que estou olhando":** a rádio, a caixa (silencia a rádio dela), o transmissor (silencia a estação dele) ou o portátil de outro jogador, até 32 blocos. Vale só para você e até sair do servidor. A tela e o WAILA mostram "silenciada para você".
+- **OpenComputers (opcional):** com um Adaptador encostado, o computador controla a rádio pelo componente `openfm_radio` (os mesmos métodos do OpenFM, então os scripts antigos funcionam) e o transmissor pelo `akashicfm_transmitter`. Com as permissões de um jogador qualquer, a mesma política de URL e um limite por segundo. Detalhes no [guia do admin](docs/ADMIN.md#opencomputers-opcional).
 - **No cliente:** volume geral das rádios, limite de rádios simultâneas, a opção de recusar streams diretos, oclusão, reverb, aviso "tocando agora" e visualizador ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
 
 ## Admin (`/fm`, op)
@@ -171,6 +176,7 @@ java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream
 | `protection` | `protectPrivateBlocks` (outros jogadores e máquinas não quebram rádio privada), `opsBypass` |
 | `transmitter` | `baseRange` (64), `rangePerAntenna` (32), `maxAntennas` (16), `maxRange` (512), `requireEnergy` (ligado; só vale com IC2 ou RF instalado), `euPerTick` (8), `energyCapacity` (8000), `maxInputPerTick` (128), `rfPerEu` (4), `maxPerPlayer` (4) |
 | `portable` | `enabled` (ligado), `range` (16: até onde os outros ouvem o portátil sem fone) |
+| `opencomputers` | `allowPrivate` (desligado: computadores só controlam bloco público ou sem dono) |
 | `recipes` | `registerDefaultRecipes` (desligue se o modpack define as próprias) |
 | `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100), `enableOcclusion`, `enableReverb`, `acousticOverrides` (`modid:nome=absorção[,amortecimento]`), `showNowPlaying`, `radioVisualizer` |
 

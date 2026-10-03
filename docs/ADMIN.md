@@ -17,6 +17,7 @@ Como instalar e operar o AkashicFM num servidor multiplayer: o que vai no servid
 | Qualquer mod com a API de RF do CoFH | Energia do transmissor em RF |
 | Baubles Expanded | Fone nos slots de cabeça e brinco |
 | WAILA | Rádio, caixa e transmissor no WAILA |
+| OpenComputers | Componentes `openfm_radio` e `akashicfm_transmitter` (ver abaixo) |
 
 O jar já traz os codecs (Opus, MP3, OGG Vorbis/Opus, AAC/HE-AAC), relocados. Não precisa de mais nada.
 
@@ -123,6 +124,12 @@ O alcance novo vale em até 1 s; o consumo, na hora.
 | `enabled` | `true` | Liga o rádio portátil. Desligado, os portáteis ficam mudos. |
 | `range` | `16` | Até onde os outros jogadores ouvem o portátil de alguém sem fone (4 a 64) |
 
+### `opencomputers`
+
+| Chave | Padrão | O que faz |
+|---|---|---|
+| `allowPrivate` | `false` | Computadores mexem também em rádios e transmissores privados, inclusive na tela, na redstone e no nome da estação. Desligado, valem as permissões de um jogador qualquer (ver "OpenComputers"). |
+
 ### Fora do reload
 
 - **`recipes`:** `registerDefaultRecipes` só vale ao reiniciar o jogo.
@@ -184,6 +191,40 @@ O jogador bloqueado:
 - **fica com o portátil mudo**, para ele e para quem está perto.
 
 `/fm unblock` devolve o controle. O que foi parado continua parado até o dono ligar de novo.
+
+## OpenComputers (opcional)
+
+Com o OpenComputers instalado, o computador alcança a rádio e o transmissor por um **Adaptador** encostado no bloco.
+
+**Componente `openfm_radio`:** o nome e os métodos do OpenFM, para os scripts antigos funcionarem sem mudança.
+- **Do OpenFM:**
+  - tocar e parar: `start()`/`play()`, `stop()`, `isPlaying()`;
+  - URL: `setURL(url)`;
+  - volume: `setVol(0–10)`, `getVol()` (de 0 a 1), `volUp()`, `volDown()`;
+  - tela: `setScreenColor(0xRRGGBB)`, `getScreenColor()`, `setScreenText(texto)`;
+  - caixas: `getAttachedSpeakerCount()`, `getAttachedSpeakers()`;
+  - redstone: `setListenRedstone(bool)`, `getListenRedstone()`;
+  - `greet()`.
+- **Novos:** `getURL()`, `getScreenText()`, `setMode("url"|"fm")`, `getMode()`, `setFrequency(98.7)`, `getFrequency()`, `getNowPlaying()`, `getSignal()` (sinal e estação sintonizada), `setPlaylist(bool)`, `getPlaylist()`.
+
+**Componente `akashicfm_transmitter`:**
+- no ar: `start()`, `stop()`, `isBroadcasting()` (ligado e, de fato, no ar);
+- estação: `setURL(url)`/`getURL()`, `setFrequency(98.7)`/`getFrequency()`, `setName(texto)`/`getName()`;
+- cobertura e energia: `getRange()` (alcance e antenas), `getEnergy()` (EU e capacidade, ou `false` sem energia exigida).
+
+Erros voltam como `false, "motivo"`, como no OpenFM.
+
+**Segurança** (o OpenFM não tinha nenhuma: qualquer computador com cabo mandava em qualquer rádio):
+
+| Regra | Como funciona |
+|---|---|
+| Permissões | As de um jogador qualquer: controla (tocar, URL, volume, frequência, playlist) bloco **público ou sem dono**; tela, redstone e nome da estação só em bloco **sem dono**. `opencomputers.allowPrivate` libera tudo. |
+| Dono bloqueado | Com `/fm block`, sempre recusado |
+| URL | Passa pela mesma política das rádios (`policy`) |
+| Ritmo | No máximo 4 mudanças por segundo por bloco |
+| Auditoria | Trocas de URL e de frequência vão para o log, com o endereço do computador como autor (`oc:<endereço>`) |
+
+As chamadas rodam na thread principal do servidor, uma por tick por computador, como todo componente do OC.
 
 ## Solução de problemas
 

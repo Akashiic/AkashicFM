@@ -209,6 +209,16 @@ public final class FmConfig {
         public static int range;
     }
 
+    @Config(modid = AkashicFM.MODID, category = "opencomputers")
+    @Config.Comment("Integração opcional com o OpenComputers (componentes openfm_radio e akashicfm_transmitter, por um Adaptador).")
+    public static final class OpenComputers {
+
+        @Config.Comment("Computadores controlam também rádios e transmissores privados. Desligado, só os públicos e os sem dono: um Adaptador encostado de fora da casa alcançaria a rádio de alguém.")
+        @Config.DefaultBoolean(false)
+        @Config.Reloadable(RELOAD)
+        public static boolean allowPrivate;
+    }
+
     @Config(modid = AkashicFM.MODID, category = "recipes")
     @Config.Comment("Receitas padrão do mod.")
     public static final class Recipes {

@@ -19,7 +19,8 @@ import com.gtnewhorizon.gtnhlib.config.ConfigurationManager;
 public final class ConfigReload {
 
     static final Class<?>[] SERVER_CONFIG = { FmConfig.Relay.class, FmConfig.Direct.class, FmConfig.Policy.class,
-        FmConfig.Limits.class, FmConfig.Protection.class, FmConfig.Transmitter.class, FmConfig.Portable.class };
+        FmConfig.Limits.class, FmConfig.Protection.class, FmConfig.Transmitter.class, FmConfig.Portable.class,
+        FmConfig.OpenComputers.class };
 
     private ConfigReload() {}
 

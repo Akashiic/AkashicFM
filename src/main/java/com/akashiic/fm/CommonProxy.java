@@ -5,6 +5,7 @@ import net.minecraftforge.common.MinecraftForge;
 
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.compat.baubles.BaublesCompat;
+import com.akashiic.fm.compat.oc.OcCompat;
 import com.akashiic.fm.content.FmContent;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.dev.DevE2E;
@@ -22,6 +23,7 @@ import com.akashiic.fm.server.FmCommand;
 import com.akashiic.fm.server.FrequencyService;
 import com.akashiic.fm.server.Moderation;
 import com.akashiic.fm.server.PortableSources;
+import com.akashiic.fm.server.RadioScripting;
 import com.akashiic.fm.server.ServerEvents;
 import com.akashiic.fm.server.ServerPolicy;
 import com.akashiic.fm.server.ServerRadioRegistry;
@@ -48,6 +50,7 @@ public class CommonProxy {
             ConfigurationManager.registerConfig(FmConfig.Protection.class);
             ConfigurationManager.registerConfig(FmConfig.Transmitter.class);
             ConfigurationManager.registerConfig(FmConfig.Portable.class);
+            ConfigurationManager.registerConfig(FmConfig.OpenComputers.class);
             ConfigurationManager.registerConfig(FmConfig.Recipes.class);
             ConfigurationManager.registerConfig(FmConfig.Client.class);
         } catch (ConfigException e) {
@@ -71,6 +74,8 @@ public class CommonProxy {
             .bus()
             .register(events);
         MinecraftForge.EVENT_BUS.register(events);
+        // OpenComputers opcional: os drivers ficam num pacote que só carrega com o OC instalado.
+        if (Loader.isModLoaded("OpenComputers")) OcCompat.register();
     }
 
     public void serverStarting(FMLServerStartingEvent event) {
@@ -87,6 +92,7 @@ public class CommonProxy {
         PortableSources.clear();
         Moderation.clear();
         FmCommand.clear();
+        RadioScripting.clear();
         AuditLog.close();
         ServerRadioRegistry.clear();
         ServerActionQueue.clear();

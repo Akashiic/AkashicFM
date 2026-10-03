@@ -128,6 +128,17 @@ public final class E2EServer {
                         + " purge="
                         + text.contains("admin.purge")));
         }
+        if (event.message.startsWith("e2e:oc") && event.player != null) {
+            // Componentes do OpenComputers chamados pelo próprio OC (só com ele instalado).
+            boolean priv = event.message.startsWith("e2e:oc-private ");
+            String[] a = event.message.substring(event.message.indexOf(' ') + 1)
+                .split(" ");
+            String r = !Loader.isModLoaded("OpenComputers") ? "semoc"
+                : priv ? E2EOc.callPrivate(event.player.worldObj, a, event.player.getUniqueID())
+                    : E2EOc.call(event.player.worldObj, a);
+            DevE2E.log("oc: {} -> {}", event.message, r);
+            event.player.addChatMessage(new ChatComponentText("e2e-result oc " + r));
+        }
         if (event.message.startsWith("e2e:rcon ") && event.player != null) {
             // O RCON de verdade (handleRConCommand). No 1.7.10 puro ele roda o comando na thread do RCON; com o
             // Hodgepodge (fixRconThreading) já chega na principal. Esta thread (a principal) não espera.
