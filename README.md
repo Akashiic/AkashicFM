@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: 1.0.0
+## Estado atual: 1.1.0
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -88,6 +88,13 @@ Feito:
   - **saída do `/fm` traduzida** (inglês e português).
 
   Detalhes em [`docs/FASE7-RESULTADOS.md`](docs/FASE7-RESULTADOS.md#100-revisão-final-e-teste-com-os-jars-de-produção).
+- **Fase 8 (1.1.0): iPod** (opcional, desligado por padrão):
+  - **toca de qualquer slot**, como o rádio portátil (com fone, só para você): links do SoundCloud (faixas, sets, perfis) direto, do YouTube (vídeos e playlists) e do Spotify (faixa, álbum, playlist) pela mesma música achada no SoundCloud, ou uma busca;
+  - **fila com controles completos:** tocar/pausar, parar, anterior e próxima, misturar, repetir (tudo ou uma), remover, limpar e volume; a próxima faixa já vem preparada;
+  - **feito para o Pterodactyl:** o servidor baixa e atualiza o yt-dlp oficial sozinho (com o SHA-256 conferido), sem shell nem Python; o áudio vai pelo relay;
+  - **seguro:** só links do SoundCloud, do YouTube e do Spotify, sem endereço interno; faixas com DRM são puladas, nunca contornadas; cada link vai para o log de auditoria.
+
+  Guia em [`docs/ADMIN.md`](docs/ADMIN.md#ipod-opcional); detalhes em [`docs/FASE8-RESULTADOS.md`](docs/FASE8-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -105,6 +112,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 7b | Playlist, teclas de silenciar e áudio robusto a engasgos ✅ |
 | 7c | OpenComputers (opcional) ✅ |
 | 1.0.0 | Revisão final, teste com os jars de produção e release ✅ |
+| 8 (1.1.0) | iPod: SoundCloud direto, YouTube e Spotify pelo espelho, fila e controles ✅ |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
 
@@ -127,6 +135,10 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
   - **Energia:** com IC2 ou um mod de RF instalado, ele precisa de energia (8 EU/t por padrão, ou o equivalente em RF) para ficar no ar. Sem energia sai do ar e só volta com uma pequena reserva.
   - **Limite:** 4 transmissores por jogador (config).
 - **Rádio portátil:** botão direito abre a tela (URL ou FM, volume, ligar/desligar); agachado + botão direito liga e desliga. Toca de qualquer slot do inventário; se houver mais de um ligado, toca o primeiro. Sem fone, quem está a até 16 blocos (config) também ouve, de onde você está.
+- **iPod:** botão direito abre a tela; agachado + botão direito toca e pausa. Cole um link do SoundCloud, do YouTube ou do Spotify (faixa, álbum, playlist, set) ou digite uma busca: as faixas entram na fila e começam a tocar.
+  - Na tela: a faixa atual com o progresso, « (anterior; com mais de 5 s tocados, volta ao começo), tocar/pausar, parar, » (próxima), misturar as próximas, repetir (não, tudo, esta faixa), remover, limpar e volume. Clique duplo numa faixa toca ela.
+  - Toca de qualquer slot, como o portátil (o primeiro aparelho ligado do inventário decide); quem está perto ouve, e com fone só você.
+  - Precisa do iPod ligado no servidor (ver o [guia do admin](docs/ADMIN.md#ipod-opcional)).
 - **Fone:** use no slot de capacete (ou, com o Baubles Expanded, nos slots de cabeça ou de brinco). Com ele o portátil toca só para você, em estéreo e sem o reverb da sala.
 - **Rádio no modo FM:** na tela da rádio, o botão "URL/FM" troca o modo. No FM, « ‹ › » giram a frequência (±1,0 e ±0,1 MHz; as setas ← → do teclado também) e a rádio toca o transmissor mais forte daquela frequência que alcança o lugar. A tela mostra "Sinal 73% · estação"; sem cobertura, "sem sinal".
 - **Playlist:** na tela da rádio, o botão "Playlist" (verde quando ligada) toca as favoritas em sequência.
@@ -143,15 +155,15 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
 | Comando | O que faz |
 |---|---|
-| `/fm list [radios\|transmitters\|portables] [página]` | Rádios tocando (carregadas), transmissores (índice, carregados ou não) ou portáteis tocando |
+| `/fm list [radios\|transmitters\|portables] [página]` | Rádios tocando (carregadas), transmissores (índice, carregados ou não) ou portáteis e iPods tocando |
 | `/fm info [x y z]` | Detalhes da rádio ou do transmissor (sem coordenadas: o bloco que você olha) |
 | `/fm stop [x y z]` | Para a rádio ou tira o transmissor do ar |
-| `/fm stopall` | Para todas as rádios e transmissores carregados e desliga os portáteis de quem está online |
+| `/fm stopall` | Para todas as rádios e transmissores carregados e desliga os portáteis e iPods de quem está online |
 | `/fm reload` | Relê do disco o config do servidor (menos a latência do relay, que só muda ao reiniciar) |
 | `/fm purge` / `/fm purge player <nome>` | Tira do índice o que não tem mais bloco (só em chunk carregado) / as entradas de um jogador que não dá para confirmar (as de bloco existente voltam quando o chunk carregar) |
-| `/fm block <jogador>` / `unblock` / `blocked` | Bloqueia um jogador: não controla rádio, transmissor nem portátil, e os dele ficam mudos |
+| `/fm block <jogador>` / `unblock` / `blocked` | Bloqueia um jogador: não controla rádio, transmissor, portátil nem iPod, e os dele ficam mudos |
 
-Nenhum comando carrega chunk. Toda ação que muda algo (trocas de URL e frequência, comandos de admin) vai para `logs/akashicfm-audit.log`, uma linha por evento em UTC. Detalhes em [`docs/ADMIN.md`](docs/ADMIN.md).
+Nenhum comando carrega chunk. Toda ação que muda algo (trocas de URL e frequência, links do iPod, comandos de admin) vai para `logs/akashicfm-audit.log`, uma linha por evento em UTC. Detalhes em [`docs/ADMIN.md`](docs/ADMIN.md).
 
 ## Compilar e testar
 
@@ -189,6 +201,7 @@ java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream
 | `protection` | `protectPrivateBlocks` (outros jogadores e máquinas não quebram rádio privada), `opsBypass` |
 | `transmitter` | `baseRange` (64), `rangePerAntenna` (32), `maxAntennas` (16), `maxRange` (512), `requireEnergy` (ligado; só vale com IC2 ou RF instalado), `euPerTick` (8), `energyCapacity` (8000), `maxInputPerTick` (128), `rfPerEu` (4), `maxPerPlayer` (4) |
 | `portable` | `enabled` (ligado), `range` (16: até onde os outros ouvem o portátil sem fone) |
+| `ipod` | `enabled` (**desligado**), `autoInstallTools` (ligado), `ytDlpPath`, `youtubeDirect` (desligado), `spotify` (ligado), `maxResolves` (2), `maxQueue` (50), `maxTrackMinutes` (20), `pauseTimeoutMinutes` (10) |
 | `opencomputers` | `allowPrivate` (desligado: computadores só controlam bloco público ou sem dono) |
 | `recipes` | `registerDefaultRecipes` (desligue se o modpack define as próprias) |
 | `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100), `enableOcclusion`, `enableReverb`, `acousticOverrides` (`modid:nome=absorção[,amortecimento]`), `showNowPlaying`, `radioVisualizer` |
@@ -202,5 +215,7 @@ O AkashicFM é MIT (ver [`LICENSE`](LICENSE)). Bibliotecas embutidas e relocadas
 - [JLayer](https://github.com/umjammer/jlayer): MP3, LGPL-2.1;
 - [JOrbis](http://www.jcraft.com/jorbis/): OGG/Vorbis, LGPL-2.0;
 - [JAAD](https://github.com/sfuhrm/jaad): AAC, domínio público.
+
+O iPod usa o [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense), que não vem no jar: o servidor baixa o binário oficial do release do projeto.
 
 **Créditos:** [OpenFM](https://github.com/PC-Logix/OpenFM) (PC-Logix / Caitlyn, MIT) e Dragon's Radio Mod, pela ideia original.

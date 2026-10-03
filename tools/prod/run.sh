@@ -8,13 +8,19 @@
 # impede de ligar de novo, outro /fm reload volta ao normal, toca ~25 s e o /fm stopall para. Depois
 # tools/prod/analyze.py confere o WAV contra as marcas e os logs (exceção do mod, mixin do cliente, /fm info).
 #
-# Uso: tools/prod/run.sh gtnh-2.9|gtnh-2.8|gtnh-2.7|min   (antes, uma vez: tools/prod/setup.sh)
+# Roteiro "ipod" (~5 min, precisa de internet): o iPod com o yt-dlp de verdade. Liga no arquivo de config e no
+# /fm reload (o caminho do Pterodactyl, sem reiniciar), espera o mod baixar o yt-dlp oficial do GitHub (SHA-256
+# conferido) e dá ao jogador, pelo console, um iPod com um link do SoundCloud (toca direto) e depois outro com um do
+# YouTube (toca a mesma música achada no SoundCloud); o /fm stopall desliga o segundo.
+#
+# Uso: tools/prod/run.sh gtnh-2.9|gtnh-2.8|gtnh-2.7|min [radio|ipod]   (antes, uma vez: tools/prod/setup.sh)
 #   gtnh-*: GTNHLib, UniMixins, Hodgepodge e OpenComputers nas versões daquele pack (tools/prod/packs.sh)
 #   min:    só o obrigatório, com o GTNHLib mínimo declarado no @Mod
 # AKASHICFM_JAR escolhe o jar (padrão: o mais novo de build/libs); PROD_URL, o stream.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-W=$ROOT/build/prod; SET=${1:-gtnh-2.9}
+W=$ROOT/build/prod; SET=${1:-gtnh-2.9}; SCEN=${2:-radio}
+[[ $SCEN == radio || $SCEN == ipod ]] || { echo "roteiro desconhecido: $SCEN (radio ou ipod)" >&2; exit 2; }
 . "$ROOT/tools/prod/java8.sh"
 . "$ROOT/tools/prod/packs.sh"
 [[ -f $W/client-classpath.txt ]] || { echo "rode antes: tools/prod/setup.sh" >&2; exit 1; }
@@ -23,10 +29,10 @@ JAR=${AKASHICFM_JAR:-$(ls -t "$ROOT"/build/libs/*.jar | grep -vE -- '-(dev|sourc
 MODS=""; for mod in $PACK; do MODS="$MODS $(mod_file "$mod")"; done
 URL=${PROD_URL:-https://stream.radioparadise.com/mp3-128}
 RFG=$HOME/.gradle/caches/retro_futura_gradle
-OUT=$W/out-$SET; rm -rf "$OUT"; mkdir -p "$OUT/server/mods" "$OUT/client/mods" "$OUT/client/config"
+OUT=$W/out-$SET; [[ $SCEN == ipod ]] && OUT=$OUT-ipod; rm -rf "$OUT"; mkdir -p "$OUT/server/mods" "$OUT/client/mods" "$OUT/client/config"
 STEPS=$OUT/steps.log
 log() { echo "[$(date +%T.%3N)] $*" | tee -a "$STEPS"; }
-log "jar $(basename "$JAR"); mods: $MODS"
+log "jar $(basename "$JAR"); roteiro $SCEN; mods: $MODS"
 
 # ---- servidor ----
 ln -s "$W/server/libraries" "$OUT/server/libraries"
@@ -47,6 +53,16 @@ difficulty=0
 gamemode=1
 EOF
 echo "eula=true" > "$OUT/server/eula.txt"
+# Atrás de um proxy que re-assina o TLS (como o ambiente de CI/agente), a CA dele só está no truststore apontado por
+# javax.net.ssl.trustStore. O LetsEncryptHelper do FalsePatternLib (no GTNHLib dos packs novos) troca o SSLContext
+# padrão por um feito do cacerts do próprio JDK, sem essa CA, e o download do yt-dlp falha com PKIX. Com proxy, ele
+# fica desligado; a verificação de TLS continua, com o truststore configurado. Sem proxy (um servidor de verdade), nada
+# muda.
+if [[ -n ${HTTPS_PROXY:-${https_proxy:-}} ]]; then
+  mkdir -p "$OUT/server/config"
+  printf '{\n  "enableLibraryDownloads": true,\n  "enableLetsEncryptRoot": false\n}\n' \
+    > "$OUT/server/config/falsepatternlib-early.json"
+fi
 mkfifo "$OUT/server/in"
 (cd "$OUT/server" && exec "$JAVA8" -Xms1G -Xmx2G -jar forge-1.7.10-10.13.4.1614-1.7.10-universal.jar nogui \
   < in > server.out 2>&1) &
@@ -104,6 +120,45 @@ log "Prod entrou"
 sleep 10
 cmd "tp Prod 0.5 10 0.5"
 sleep 8
+if [[ $SCEN == ipod ]]; then
+  SC=https://soundcloud.com/forss/flickermood
+  YT=https://www.youtube.com/watch?v=5NV6Rdv1a3I
+  # A fila como fica depois de adicionar o vídeo: título e canal do YouTube e a duração, que o espelho usa.
+  YT_TITLE="Daft Punk - Get Lucky (Official Audio) ft. Pharrell Williams, Nile Rodgers"
+  CFG=$OUT/server/config/akashicfm.cfg
+  python3 - "$CFG" <<'PY'
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+s2 = re.sub(r'(ipod \{[^}]*?B:enabled=)false', r'\1true', s, flags=re.S)
+assert s2 != s, 'ipod.enabled não encontrado'
+open(p, 'w').write(s2)
+PY
+  cmd "fm reload"
+  wait_for "$OUT/server/server.out" 'iPod: yt-dlp pronto' 240 || { finish; exit 1; }
+  log "MARK ipod1"
+  cmd "give Prod akashicfm:ipod 1 0 {ipod:{on:1b,index:0,session:1,volume:100b,q:[{s:0b,l:\"$SC\"}]}}"
+  sleep 35
+  cmd "fm list portables"
+  sleep 1
+  log "MARK ipod1end"
+  cmd "clear Prod akashicfm:ipod"
+  sleep 8
+  log "MARK ipod2"
+  cmd "give Prod akashicfm:ipod 1 0 {ipod:{on:1b,index:0,session:1,volume:100b,q:[{s:1b,l:\"$YT\",t:\"$YT_TITLE\",a:\"Daft Punk\",d:249}]}}"
+  sleep 45
+  cmd "fm list portables"
+  sleep 1
+  log "MARK stopall"
+  cmd "fm stopall"
+  sleep 8
+  cmd "fm list portables"
+  sleep 2
+  log "fechando"
+  finish
+  log "FIM"
+  python3 "$ROOT/tools/prod/analyze.py" "$OUT" ipod
+  exit $?
+fi
 # O estado do TileRadio fica na tag "radio"; redstoneMode 1 = tocar enquanto ligada, access 1 = pública.
 cmd "setblock 2 4 2 akashicfm:radio 0 replace {radio:{url:\"$URL\",redstoneMode:1b,access:1b,volume:100b,range:48s}}"
 sleep 3

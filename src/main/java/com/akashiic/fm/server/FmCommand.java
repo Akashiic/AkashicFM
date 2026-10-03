@@ -34,11 +34,13 @@ import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.common.DimensionManager;
 
 import com.akashiic.fm.common.Frequency;
+import com.akashiic.fm.common.IPodState;
 import com.akashiic.fm.common.PortableState;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.TuneMode;
+import com.akashiic.fm.content.ItemIPod;
 import com.akashiic.fm.content.ItemPortableRadio;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileTransmitter;
@@ -398,16 +400,26 @@ public final class FmCommand extends CommandBase {
         return out;
     }
 
+    /** Desliga os rádios portáteis e os iPods do inventário; devolve quantos estavam ligados. */
     private static int turnOffPortables(EntityPlayerMP p) {
         int n = 0;
         for (int slot = 0; slot < PortableActionHandler.SLOTS; slot++) {
             ItemStack st = p.inventory.mainInventory[slot];
-            if (st == null || !(st.getItem() instanceof ItemPortableRadio)) continue;
-            PortableState s = ItemPortableRadio.state(st);
-            if (!s.on) continue;
-            s.on = false;
-            ItemPortableRadio.save(st, s);
-            n++;
+            if (st == null) continue;
+            if (st.getItem() instanceof ItemPortableRadio) {
+                PortableState s = ItemPortableRadio.state(st);
+                if (!s.on) continue;
+                s.on = false;
+                ItemPortableRadio.save(st, s);
+                n++;
+            } else if (st.getItem() instanceof ItemIPod) {
+                IPodState s = ItemIPod.state(st);
+                if (!s.on) continue;
+                s.on = false;
+                s.paused = false;
+                ItemIPod.save(st, s);
+                n++;
+            }
         }
         return n;
     }

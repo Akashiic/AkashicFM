@@ -1,6 +1,6 @@
 # Guia do admin
 
-Como instalar e operar o AkashicFM num servidor multiplayer: o que vai no servidor, o que cada opção do config faz, os comandos `/fm`, o log de auditoria e o bloqueio de jogadores.
+Como instalar e operar o AkashicFM num servidor multiplayer: o que vai no servidor, o que cada opção do config faz, os comandos `/fm`, o log de auditoria, o bloqueio de jogadores e o iPod (opcional).
 
 ## Instalação
 
@@ -26,6 +26,7 @@ O jar já traz os codecs (Opus, MP3, OGG Vorbis/Opus, AAC/HE-AAC), relocados. N�
 **Rede:**
 - **Nenhuma porta nova.** O áudio do relay vai pela própria conexão do Minecraft.
 - O servidor precisa de **HTTP/HTTPS de saída** para os hosts das rádios.
+- O iPod (desligado por padrão) precisa também do GitHub (para baixar o yt-dlp), do SoundCloud e do CDN dele, e do YouTube e do Spotify (só os dados das músicas).
 
 **Custo:**
 
@@ -126,6 +127,22 @@ O alcance novo vale em até 1 s; o consumo, na hora.
 | `enabled` | `true` | Liga o rádio portátil. Desligado, os portáteis ficam mudos. |
 | `range` | `16` | Até onde os outros jogadores ouvem o portátil de alguém sem fone (4 a 64) |
 
+### `ipod`
+
+| Chave | Padrão | O que faz |
+|---|---|---|
+| `enabled` | `false` | Liga o iPod. Desligado, os iPods ficam mudos e o yt-dlp não é baixado. |
+| `autoInstallTools` | `true` | Baixa o yt-dlp oficial para `akashicfm/tools/`, confere o SHA-256 publicado no release e procura atualização uma vez por dia. |
+| `ytDlpPath` | vazio | Caminho de um yt-dlp já instalado (vazio = o baixado pelo mod). |
+| `youtubeDirect` | `false` | Tenta o YouTube direto antes do espelho. Só funciona fora de datacenter (ver "iPod"); baixa o Deno (~100 MB). |
+| `spotify` | `true` | Aceita links do Spotify (faixa, álbum, playlist de até 100 faixas). |
+| `maxResolves` | `2` | Processos do yt-dlp ao mesmo tempo (1 a 8). Cada um usa ~100 MB de memória, fora do `-Xmx`, por alguns segundos. |
+| `maxQueue` | `50` | Faixas na fila de um iPod (1 a 200). Uma playlist maior é cortada. |
+| `maxTrackMinutes` | `20` | Duração máxima de uma faixa (mixes maiores são recusados). |
+| `pauseTimeoutMinutes` | `10` | Minutos de pausa até o iPod parar sozinho. |
+
+O link do iPod passa por uma lista própria (SoundCloud, YouTube e Spotify); a `policy.allowedHosts` vale para as rádios, não para ele. O áudio vem do CDN do SoundCloud, com as mesmas regras fixas da `policy` (nunca endereço interno; só as portas 80 e 443).
+
 ### `opencomputers`
 
 | Chave | Padrão | O que faz |
@@ -145,10 +162,10 @@ O alcance novo vale em até 1 s; o consumo, na hora.
 |---|---|
 | `/fm list radios [página]` | Rádios tocando, com chunk carregado: posição, URL ou frequência, transporte, dono |
 | `/fm list transmitters [página]` | Todos os transmissores do índice, carregados ou não: frequência, nome, alcance, no ar ou não, dono bloqueado |
-| `/fm list portables [página]` | Portáteis tocando agora: portador, URL, transporte, fone e quantos ouvem |
+| `/fm list portables [página]` | Portáteis tocando agora (rádios e iPods): portador, URL (no iPod, a faixa), transporte, fone e quantos ouvem |
 | `/fm info [x y z]` | Detalhes da rádio ou do transmissor. Sem coordenadas, o bloco que você olha (até 8 blocos). |
 | `/fm stop [x y z]` | Para a rádio ou tira o transmissor do ar |
-| `/fm stopall` | Para todas as rádios e transmissores carregados e desliga os portáteis de quem está online |
+| `/fm stopall` | Para todas as rádios e transmissores carregados e desliga os portáteis e os iPods de quem está online |
 | `/fm reload` | Relê o config do servidor (ver acima) |
 | `/fm purge` | Tira do índice as entradas sem bloco, só em chunk carregado |
 | `/fm purge player <nome>` | Esquece as entradas de um jogador que não dá para confirmar: sem bloco, ou em chunk descarregado. As de bloco carregado ficam. Um bloco que ainda existir volta ao índice quando o chunk dele carregar. Serve para destravar o limite de alguém depois de um rollback ou de chunks apagados. |
@@ -170,13 +187,14 @@ Fica em `logs/akashicfm-audit.log`, com uma linha por evento e horário em UTC. 
 2026-10-02T17:01:12Z Fulano (0b7c…-uuid) transmitter.frequency: dim 0 (40, 70, 12) -> 98.7
 2026-10-02T17:05:40Z Admin (5f1d…-uuid) admin.block: Fulano (0b7c…-uuid)
 2026-10-02T17:06:02Z console admin.stopall: 3 rádios, 1 transmissores, 2 portáteis
+2026-10-02T17:07:30Z Fulano (0b7c…-uuid) ipod.add: https://soundcloud.com/artista/sets/lista
 ```
 
 **O que entra:**
 
 | Origem | Eventos |
 |---|---|
-| Jogadores | Trocas de URL (`radio.url`, `transmitter.url`, `portable.url`) e de frequência do transmissor (`transmitter.frequency`) |
+| Jogadores | Trocas de URL (`radio.url`, `transmitter.url`, `portable.url`), de frequência do transmissor (`transmitter.frequency`) e cada link ou busca adicionado ao iPod (`ipod.add`) |
 | `/fm` | Toda ação que muda algo: `admin.stop`, `admin.stopall`, `admin.reload`, `admin.purge`, `admin.block`, `admin.unblock` |
 
 **Formato:**
@@ -189,12 +207,47 @@ Fica em `logs/akashicfm-audit.log`, com uma linha por evento e horário em UTC. 
 `/fm block <jogador>` vale para quem está online e para quem já entrou alguma vez (cache de perfis do servidor). Fica salvo no mundo, em `data/akashicfm_moderation.dat`.
 
 O jogador bloqueado:
-- **não controla** rádio, transmissor nem portátil: a tela abre só para olhar e as ações recebem o aviso "Um admin bloqueou você de usar rádios neste servidor.";
+- **não controla** rádio, transmissor, portátil nem iPod: a tela abre só para olhar e as ações recebem o aviso "Um admin bloqueou você de usar rádios neste servidor.";
 - **tem as rádios e os transmissores carregados parados** na hora;
 - **tem os transmissores tirados do ar para as rádios sintonizadas**, inclusive os de chunk descarregado (ficam marcados como "dono bloqueado" no `/fm list transmitters`);
-- **fica com o portátil mudo**, para ele e para quem está perto.
+- **fica com o portátil e o iPod mudos**, para ele e para quem está perto (o iPod nem procura as músicas).
 
 `/fm unblock` devolve o controle. O que foi parado continua parado até o dono ligar de novo.
+
+## iPod (opcional)
+
+O iPod toca uma fila de músicas de qualquer slot do inventário, como o rádio portátil (quem está perto ouve; com fone, só o dono):
+- **SoundCloud** (faixas, sets, perfis) toca direto;
+- **YouTube** (vídeos e playlists) e **Spotify** (faixa, álbum, playlist) tocam a mesma música achada no SoundCloud, conferida pela duração, pelo título e pelo artista, sem outras versões (remix, cover, ao vivo, acelerada);
+- texto livre vira uma busca no SoundCloud.
+
+O servidor resolve cada faixa com o **yt-dlp** (um programa à parte, que o mod baixa e atualiza) e retransmite pelo relay: precisa de `relay.enabled=true`, e cada iPod tocando ocupa uma estação de `relay.maxStations`.
+
+**Termos de uso:** SoundCloud, YouTube e Spotify não permitem esse uso nos termos deles. O recurso vem desligado, e quem liga responde por isso. Faixas com DRM (comuns em gravadoras) são puladas, nunca contornadas.
+
+### Ligar num servidor Pterodactyl (sem shell)
+
+1. Abra `config/akashicfm.cfg` no **Gerenciador de arquivos** do painel.
+2. Na seção `ipod`, troque `B:enabled=false` por `B:enabled=true` e salve.
+3. Rode `/fm reload` no console (ou reinicie o servidor). O mod baixa o yt-dlp para `akashicfm/tools/` sozinho, e o log mostra `iPod: yt-dlp pronto`.
+4. **Folga de memória:** o yt-dlp roda fora do Java. Deixe pelo menos **300 MB** entre o `-Xmx` e o limite de memória do servidor no painel (com `maxResolves=2`). Sem essa folga, o painel pode fechar o servidor por falta de memória.
+5. **Sem saída para o GitHub** (alguns hosts bloqueiam): baixe o `yt-dlp_linux` do [release oficial](https://github.com/yt-dlp/yt-dlp/releases/latest), envie pelo gerenciador de arquivos, aponte `ytDlpPath` para ele e deixe `autoInstallTools=false`.
+
+O mod também guarda os temporários do yt-dlp em `akashicfm/tools/tmp` (no Pterodactyl, o `/tmp` costuma ser pequeno).
+
+### Por que o espelho no SoundCloud
+
+Em hospedagem de datacenter (o caso de quase todo Pterodactyl), o YouTube recusa o download do áudio, mas entrega título e duração. Por isso o YouTube toca pelo espelho. Num servidor caseiro, `youtubeDirect=true` tenta o YouTube primeiro; cada resolução direta usa até ~450 MB de memória fora do Java.
+
+O Spotify não entrega áudio nenhum: o mod lê título, artistas e duração da página pública do player embutido (sem chave) e procura a música no SoundCloud.
+
+### O que esperar
+
+- **Primeira faixa:** de 5 a 15 s até tocar (o yt-dlp resolve; com espelho, também busca). As seguintes são preparadas no último minuto da anterior.
+- **Músicas de gravadora** no Spotify e no YouTube muitas vezes só existem com DRM no SoundCloud: o iPod pula ("Protegida no SoundCloud") ou não acha ("Não achada no SoundCloud"). Música independente, remixes e uploads de fãs funcionam bem.
+- **Falhas seguidas:** uma faixa que falha é pulada com o motivo na tela; cinco seguidas (ou a fila inteira, se for menor) param o iPod.
+- **Pausa:** o servidor para de baixar e retoma do ponto exato; depois de `pauseTimeoutMinutes`, o iPod para.
+- **Auditoria:** cada link ou busca vai para o log (`ipod.add`).
 
 ## OpenComputers (opcional)
 
@@ -240,3 +293,8 @@ As chamadas rodam na thread principal do servidor, uma por tick por computador, 
 | Transmissor "fora do ar" com URL e antenas | Energia (`/fm info` mostra `energia=atual/capacidade`) ou dono bloqueado |
 | Jogador não consegue colocar mais rádios | `limits.maxRadiosPerPlayer`; depois de rollback, `/fm purge player <nome>` |
 | Mudou o config e nada aconteceu | `/fm reload` (a latência do relay só muda ao reiniciar) |
+| "O iPod está desligado neste servidor" | `ipod.enabled` |
+| "O iPod precisa do relay ligado no servidor" | `relay.enabled` |
+| "O servidor ainda está instalando o yt-dlp" por muito tempo, ou "O yt-dlp não está disponível no servidor" | O log mostra o motivo (`iPod: ferramentas indisponíveis`). Sem saída para o GitHub, instale à mão (passo 5 do iPod) |
+| "Não achada no SoundCloud" ou "Protegida no SoundCloud (DRM)" | Esperado com músicas de gravadora (ver "O que esperar") |
+| O painel fecha o servidor por memória quando alguém usa o iPod | Folga fora do `-Xmx` (passo 4 do iPod) ou `ipod.maxResolves=1` |

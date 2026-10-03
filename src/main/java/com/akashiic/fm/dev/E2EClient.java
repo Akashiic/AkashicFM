@@ -1083,6 +1083,22 @@ public final class E2EClient {
         steps.add(reconnect());
         steps.add(audioPlaying("ouvir-depois-de-reconectar", 45));
         steps.add(purgeKeepsLoaded());
+        if (relayMode()) {
+            // Um iPod tocando também para no /fm stopall.
+            steps.add(ipodGive("ipod-para-o-stopall"));
+            steps.add(new Step("ipod-para-o-stopall-tocando", 45) {
+
+                @Override
+                void start() {
+                    sendIPod(C2SIPodAction.Action.ADD, 0, IPOD_LONG);
+                }
+
+                @Override
+                String tick(int t) {
+                    return ownIPodPlaying() ? "" : null;
+                }
+            });
+        }
         steps.add(new Step("fm-stopall-para-tudo", 15) {
 
             int seen;
@@ -1097,6 +1113,10 @@ public final class E2EClient {
             String tick(int t) {
                 TileRadio r = radio();
                 if (countChat("Stopped ") <= seen || r == null || r.state.playing) return null;
+                if (relayMode()) {
+                    IPodState s = ipodState();
+                    if (s == null || s.on) return null;
+                }
                 return AudioEngine.INSTANCE.activeCount() == 0 ? "" : null;
             }
         });
@@ -1871,8 +1891,9 @@ public final class E2EClient {
         return Integer.parseInt(line.substring(j, k));
     }
 
-    private void addIPodSteps(boolean expectPeer) {
-        steps.add(new Step("ipod-pegar", 15) {
+    /** Pega um iPod novo (o servidor dá a identidade) e guarda o slot dele. */
+    private Step ipodGive(String name) {
+        return new Step(name, 15) {
 
             @Override
             void start() {
@@ -1890,7 +1911,11 @@ public final class E2EClient {
                 }
                 return null;
             }
-        });
+        };
+    }
+
+    private void addIPodSteps(boolean expectPeer) {
+        steps.add(ipodGive("ipod-pegar"));
         steps.add(new Step("ipod-link-de-outro-site-recusado", 10) {
 
             int before;
@@ -2151,6 +2176,21 @@ public final class E2EClient {
                     && s.on
                     && s.index == 4
                     && ownIPodPlaying() ? "" : null;
+            }
+        });
+        steps.add(new Step("ipod-fm-list-portables-mostra-a-faixa", 10) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("iPod: E2E - Cafe");
+                say("/fm list portables");
+            }
+
+            @Override
+            String tick(int t) {
+                return countChat("iPod: E2E - Cafe") > seen ? "" : null;
             }
         });
         steps.add(new Step("ipod-parar", 20) {

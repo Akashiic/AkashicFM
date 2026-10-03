@@ -64,6 +64,8 @@ public final class PortableSources {
         int itemSession = Integer.MIN_VALUE;
         int session;
         int signal;
+        /** A fonte é um iPod (o {@code /fm list portables} mostra a faixa, não a chave da estação). */
+        boolean ipod;
         Set<UUID> audience = new HashSet<>();
     }
 
@@ -116,7 +118,8 @@ public final class PortableSources {
                 new ChatComponentTranslation(
                     e.headphones ? "akashicfm.cmd.portable_headphones" : "akashicfm.cmd.portable",
                     carrier.getCommandSenderName(),
-                    e.url.isEmpty() ? new ChatComponentTranslation("akashicfm.cmd.no_signal") : e.url,
+                    c.ipod ? new ChatComponentTranslation("akashicfm.cmd.ipod_track", e.title)
+                        : e.url.isEmpty() ? new ChatComponentTranslation("akashicfm.cmd.no_signal") : e.url,
                     e.transport.toString(),
                     audience.size()));
             for (UUID l : audience) perListener.computeIfAbsent(l, k -> new ArrayList<>())
@@ -165,7 +168,8 @@ public final class PortableSources {
         ItemStack st = firstOnStack(p);
         if (st == null) return null;
         Carrier c = CARRIERS.computeIfAbsent(p.getUniqueID(), k -> new Carrier());
-        if (st.getItem() instanceof ItemIPod) return iPodSource(p, ItemIPod.state(st), c);
+        c.ipod = st.getItem() instanceof ItemIPod;
+        if (c.ipod) return iPodSource(p, ItemIPod.state(st), c);
         PortableState s = ItemPortableRadio.state(st);
         String url, station = "";
         int signal = 0;

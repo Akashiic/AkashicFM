@@ -9,7 +9,11 @@ por classe do mod (nem erro de mixin dele).
 O WAV recomeça a cada abertura do dispositivo OpenAL, aproximada pela última linha "contexto OpenAL pronto" do
 cliente (resolução de 1 s, por isso a tolerância).
 
-Uso: analyze.py OUT_DIR   (sai com 1 se algo falhar)
+Roteiro "ipod": o yt-dlp ficou pronto, as duas estações do iPod abriram, o /fm list portables mostrou as faixas
+(a do SoundCloud com o título que veio ao tocar; a do YouTube tocando pelo espelho), nenhuma falhou, e o som vai de
+ipod1 (depois da resolução) a ipod1end e de ipod2 (resolução e busca do espelho) ao stopall.
+
+Uso: analyze.py OUT_DIR [radio|ipod]   (sai com 1 se algo falhar)
 """
 import os
 import re
@@ -53,18 +57,7 @@ def mod_traces(text_lines):
     return bad
 
 
-def main(out):
-    fails = []
-    marks = {}
-    for line in lines(os.path.join(out, 'steps.log')):
-        m = re.match(r'\[(\d+:\d+:\d+\.\d+)\] MARK (\w+)', line)
-        if m:
-            marks[m.group(2)] = secs(m.group(1))
-    server = lines(os.path.join(out, 'server', 'server.out'))
-    client = lines(os.path.join(out, 'client', 'logs', 'fml-client-latest.log'))
-
-    if not timed(server, r'\[AkashicFM\]: AkashicFM .* carregado'):
-        fails.append('o mod não carregou no servidor')
+def check_radio(server, marks, fails):
     if not timed(server, r'\[AkashicFM\]: Relay: .* aberta'):
         fails.append('o relay não abriu a estação')
     playing = [t for t, _ in timed(server, r'playing=true')]
@@ -79,6 +72,45 @@ def main(out):
         fails.append('o portátil e o fone não foram dados ao jogador')
     if any(marks['refused'] <= t <= marks['play2'] for t in playing):
         fails.append('a rádio tocou com a URL fora da allowlist')
+    # Entrada: relay + prebuffer.
+    return [(marks['play1'], marks['stop1'], 3.0), (marks['play2'], marks['stopall'], 3.0)]
+
+
+def check_ipod(server, marks, fails):
+    if not timed(server, r'iPod: yt-dlp pronto'):
+        fails.append('o yt-dlp não ficou pronto')
+    # Sem acento no padrão: o console do servidor de produção não sai em UTF-8 ("esta??o").
+    opened = timed(server, r'\[AkashicFM\]: Relay: esta\S+ \d+ aberta para ipod:')
+    print('logs: %d estação(ões) do iPod aberta(s)' % len(opened))
+    if not any(marks['ipod1'] <= t <= marks['ipod1end'] for t, _ in opened):
+        fails.append('a estação do iPod do SoundCloud não abriu')
+    if not any(marks['ipod2'] <= t <= marks['stopall'] for t, _ in opened):
+        fails.append('a estação do iPod do YouTube não abriu')
+    # Ao tocar, a faixa do set/link ganha o título e o artista que vieram do yt-dlp.
+    if not timed(server, r'iPod: Forss - Flickermood'):
+        fails.append('/fm list portables não mostrou a faixa do SoundCloud')
+    if not timed(server, r'iPod: Daft Punk - Get Lucky'):
+        fails.append('/fm list portables não mostrou a faixa do YouTube')
+    failed = timed(server, r'iPod ipod:\w+: .* falhou')
+    for _, line in failed:
+        fails.append('faixa falhou: ' + line.split('] ', 2)[-1])
+    # Entrada: a resolução (o yt-dlp; com o espelho, também a busca) antes do relay.
+    return [(marks['ipod1'], marks['ipod1end'], 25.0), (marks['ipod2'], marks['stopall'], 35.0)]
+
+
+def main(out, scen='radio'):
+    fails = []
+    marks = {}
+    for line in lines(os.path.join(out, 'steps.log')):
+        m = re.match(r'\[(\d+:\d+:\d+\.\d+)\] MARK (\w+)', line)
+        if m:
+            marks[m.group(2)] = secs(m.group(1))
+    server = lines(os.path.join(out, 'server', 'server.out'))
+    client = lines(os.path.join(out, 'client', 'logs', 'fml-client-latest.log'))
+
+    if not timed(server, r'\[AkashicFM\]: AkashicFM .* carregado'):
+        fails.append('o mod não carregou no servidor')
+    exp = check_ipod(server, marks, fails) if scen == 'ipod' else check_radio(server, marks, fails)
     for name, text in (('servidor', server), ('cliente', client)):
         bad = mod_traces(text)
         if bad:
@@ -96,14 +128,13 @@ def main(out):
         print('WAV: %.1f s, %d Hz, %d canais' % (len(levels) * win, rate, ch))
         for a, b, peak in regs:
             print('  som de %.1f a %.1f s (%.1f s), pico %.1f dBFS' % (a - t0, b - t0, b - a, peak))
-        exp = [(marks['play1'], marks['stop1']), (marks['play2'], marks['stopall'])]
-        print('  esperado: ' + ', '.join('%.1f a %.1f s' % (a - t0, b - t0) for a, b in exp))
+        print('  esperado: ' + ', '.join('%.1f (+%.0f) a %.1f s' % (a - t0, d, b - t0) for a, b, d in exp))
         long_regs = [r for r in regs if r[1] - r[0] >= 3.0]
         if len(long_regs) != 2:
             fails.append('esperava 2 trechos com som, achei %d' % len(long_regs))
         else:
-            for (ea, eb), (ra, rb, peak) in zip(exp, long_regs):
-                if not ea - TOL <= ra <= ea + TOL + 3.0:  # entrada: relay + prebuffer
+            for (ea, eb, delay), (ra, rb, peak) in zip(exp, long_regs):
+                if not ea - TOL <= ra <= ea + TOL + delay:
                     fails.append('começou em %.1f s, esperado %.1f' % (ra - t0, ea - t0))
                 if abs(rb - eb) > TOL:
                     fails.append('parou em %.1f s, esperado %.1f' % (rb - t0, eb - t0))
@@ -117,4 +148,4 @@ def main(out):
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1]))
+    sys.exit(main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else 'radio'))
