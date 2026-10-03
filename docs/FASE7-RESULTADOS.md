@@ -110,3 +110,87 @@ A Fase 7 fecha o projeto em três partes:
   - `e2e:index-seed` e `e2e:index-owned`: semeia e conta as entradas do índice do jogador;
   - `e2e:audit-tail`: confere o arquivo de auditoria, agora também com o reload.
 - **Abortar uma rodada:** matar também o `run-all.sh`, não só os processos Java. Numa rodada abortada, o laço de espera de 900 s do script continuou vivo e derrubou o servidor da rodada seguinte ("Connection refused" no passo de reconectar). Não era regressão: a rodada limpa passou.
+
+## 7b: playlist, mute e robustez do áudio
+
+### Como funciona
+- **Playlist** (`common/Playlist`, `server/relay/PlaylistService`):
+  - **Estado:** `RadioState.playlist`, salvo no NBT e nas configurações do item; NBT antigo = desligada.
+  - **Controle:** ação `SET_PLAYLIST` (no fim do enum, permissão de controle) e botão "Playlist" na tela da rádio, verde quando ligada, com dica.
+  - **Quando avança:** a cada atualização de status do relay (10 ticks), a rádio em modo URL, tocando, com playlist e favoritas, olha a estação dela:
+    - **terminou com áudio** (arquivo): espera o fim **soar** nos clientes e passa para a próxima favorita, em loop;
+    - **falhou**, ou terminou sem nenhum áudio (URL que responde vazio): conta uma falha e passa adiante.
+  - **Esperar o fim soar:** a estação marca "terminou" assim que acaba o download, mas o áudio segue ~3,5 s adiante (2 s de PTS à frente do relógio mais 1,5 s de latência). A troca espera `FrameRing.endPtsMs()` + latência + 250 ms. Trocar no "terminou" cortaria os últimos segundos de cada faixa.
+    - Enquanto o fim ainda soa, o status "terminou" fica escondido, porque a próxima já vem.
+  - **Proteções:**
+    - no máximo uma troca a cada 5 s por rádio;
+    - favorita que a política recusa (allowlist mudou) é pulada;
+    - depois de tantas falhas seguidas quanto há favoritas, a rádio para e mostra o motivo da última falha.
+  - **Troca:** sessão nova (os clientes recomeçam), e nova conexão se a estação da próxima já existe e terminou (loop de uma faixa só). A estação anterior é fechada na hora se ninguém mais a toca (`RelayService.releaseIfUnused`): a vaga do limite de estações volta sem esperar os 10 s de expiração.
+  - **Modo direto:** não avança, porque o servidor não sabe quando o arquivo termina.
+- **Mute no cliente** (`client/MuteKeys`, `client/ClientMutes`): duas teclas em Controles → AkashicFM, **sem tecla padrão** (a GTNH já usa quase todas).
+  - **"Silenciar todas as rádios":** alterna `FmConfig.Client.enableAudio` e salva o config. Confirmação acima da barra de itens.
+  - **"Silenciar a rádio que estou olhando":** mira até 32 blocos (o raio do vanilla para blocos e um teste de caixa para jogadores na frente). O que conta:
+    - rádio, pela posição;
+    - caixa: a rádio dela;
+    - transmissor: a estação dele, pela URL; as rádios e os portáteis sintonizados nela ficam mudos;
+    - outro jogador: o portátil dele, pelo UUID, porque o id da entidade muda ao trocar de dimensão.
+    
+    Vale só para você e só na sessão (limpo ao desconectar). O controlador pula as fontes silenciadas e mantém as outras do mesmo grupo do relay. O seu próprio portátil nunca é silenciado por URL: foi você que ligou.
+  - **Onde aparece:** status "silenciada para você" na tela da rádio; linhas no WAILA da rádio, da caixa e do transmissor ("Silenciada para você", "Estação silenciada para você").
+- **Quem não ouve não recebe** (`network/C2SListening`, `client/ListeningReporter`):
+  - **O que conta como "não ouvindo":** áudio do mod desligado ou um volume que as rádios usam em zero (geral, Jukebox/Discos ou o do mod).
+  - **O que o cliente faz:** avisa o servidor ao entrar e a cada mudança.
+  - **O que o servidor faz:** tira o jogador da audiência do relay como quem está longe; para de mandar áudio e o cliente para de decodificar. Antes, um jogador com o áudio desligado continuava custando ~8,5 KB/s de upload e o decoder Opus por estação.
+- **Fila do OpenAL de ~1 s** (`Playback.TARGET_CHUNKS` 8 → 24; `Voice.POOL_SIZE` = fila + 2):
+  - **O problema:** quem enche a fila de cada fonte é a thread do cliente, a cada frame. Um engasgo do jogo maior que a fila (chunks carregando, GC, autosave do singleplayer) cortava o som; com 341 ms, isso é comum num pack pesado.
+  - **O que não muda:** volume, posição, oclusão e parada continuam imediatos (são parâmetros da fonte, não da fila). A sincronia mede a posição real tocada, então não depende da profundidade.
+  - **De onde vem a folga:** a latência do relay (1,5 s) e os anéis de PCM dos feeds (6 a 8 s).
+  - **Memória:** ~104 KB de buffers por voz, ~10 MB no pior caso de 96 vozes.
+
+### Verificação
+
+**Testes unitários** (280 no total; 11 novos nesta parte):
+- `PlaylistTest`: próxima em loop, URL fora da lista e lista vazia; espera o fim soar; tocando não troca; intervalo mínimo; todas falhando param; fim normal não conta como falha.
+- `ClientMutesTest`: rádio por posição e dimensão; estação por URL; portátil pelo UUID, reconhecido de novo com outro id de entidade; tudo limpo ao desconectar.
+- `RadioStateTest`: playlist no NBT, no item e desligada no NBT antigo.
+- `FrameRingTest`: fim do áudio = fim do último frame; sem nada, −1.
+
+**E2E** (passos novos):
+
+| Passo | Resultado (Java 21) |
+|---|---|
+| Engasgo de 700 ms com a thread do cliente congelada | **antes da mudança: underrun (0 → 1)**; depois: sem underrun e sem ressincronizar |
+| Playlist com duas faixas públicas curtas (OGG Opus de 6,0 s e 3,0 s) | a primeira toca inteira (5,97 s entregues ao OpenAL) e a troca vem **6,45 s** depois de ela começar a soar; sessão nova |
+| Segunda faixa | toca no principal e **também no segundo jogador** (mesma estação do relay) |
+| Volta para a primeira | loop com sessão nova e estação reaberta |
+| Tela e WAILA com a playlist | botão verde, faixa atual marcada, WAILA "Playlist: 2 favoritas" (captura `e2e-gui-playlist.png`) |
+| Silenciar todas as rádios | nenhuma reprodução nem thread de áudio; o servidor tira o jogador da audiência (**0 bytes em 2 s**); config salvo com `enableAudio=false` |
+| Desfazer | o som volta e o config é salvo com `true` |
+| Segunda rádio tocando outra estação; silenciar a rádio olhada | **só a olhada some**, a segunda continua; WAILA "Muted for you"; tela "silenciada para você" (captura `e2e-gui-silenciada.png`) |
+| Silenciar o transmissor olhado | as rádios na estação dele somem (a segunda rádio), a outra continua; WAILA do transmissor "Station muted for you" |
+| Desfazer e limpar | tudo com som de novo, nada silenciado |
+
+**Sincronia:** −0,9 ms entre os clientes com a fila nova (antes, −1,7 ms).
+
+**Matriz de regressão:**
+
+| Rodada | Resultado |
+|---|---|
+| Java 21, relay | **129/129 + 23/23** |
+| Java 8, relay | **129/129 + 23/23** |
+| Java 21, modo direto | **117/117 + 20/20** (sem playlist, que é só do relay, e sem o teste de engasgo) |
+| Java 21, sem EFX | **129/129 + 23/23** |
+| Soak de 10 min | OK: 36 amostras, **0 violações**, 19 trocas de caixa, 4 recarregamentos do som, 0 underruns, heap 145 → 145 MB (buffers = vozes × 26) |
+| Prova acústica, com EFX | OK: lã −9,2 dB no nível e −25,7 dB nos agudos; vidro −1,0 e −0,8 dB; cauda na sala de pedra −21,5 dB; aberto sem cauda (−70,9 dB) |
+| Prova acústica, sem EFX | OK: lã −13,0 dB no nível e −0,1 dB nos agudos; sem cauda (−65,7 dB) |
+
+### Revisão adversarial (corrigido antes do commit)
+- **O fim de cada faixa seria cortado:** o "terminou" do servidor chega ~3,5 s antes do fim soar. A playlist espera o fim real.
+- **As falhas seguidas seriam esquecidas na troca:** logo depois de trocar, a estação nova só abre na próxima atualização da audiência. Sem marcar a rádio como vista nesse ciclo, o contador de falhas zerava e uma lista de URLs quebradas giraria para sempre, de 5 em 5 s.
+- **Estação terminada segurando a vaga:** a estação que acabou ficava aberta até expirar. No limite de estações, a próxima faixa não abria e a manutenção poderia parar a rádio. Agora é liberada na troca, se ninguém mais a toca.
+- **Banda gasta com quem silenciou:** ver "quem não ouve não recebe".
+- **Som cortando em engasgos de 0,5 a 1 s:** ver a fila de ~1 s. Achado na matriz da 7a: o cliente parou 4 s na prova acústica.
+- **Custo por tick:** a checagem de silenciada montava uma chave de texto por rádio a cada tick mesmo sem nada silenciado; agora sai na hora com os conjuntos vazios.
+- **Texto cortado:** o status "silenciada para você" passava da largura da tela (captura); encurtado.
+- **E2E:** as coordenadas da segunda rádio eram calculadas na montagem do roteiro, antes de a rádio ter posição ("Cannot place block outside of the world"); agora no início do passo.

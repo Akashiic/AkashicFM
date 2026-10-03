@@ -22,6 +22,8 @@ public final class RadioState {
     /** Frequência sintonizada, em décimos de MHz ({@link Frequency}). */
     public int frequency = Frequency.DEFAULT;
     public final List<String> stations = new ArrayList<>();
+    /** Playlist: quando a estação termina ou falha, passa para a próxima favorita (só no relay). */
+    public boolean playlist;
     public boolean playing;
     public int volume = RadioLimits.VOLUME_DEFAULT;
     public int range = RadioLimits.RANGE_DEFAULT;
@@ -111,6 +113,7 @@ public final class RadioState {
         tag.setByte("mode", (byte) mode.ordinal());
         tag.setShort("frequency", (short) frequency);
         tag.setTag("stations", writeStrings(stations));
+        tag.setBoolean("playlist", playlist);
         tag.setBoolean("playing", playing);
         tag.setByte("volume", (byte) volume);
         tag.setShort("range", (short) range);
@@ -145,6 +148,7 @@ public final class RadioState {
         readTuning(tag);
         stations.clear();
         readStrings(tag.getTagList("stations", 8), stations, RadioLimits.MAX_STATIONS * 2);
+        playlist = tag.getBoolean("playlist"); // NBT antigo: desligada
         playing = tag.getBoolean("playing");
         volume = tag.hasKey("volume") ? tag.getByte("volume") : RadioLimits.VOLUME_DEFAULT;
         range = tag.hasKey("range") ? tag.getShort("range") : RadioLimits.RANGE_DEFAULT;
@@ -182,6 +186,7 @@ public final class RadioState {
         tag.setByte("mode", (byte) mode.ordinal());
         tag.setShort("frequency", (short) frequency);
         tag.setTag("stations", writeStrings(stations));
+        tag.setBoolean("playlist", playlist);
         tag.setByte("volume", (byte) volume);
         tag.setShort("range", (short) range);
         tag.setString("screenText", screenText);
@@ -195,6 +200,7 @@ public final class RadioState {
         readTuning(tag);
         stations.clear();
         readStrings(tag.getTagList("stations", 8), stations, RadioLimits.MAX_STATIONS * 2);
+        playlist = tag.getBoolean("playlist");
         if (tag.hasKey("volume")) volume = tag.getByte("volume");
         if (tag.hasKey("range")) range = tag.getShort("range");
         screenText = str(tag, "screenText");

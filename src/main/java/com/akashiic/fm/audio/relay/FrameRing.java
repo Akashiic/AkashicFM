@@ -124,6 +124,11 @@ public final class FrameRing {
         return nextSeq - 1;
     }
 
+    /** PTS em que termina o último frame guardado (o fim do áudio até agora), ou -1 se o ring nunca recebeu nada. */
+    public synchronized long endPtsMs() {
+        return hasLast ? lastPts + FRAME_MS : -1;
+    }
+
     public synchronized int size() {
         return count;
     }

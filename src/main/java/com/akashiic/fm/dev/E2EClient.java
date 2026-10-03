@@ -22,8 +22,10 @@ import net.minecraftforge.common.MinecraftForge;
 
 import com.akashiic.fm.audio.dsp.SpectrumAnalyzer;
 import com.akashiic.fm.audio.spatial.OcclusionTracer;
+import com.akashiic.fm.client.ClientMutes;
 import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
+import com.akashiic.fm.client.MuteKeys;
 import com.akashiic.fm.client.NowPlaying;
 import com.akashiic.fm.client.RadioInfo;
 import com.akashiic.fm.client.audio.AudioEngine;
@@ -38,6 +40,7 @@ import com.akashiic.fm.client.relay.RelayClient;
 import com.akashiic.fm.client.relay.RelayFeed;
 import com.akashiic.fm.client.spatial.OcclusionField;
 import com.akashiic.fm.client.spatial.RoomProbe;
+import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.PortableState;
 import com.akashiic.fm.common.Pos;
@@ -77,6 +80,10 @@ public final class E2EClient {
 
     private static final int TPS = 20;
     private static final String DEFAULT_URL = "https://stream.radioparadise.com/mp3-128";
+    /** Faixas curtas públicas (OGG Opus, arquivos que terminam) para a playlist: 6,0 s e 3,0 s. */
+    private static final String TRACK1 = "https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg";
+    private static final String TRACK2 = "https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg";
+    private static final double TRACK1_SECONDS = 6.0;
     /** Segunda estação (outro transmissor), para provar a troca de fonte na sintonia. */
     private static final String DEFAULT_URL2 = "https://stream.radioparadise.com/mellow-128";
 
@@ -98,6 +105,8 @@ public final class E2EClient {
     /** Chaves de tradução das mensagens de chat recebidas (respostas do sintonizador etc.). */
     private final List<String> chatKeys = new CopyOnWriteArrayList<>();
     private int sx, sy, sz;
+    /** A segunda rádio dos passos de silenciar (no corredor ao sul da primeira). */
+    private int r2x, r2z;
     private volatile S2CRadioPerms lastPerms;
 
     private E2EClient(String scenario) {
@@ -328,7 +337,7 @@ public final class E2EClient {
     private static boolean alInvariantsHold() {
         int voices = AudioEngine.INSTANCE.totalVoices();
         return AudioEngine.INSTANCE.playingSources() == voices && AudioEngine.liveSources() == voices
-            && AudioEngine.liveBuffers() == voices * 10;
+            && AudioEngine.liveBuffers() == voices * AudioEngine.BUFFERS_PER_VOICE;
     }
 
     private static String alCounters() {
@@ -470,6 +479,47 @@ public final class E2EClient {
                     i.framesQueued,
                     i.underruns);
                 return "";
+            }
+        };
+    }
+
+    /**
+     * Um engasgo do cliente (chunks carregando, GC, autosave do singleplayer) congela a thread que enche o OpenAL. A
+     * fila de cada fonte tem que aguentar: o som segue sem underrun nem ressincronização.
+     */
+    private Step clientHitch(String name, long hitchMs) {
+        return new Step(name, 15) {
+
+            int underruns, resyncs, hitchAt = -1;
+
+            @Override
+            String tick(int t) {
+                AudioEngine.PlaybackInfo i = info();
+                if (hitchAt < 0) {
+                    if (t < 40 || i == null || !i.playing) return null; // 2 s tocando: a fila está cheia
+                    underruns = i.underruns;
+                    resyncs = i.resyncs;
+                    hitchAt = t;
+                    long until = System.nanoTime() + hitchMs * 1_000_000L;
+                    while (System.nanoTime() < until) {
+                        try {
+                            Thread.sleep(Math.max(1, (until - System.nanoTime()) / 1_000_000L));
+                        } catch (InterruptedException e) {
+                            Thread.currentThread()
+                                .interrupt();
+                            break;
+                        }
+                    }
+                    return null;
+                }
+                if (i == null) return "a reprodução sumiu depois do engasgo";
+                if (i.underruns != underruns) {
+                    return "underrun no engasgo de " + hitchMs + " ms (" + underruns + " -> " + i.underruns + ")";
+                }
+                if (i.resyncs != resyncs) return "ressincronizou depois do engasgo de " + hitchMs + " ms";
+                if (t - hitchAt < 60) return null;
+                DevE2E.log("engasgo de {} ms: sem underrun, sem ressincronizar, tocando={}", hitchMs, i.playing);
+                return i.playing ? "" : "parou de tocar depois do engasgo";
             }
         };
     }
@@ -645,6 +695,7 @@ public final class E2EClient {
                 return "";
             }
         });
+        if (relayMode()) steps.add(clientHitch("engasgo-de-700ms-nao-corta-o-som", 700));
         if (relayMode()) {
             steps.add(syncCheck("sincronia-do-relay"));
             steps.add(new Step("banda-do-relay", 20) {
@@ -900,6 +951,8 @@ public final class E2EClient {
         addFrequencySteps(expectPeer);
         addPortableSteps(expectPeer);
         addAdminSteps(expectPeer);
+        if (relayMode()) addPlaylistSteps(expectPeer);
+        addMuteSteps();
         steps.add(new Step("teleporte-1000-blocos-silencia", 15) {
 
             double startX;
@@ -2010,6 +2063,354 @@ public final class E2EClient {
         return k > j ? Integer.parseInt(line.substring(j, k)) : -1;
     }
 
+    // ---- Fase 7b: playlist e mute ----
+
+    /** A reprodução que toca esta rádio neste cliente (no relay, a da estação), ou null. */
+    private static AudioEngine.PlaybackInfo infoOf(TileRadio r) {
+        String key = r == null ? null : RadioAudioController.playbackKey(r);
+        return key == null ? null : AudioEngine.INSTANCE.info(key);
+    }
+
+    /** A reprodução da estação do relay desta URL neste cliente, ou null. */
+    private static AudioEngine.PlaybackInfo stationInfo(String u) {
+        RelayFeed feed = RelayClient.feedForUrl(u);
+        return feed == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.relayKey(feed));
+    }
+
+    /** Vira o jogador para o centro do bloco (a mira de MuteKeys sai de posY, como a do vanilla). */
+    private static void lookAt(double x, double y, double z) {
+        double dx = x - mc().thePlayer.posX, dy = y - mc().thePlayer.posY, dz = z - mc().thePlayer.posZ;
+        mc().thePlayer.rotationYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+        mc().thePlayer.rotationPitch = (float) -Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)));
+    }
+
+    /**
+     * Playlist com duas faixas curtas: a rádio toca a primeira até o fim (não corta os últimos segundos: o fim só
+     * soa nos clientes 1,5 s depois de o servidor terminar o download), passa para a segunda, também para o segundo
+     * jogador, e volta para a primeira. No fim, a rádio volta à estação do roteiro.
+     */
+    private void addPlaylistSteps(boolean expectPeer) {
+        steps.add(new Step("playlist-prepara-as-favoritas", 30) {
+
+            @Override
+            void start() {
+                bringPeer();
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null || t % 4 != 0) return null; // devagar: o limite de ações por segundo vale aqui
+                RadioState s = r.state;
+                boolean exact = s.stations.size() == 2 && TRACK1.equals(s.stations.get(0))
+                    && TRACK2.equals(s.stations.get(1));
+                if (!exact && !s.stations.isEmpty() && !TRACK1.equals(s.stations.get(0))) {
+                    int last = s.stations.size() - 1;
+                    send(Action.REMOVE_STATION, last, s.stations.get(last));
+                } else if (s.stations.isEmpty()) {
+                    send(Action.ADD_STATION, 0, TRACK1);
+                } else if (s.stations.size() == 1) {
+                    send(Action.ADD_STATION, 0, TRACK2);
+                } else if (!exact) {
+                    send(Action.REMOVE_STATION, s.stations.size() - 1, s.stations.get(s.stations.size() - 1));
+                } else if (!s.playlist) {
+                    send(Action.SET_PLAYLIST, 1, "");
+                } else {
+                    return "";
+                }
+                return null;
+            }
+        });
+        final long[] firstPlayingNanos = { 0 };
+        final int[] firstSession = { 0 };
+        steps.add(new Step("playlist-toca-a-primeira", 30) {
+
+            @Override
+            void start() {
+                send(Action.PLAY_STATION, 0, TRACK1);
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                AudioEngine.PlaybackInfo i = stationInfo(TRACK1);
+                if (r == null || !TRACK1.equals(r.state.url) || i == null || !i.playing) return null;
+                firstPlayingNanos[0] = System.nanoTime();
+                firstSession[0] = r.state.session;
+                return "";
+            }
+        });
+        steps.add(new Step("playlist-passa-para-a-segunda-no-fim", 40) {
+
+            long framesOfFirst;
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null) return "rádio sumiu";
+                AudioEngine.PlaybackInfo i = stationInfo(TRACK1);
+                if (i != null) framesOfFirst = Math.max(framesOfFirst, i.framesQueued);
+                if (!TRACK2.equals(r.state.url)) return null;
+                double heard = (System.nanoTime() - firstPlayingNanos[0]) / 1e9;
+                double delivered = framesOfFirst / 48000.0;
+                DevE2E.log(
+                    "playlist: trocou {} s depois de a primeira começar a soar; {} s dela entregues ao OpenAL; sessão {} -> {}",
+                    String.format("%.2f", heard),
+                    String.format("%.2f", delivered),
+                    firstSession[0],
+                    r.state.session);
+                // Trocando no "terminou" do servidor, a troca viria ~3,5 s antes do fim soar (2,5 s de faixa).
+                if (heard < TRACK1_SECONDS - 1.0) return "trocou cedo demais: " + heard + " s";
+                if (delivered < TRACK1_SECONDS * 0.9) return "a primeira não tocou inteira: " + delivered + " s";
+                return r.state.session > firstSession[0] ? "" : "sessão não mudou";
+            }
+        });
+        steps.add(new Step("playlist-segunda-toca", 30) {
+
+            @Override
+            String tick(int t) {
+                AudioEngine.PlaybackInfo i = stationInfo(TRACK2);
+                return i != null && i.playing ? "" : null;
+            }
+        });
+        if (expectPeer) steps.add(handshake("playlist-segundo-jogador-ouve", "playlist-2", "playlist-ok"));
+        steps.add(new Step("gui-da-radio-com-playlist", 10) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiRadio(rx, ry, rz));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 28) screenshot("e2e-gui-playlist.png");
+                if (t < 30) return null;
+                boolean ok = mc().currentScreen instanceof GuiRadio;
+                mc().displayGuiScreen(null);
+                TileRadio r = radio();
+                String waila = r == null ? ""
+                    : RadioInfo.lines(r)
+                        .toString();
+                DevE2E.log("waila com playlist: {}", waila);
+                if (!waila.contains("Playlist: 2")) return "waila sem a playlist: " + waila;
+                return ok ? "" : "a GUI da rádio não abriu";
+            }
+        });
+        steps.add(new Step("playlist-volta-para-a-primeira", 40) {
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                if (r == null || !TRACK1.equals(r.state.url) || r.state.session <= firstSession[0] + 1) return null;
+                AudioEngine.PlaybackInfo i = stationInfo(TRACK1);
+                return i != null && i.playing ? "" : null;
+            }
+        });
+        steps.add(new Step("playlist-desliga-e-volta-a-estacao", 45) {
+
+            @Override
+            String tick(int t) {
+                if (t == 0) send(Action.SET_PLAYLIST, 0, "");
+                if (t == 6) send(Action.SET_URL, 0, url);
+                TileRadio r = radio();
+                if (t < 6 || r == null || r.state.playlist || !url.equals(r.state.url) || !r.state.playing) return null;
+                AudioEngine.PlaybackInfo i = infoOf(r);
+                return i != null && i.playing ? "" : null;
+            }
+        });
+    }
+
+    private void addPeerPlaylistSteps() {
+        steps.add(new Step("peer-ouve-a-playlist", 900) {
+
+            boolean heardSecond;
+
+            @Override
+            String tick(int t) {
+                // A segunda faixa dura 3 s: vale ter ouvido a qualquer momento (o anúncio pode chegar depois).
+                AudioEngine.PlaybackInfo i = stationInfo(TRACK2);
+                if (i != null && i.playing) heardSecond = true;
+                if (!heardSecond || !chatSaw("e2e:main playlist-2")) return null;
+                say("e2e:peer playlist-ok");
+                return "";
+            }
+        });
+    }
+
+    /**
+     * Teclas de silenciar: tudo (o servidor para de mandar e o config é salvo) e só o que se olha (uma rádio, ou um
+     * transmissor e as rádios sintonizadas na estação dele), com uma segunda rádio tocando para provar que só a
+     * escolhida some.
+     */
+    private void addMuteSteps() {
+        final java.io.File config = new java.io.File(mc().mcDataDir, "config/akashicfm.cfg");
+        steps.add(new Step("silenciar-tudo", 20) {
+
+            int quietAt = -1, seen;
+
+            @Override
+            void start() {
+                if (!MuteKeys.toggleAll(mc())) DevE2E.log("silenciar-tudo: já estava silenciado?");
+            }
+
+            @Override
+            String tick(int t) {
+                if (FmConfig.Client.enableAudio) return "a tecla não desligou o áudio";
+                boolean quiet = AudioEngine.INSTANCE.activeCount() == 0 && liveDirectThreads() == 0
+                    && (!relayMode() || RelayClient.feedForUrl(url) == null);
+                if (!quiet) return null;
+                if (quietAt < 0) {
+                    // O servidor tirou o jogador da audiência: os bytes mandados a ele param de crescer.
+                    quietAt = t;
+                    seen = relayResults().size();
+                    say("e2e:relay-stats");
+                    return null;
+                }
+                if (t == quietAt + 40) say("e2e:relay-stats");
+                List<long[]> res = relayResults();
+                if (res.size() < seen + 2) return null;
+                long grew = res.get(seen + 1)[0] - res.get(seen)[0];
+                String text = readText(config);
+                DevE2E.log("silenciado: {} bytes em 2 s; config salvo={}", grew, text.contains("B:enableAudio=false"));
+                if (relayMode() && grew > 0) return "o servidor continuou mandando: " + grew + " bytes";
+                return text.contains("B:enableAudio=false") ? "" : "o config não foi salvo";
+            }
+        });
+        steps.add(new Step("silenciar-tudo-desfaz", 45) {
+
+            @Override
+            void start() {
+                MuteKeys.toggleAll(mc());
+            }
+
+            @Override
+            String tick(int t) {
+                if (!FmConfig.Client.enableAudio) return "a tecla não religou o áudio";
+                AudioEngine.PlaybackInfo i = infoOf(radio());
+                if (i == null || !i.playing) return null;
+                return readText(config).contains("B:enableAudio=true") ? "" : "o config não foi salvo";
+            }
+        });
+        steps.add(new Step("segunda-radio-tocando", 45) {
+
+            @Override
+            void start() {
+                // Calculada aqui: na montagem do roteiro a rádio ainda não tem posição.
+                r2x = rx + 2;
+                r2z = rz + 2;
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 0) say("/setblock " + r2x + " " + ry + " " + r2z + " air");
+                if (t == 5) say("/setblock " + r2x + " " + ry + " " + r2z + " akashicfm:radio 3");
+                if (t == 15) sendTo(r2x, ry, r2z, Action.PLAY, 0, url2);
+                if (t == 20) say("/tp " + (rx + 0.5) + " " + ry + " " + (rz + 5.5));
+                TileEntity te = mc().theWorld.getTileEntity(r2x, ry, r2z);
+                if (t < 30 || !(te instanceof TileRadio)) return null;
+                AudioEngine.PlaybackInfo second = infoOf((TileRadio) te), first = infoOf(radio());
+                return second != null && second.playing && first != null && first.playing ? "" : null;
+            }
+        });
+        steps.add(new Step("silenciar-a-radio-olhada", 20) {
+
+            String key;
+
+            @Override
+            String tick(int t) {
+                if (t == 5) lookAt(rx + 0.5, ry + 0.5, rz + 0.5);
+                if (t == 7) key = MuteKeys.toggleTarget(mc());
+                if (t < 7) return null;
+                if (!"akashicfm.mute.radio_on".equals(key)) return "a mira não pegou a rádio: " + key;
+                TileEntity te = mc().theWorld.getTileEntity(r2x, ry, r2z);
+                AudioEngine.PlaybackInfo first = infoOf(radio()),
+                    second = te instanceof TileRadio ? infoOf((TileRadio) te) : null;
+                if (first != null || second == null || !second.playing) return null; // só a olhada some
+                String waila = RadioInfo.lines(radio())
+                    .toString();
+                return waila.contains("Muted for you") ? "" : "waila sem o silenciada: " + waila;
+            }
+        });
+        steps.add(new Step("gui-da-radio-silenciada", 10) {
+
+            @Override
+            void start() {
+                mc().displayGuiScreen(new GuiRadio(rx, ry, rz));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 28) screenshot("e2e-gui-silenciada.png");
+                if (t < 30) return null;
+                boolean ok = mc().currentScreen instanceof GuiRadio;
+                mc().displayGuiScreen(null);
+                return ok ? "" : "a GUI da rádio não abriu";
+            }
+        });
+        steps.add(new Step("silenciar-a-radio-olhada-desfaz", 45) {
+
+            String key;
+
+            @Override
+            String tick(int t) {
+                if (t == 2) lookAt(rx + 0.5, ry + 0.5, rz + 0.5);
+                if (t == 4) key = MuteKeys.toggleTarget(mc());
+                if (t < 4) return null;
+                if (!"akashicfm.mute.radio_off".equals(key)) return "não desfez: " + key;
+                AudioEngine.PlaybackInfo first = infoOf(radio());
+                return first != null && first.playing ? "" : null;
+            }
+        });
+        steps.add(new Step("silenciar-o-transmissor-olhado", 20) {
+
+            String key;
+
+            @Override
+            String tick(int t) {
+                // O "Perto FM" (desligado, mas com a URL url2): a segunda rádio, que toca url2, some.
+                if (t == 2) lookAt(rx - 2.5, ry + 0.5, rz + 0.5);
+                if (t == 4) key = MuteKeys.toggleTarget(mc());
+                if (t < 4) return null;
+                if (!"akashicfm.mute.station_on".equals(key)) return "a mira não pegou o transmissor: " + key;
+                TileEntity te = mc().theWorld.getTileEntity(r2x, ry, r2z);
+                AudioEngine.PlaybackInfo first = infoOf(radio()),
+                    second = te instanceof TileRadio ? infoOf((TileRadio) te) : null;
+                if (second != null || first == null || !first.playing) return null;
+                TileTransmitter tr = transmitterAt(rx - 3, ry, rz);
+                String waila = tr == null ? ""
+                    : RadioInfo.lines(tr)
+                        .toString();
+                return waila.contains("Station muted for you") ? "" : "waila do transmissor: " + waila;
+            }
+        });
+        steps.add(new Step("silenciar-o-transmissor-desfaz-e-limpa", 45) {
+
+            String key;
+
+            @Override
+            String tick(int t) {
+                if (t == 2) lookAt(rx - 2.5, ry + 0.5, rz + 0.5);
+                if (t == 4) key = MuteKeys.toggleTarget(mc());
+                if (t < 4) return null;
+                if (!"akashicfm.mute.station_off".equals(key)) return "não desfez: " + key;
+                TileEntity te = mc().theWorld.getTileEntity(r2x, ry, r2z);
+                AudioEngine.PlaybackInfo second = te instanceof TileRadio ? infoOf((TileRadio) te) : null;
+                if (second == null || !second.playing) return null;
+                if (ClientMutes.any()) return "sobrou algo silenciado";
+                say("/setblock " + r2x + " " + ry + " " + r2z + " air");
+                return "";
+            }
+        });
+    }
+
+    private static String readText(java.io.File f) {
+        try {
+            return new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            return "";
+        }
+    }
+
     private void addPeerAdminSteps() {
         steps.add(new Step("peer-bloqueado-e-recusado", 900) {
 
@@ -2695,6 +3096,7 @@ public final class E2EClient {
         addPeerFrequencySteps();
         addPeerPortableSteps();
         addPeerAdminSteps();
+        if (relayMode()) addPeerPlaylistSteps();
         steps.add(new Step("peer-ve-a-parada", 900) {
 
             int stoppedAt = -1;

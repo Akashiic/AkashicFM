@@ -12,6 +12,7 @@ import net.minecraft.world.World;
 
 import org.lwjgl.input.Keyboard;
 
+import com.akashiic.fm.client.ClientMutes;
 import com.akashiic.fm.client.NowPlaying;
 import com.akashiic.fm.client.audio.AudioEngine;
 import com.akashiic.fm.client.audio.RadioAudioController;
@@ -52,13 +53,13 @@ public final class GuiRadio extends GuiScreen implements FmScreen {
 
     private static final int ID_PLAY = 1, ID_STOP = 2, ID_VOLUME = 3, ID_RANGE = 4, ID_SAVE = 5, ID_UP = 6, ID_DOWN = 7,
         ID_SCREEN_OK = 8, ID_COLOR = 9, ID_ACCESS = 10, ID_REDSTONE = 11, ID_UNLINK = 12, ID_MODE = 13,
-        ID_DIAL_BASE = 20, ID_STATION_BASE = 100, ID_REMOVE_BASE = 200;
+        ID_PLAYLIST = 14, ID_DIAL_BASE = 20, ID_STATION_BASE = 100, ID_REMOVE_BASE = 200;
 
     private final int x, y, z;
     private int left, top;
 
     private GuiTextField urlField, screenField;
-    private FlatButton play, stop, save, up, down, screenOk, color, access, redstone, unlink, mode;
+    private FlatButton play, stop, save, playlist, up, down, screenOk, color, access, redstone, unlink, mode;
     private FrequencyDial dial;
     private FlatSlider volume, range;
     private final FlatButton[] stationButtons = new FlatButton[VISIBLE_STATIONS];
@@ -152,6 +153,8 @@ public final class GuiRadio extends GuiScreen implements FmScreen {
                 s.range,
                 v -> send(Action.SET_RANGE, v, "")));
 
+        playlist = add(
+            new FlatButton(ID_PLAYLIST, left + 104, top + 70, 60, 14, I18n.format("akashicfm.gui.playlist")));
         save = add(new FlatButton(ID_SAVE, left + 168, top + 70, 80, 14, I18n.format("akashicfm.gui.save_station")));
         for (int i = 0; i < VISIBLE_STATIONS; i++) {
             int rowY = top + 86 + i * 15;
@@ -275,6 +278,10 @@ public final class GuiRadio extends GuiScreen implements FmScreen {
             && s.stations.size() < RadioLimits.MAX_STATIONS
             && !(typed.isEmpty() ? s.url : typed).isEmpty();
 
+        // Playlist: as favoritas em sequência (verde = ligada). Sem favoritas, não há o que tocar.
+        playlist.enabled = control && !fm && !s.stations.isEmpty();
+        playlist.textColor = s.playlist && playlist.enabled ? 0xFF7CFF8A : 0;
+
         int maxScroll = Math.max(0, s.stations.size() - VISIBLE_STATIONS);
         scroll = Math.max(0, Math.min(scroll, maxScroll));
         for (int i = 0; i < VISIBLE_STATIONS; i++) {
@@ -381,6 +388,9 @@ public final class GuiRadio extends GuiScreen implements FmScreen {
                 return;
             case ID_UNLINK:
                 send(Action.UNLINK_ALL_SPEAKERS, 0, "");
+                return;
+            case ID_PLAYLIST:
+                send(Action.SET_PLAYLIST, s.playlist ? 0 : 1, "");
                 return;
             default:
                 break;
@@ -544,6 +554,14 @@ public final class GuiRadio extends GuiScreen implements FmScreen {
                 func_146283_a(Collections.singletonList(s.stations.get(idx)), mouseX, mouseY);
             }
         }
+        if (playlist.isHovered(mouseX, mouseY)) {
+            func_146283_a(
+                fontRendererObj.listFormattedStringToWidth(
+                    I18n.format(s.playlist ? "akashicfm.gui.playlist.tip_on" : "akashicfm.gui.playlist.tip_off"),
+                    200),
+                mouseX,
+                mouseY);
+        }
     }
 
     private void drawStatus(TileRadio radio, RadioState s) {
@@ -586,6 +604,9 @@ public final class GuiRadio extends GuiScreen implements FmScreen {
     private String playbackStatus(TileRadio radio, RadioState s) {
         if (s.transport != Transport.DIRECT && s.transport != Transport.RELAY) {
             return I18n.format("akashicfm.gui.status.no_transport");
+        }
+        if (ClientMutes.radioMuted(radio.dimension(), radio.pos(), s.effectiveUrl())) {
+            return I18n.format("akashicfm.gui.status.muted_for_you");
         }
         if (!FmConfig.Client.enableAudio) return I18n.format("akashicfm.gui.status.audio_disabled");
         if (s.transport == Transport.DIRECT && !FmConfig.Client.allowDirectStreams) {

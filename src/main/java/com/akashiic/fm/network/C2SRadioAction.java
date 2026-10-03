@@ -33,7 +33,9 @@ public final class C2SRadioAction implements IMessage {
         UNLINK_ALL_SPEAKERS,
         // Fase 6 (sempre no fim: o ordinal vai na rede).
         SET_MODE,
-        SET_FREQUENCY;
+        SET_FREQUENCY,
+        // Fase 7.
+        SET_PLAYLIST;
 
         static Action byOrdinal(int o) {
             Action[] v = values();

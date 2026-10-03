@@ -12,6 +12,7 @@ import com.akashiic.fm.client.ClientEvents;
 import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.ClientTaskQueue;
+import com.akashiic.fm.client.MuteKeys;
 import com.akashiic.fm.client.audio.AlCapabilityProbe;
 import com.akashiic.fm.client.gui.FmScreen;
 import com.akashiic.fm.client.gui.GuiPortableRadio;
@@ -55,6 +56,7 @@ public class ClientProxy extends CommonProxy {
             .bus()
             .register(events);
         MinecraftForge.EVENT_BUS.register(events);
+        MuteKeys.register();
         ClientRegistry.bindTileEntitySpecialRenderer(TileRadio.class, new TileRadioRenderer());
         ClientRegistry.bindTileEntitySpecialRenderer(TileSpeaker.class, new TileSpeakerRenderer());
         ClientRegistry.bindTileEntitySpecialRenderer(TileTransmitter.class, new TileTransmitterRenderer());

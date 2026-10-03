@@ -43,6 +43,8 @@ import cpw.mods.fml.relauncher.ReflectionHelper;
 public final class AudioEngine {
 
     public static final AudioEngine INSTANCE = new AudioEngine();
+    /** Buffers AL de cada voz, sempre (diagnóstico: buffers vivos = vozes × isto). */
+    public static final int BUFFERS_PER_VOICE = Voice.POOL_SIZE;
 
     private static final long WATCHDOG_NANOS = 2_000_000_000L;
     /**

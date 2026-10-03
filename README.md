@@ -75,6 +75,10 @@ Feito:
   - **bloqueio:** o jogador bloqueado não controla nada, e os transmissores e o portátil dele ficam mudos.
   
   Guia em [`docs/ADMIN.md`](docs/ADMIN.md); detalhes em [`docs/FASE7-RESULTADOS.md`](docs/FASE7-RESULTADOS.md).
+- **Fase 7b:**
+  - **playlist:** as favoritas em sequência, sem cortar o fim de cada faixa, também para quem está ouvindo junto;
+  - **teclas de silenciar:** todas as rádios (o servidor para de mandar áudio para você) ou só a que você olha;
+  - **áudio robusto a engasgos:** cada fonte guarda ~1 s de áudio, então um engasgo de 700 ms do jogo não corta o som.
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -89,7 +93,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 6a | Frequências, transmissor, antenas e energia opcional (EU/RF) ✅ |
 | 6b | Rádio portátil e fone (com Baubles opcional) ✅ |
 | 7a | Admin (`/fm`), log de auditoria e bloqueio de jogador ✅ |
-| 7b | Mute no cliente e playlist |
+| 7b | Playlist, teclas de silenciar e áudio robusto a engasgos ✅ |
 | 7c | OpenComputers (opcional), revisão final e release 1.0.0 |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
@@ -108,6 +112,13 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 - **Rádio portátil:** botão direito abre a tela (URL ou FM, volume, ligar/desligar); agachado + botão direito liga e desliga. Toca de qualquer slot do inventário; se houver mais de um ligado, toca o primeiro. Sem fone, quem está a até 16 blocos (config) também ouve, de onde você está.
 - **Fone:** use no slot de capacete (ou, com o Baubles Expanded, nos slots de cabeça ou de brinco). Com ele o portátil toca só para você, em estéreo e sem o reverb da sala.
 - **Rádio no modo FM:** na tela da rádio, o botão "URL/FM" troca o modo. No FM, « ‹ › » giram a frequência (±1,0 e ±0,1 MHz; as setas ← → do teclado também) e a rádio toca o transmissor mais forte daquela frequência que alcança o lugar. A tela mostra "Sinal 73% · estação"; sem cobertura, "sem sinal".
+- **Playlist:** na tela da rádio, o botão "Playlist" (verde quando ligada) toca as favoritas em sequência.
+  - Quando uma termina (arquivo) ou falha, passa para a próxima, em loop, sem cortar o fim da faixa.
+  - Se todas falharem em seguida, a rádio para e mostra o motivo.
+  - Só no relay: no modo direto o servidor não sabe quando o arquivo acaba.
+- **Silenciar:** duas teclas em Controles → AkashicFM, sem tecla padrão (escolha as suas):
+  - **"Silenciar todas as rádios":** liga e desliga o som do mod, e o servidor para de mandar áudio para você;
+  - **"Silenciar a rádio que estou olhando":** a rádio, a caixa (silencia a rádio dela), o transmissor (silencia a estação dele) ou o portátil de outro jogador, até 32 blocos. Vale só para você e até sair do servidor. A tela e o WAILA mostram "silenciada para você".
 - **No cliente:** volume geral das rádios, limite de rádios simultâneas, a opção de recusar streams diretos, oclusão, reverb, aviso "tocando agora" e visualizador ficam no config. O slider "Jukebox/Discos" do Minecraft também controla as rádios.
 
 ## Admin (`/fm`, op)

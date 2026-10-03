@@ -27,8 +27,13 @@ final class Playback {
 
     /** 2048 frames a 48 kHz ≈ 42,7 ms por buffer. */
     static final int CHUNK_FRAMES = 2048;
-    /** Buffers na fila de cada fonte (≈ 341 ms): aguenta frames lentos sem picotar. */
-    static final int TARGET_CHUNKS = 8;
+    /**
+     * Buffers na fila de cada fonte (≈ 1 s). Quem enche a fila é a thread do cliente, a cada frame: um engasgo do
+     * jogo (chunks carregando, GC, autosave) maior que a fila corta o som. Com 1 s, um engasgo de 700 ms passa
+     * sem underrun (E2E). Volume, posição, oclusão e parada continuam imediatos: são parâmetros da fonte, não da
+     * fila. O feed tem folga para isso: a latência do relay (1,5 s) e os anéis de PCM (6 a 8 s).
+     */
+    static final int TARGET_CHUNKS = 24;
     /** Antes de (re)começar, espera ter isto no feed (≈ 171 ms). */
     static final int PREBUFFER_CHUNKS = 4;
     /** Blocos recentes guardados para uma voz nova entrar alinhada (cobre a fila inteira com folga). */
@@ -207,7 +212,7 @@ final class Playback {
         updateVisuals(dtSeconds, now);
     }
 
-    /** Espectro mostrado: o do bloco que está soando agora (não o que acabou de entrar na fila, 340 ms adiante). */
+    /** Espectro mostrado: o do bloco que está soando agora (não o que acabou de entrar na fila, ~1 s adiante). */
     private void updateVisuals(double dt, long now) {
         if (visualRequested && now - visualRequestNanos > VISUAL_REQUEST_NANOS) visualRequested = false;
         int slot = -1;

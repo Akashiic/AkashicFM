@@ -3,9 +3,11 @@ package com.akashiic.fm.client;
 import java.util.ArrayList;
 import java.util.List;
 
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.StatCollector;
 
 import com.akashiic.fm.common.Frequency;
+import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.TuneMode;
@@ -40,7 +42,11 @@ public final class RadioInfo {
         String owner = s.ownerName.isEmpty() ? t("akashicfm.gui.no_owner") : t("akashicfm.gui.owner", s.ownerName);
         out.add(t("akashicfm.waila.access", t("akashicfm.gui.access." + s.access.name())) + " · " + owner);
         if (!s.speakers.isEmpty()) out.add(t("akashicfm.waila.speakers", s.speakers.size()));
+        if (s.playlist && !tuned && !s.stations.isEmpty()) out.add(t("akashicfm.waila.playlist", s.stations.size()));
         if (!s.status.isEmpty()) out.add("§e" + status(s.status));
+        if (ClientMutes.radioMuted(radio.dimension(), radio.pos(), s.effectiveUrl())) {
+            out.add("§6" + t("akashicfm.waila.muted"));
+        }
         return out;
     }
 
@@ -61,6 +67,7 @@ public final class RadioInfo {
         }
         String owner = s.ownerName.isEmpty() ? t("akashicfm.gui.no_owner") : t("akashicfm.gui.owner", s.ownerName);
         out.add(t("akashicfm.waila.access", t("akashicfm.gui.access." + s.access.name())) + " · " + owner);
+        if (ClientMutes.urlMuted(s.url)) out.add("§6" + t("akashicfm.waila.station_muted"));
         return out;
     }
 
@@ -75,6 +82,15 @@ public final class RadioInfo {
         if (speaker.linkedRadio == null) out.add("§7" + t("akashicfm.waila.speaker.unlinked"));
         else out.add(
             t("akashicfm.waila.speaker.linked", speaker.linkedRadio.x, speaker.linkedRadio.y, speaker.linkedRadio.z));
+        if (speaker.linkedRadio != null && speaker.getWorldObj() != null) {
+            Pos r = speaker.linkedRadio;
+            TileEntity te = speaker.getWorldObj()
+                .getTileEntity(r.x, r.y, r.z);
+            String url = te instanceof TileRadio ? ((TileRadio) te).state.effectiveUrl() : null;
+            if (ClientMutes.radioMuted(speaker.getWorldObj().provider.dimensionId, r, url)) {
+                out.add("§6" + t("akashicfm.waila.muted"));
+            }
+        }
         return out;
     }
 

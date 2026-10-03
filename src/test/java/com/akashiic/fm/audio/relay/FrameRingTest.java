@@ -34,6 +34,16 @@ class FrameRingTest {
     }
 
     @Test
+    void fimDoAudioEhOFimDoUltimoFrame() throws Exception {
+        FrameRing r = new FrameRing(100, clock::get);
+        assertEquals(-1, r.endPtsMs()); // nada ainda
+        assertEquals(-1, r.lastSeq());
+        for (int i = 0; i < 3; i++) add(r);
+        assertEquals(10_000 + 3 * 20L, r.endPtsMs()); // o terceiro começa em +40 e dura 20
+        assertEquals(2, r.lastSeq());
+    }
+
+    @Test
     void entradaAtrasadaRebaseiaParaORelogio() throws Exception {
         FrameRing r = new FrameRing(100, clock::get);
         add(r);

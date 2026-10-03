@@ -4,6 +4,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
+import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.http.UrlPolicy;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Frequency;
@@ -179,6 +180,14 @@ public final class RadioActionHandler {
                     radio.markStateChanged();
                 }
                 return;
+            case SET_PLAYLIST:
+                if (!control) break;
+                boolean on = msg.intArg != 0;
+                if (on != s.playlist) {
+                    s.playlist = on;
+                    radio.markStateChanged();
+                }
+                return;
             default:
                 return;
         }
@@ -238,13 +247,31 @@ public final class RadioActionHandler {
         if (radio.state.mode == TuneMode.FREQUENCY && radio.state.playing) FrequencyService.retune(radio);
     }
 
-    /** Para a rádio (jogador ou admin): esquece status e transmissor ouvido. Devolve false se já estava parada. */
-    static boolean applyStop(RadioState s) {
+    /**
+     * Para a rádio (jogador, admin ou playlist): esquece status e transmissor ouvido. Devolve false se já estava
+     * parada.
+     */
+    public static boolean applyStop(RadioState s) {
         if (!s.playing) return false;
         s.playing = false;
         s.status = "";
         clearTuning(s);
         return true;
+    }
+
+    /**
+     * A playlist trocou de faixa (a URL já passou pela política): sessão nova, para os clientes recomeçarem, e outra
+     * conexão se a estação dessa URL já terminou (loop de uma faixa só, ou a lista voltando ao começo). Quem chama
+     * marca a mudança.
+     */
+    public static void applyPlaylistUrl(TileRadio radio, String url) {
+        RadioState s = radio.state;
+        s.url = url;
+        s.session++;
+        s.status = "";
+        s.nowPlaying = "";
+        RelayService.retryIfFailed(url);
+        AkashicFM.LOG.debug("Playlist: rádio em dim {} {} passou para {}", radio.dimension(), radio.pos(), url);
     }
 
     /** Esquece o transmissor ouvido (parou, trocou de modo). */

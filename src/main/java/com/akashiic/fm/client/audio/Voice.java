@@ -20,7 +20,8 @@ import com.akashiic.fm.common.SpeakerChannel;
  */
 final class Voice {
 
-    static final int POOL_SIZE = 10;
+    /** A fila da reprodução ({@link Playback#TARGET_CHUNKS}) mais folga para os processados ainda não devolvidos. */
+    static final int POOL_SIZE = Playback.TARGET_CHUNKS + 2;
     /**
      * Objetos AL do mod que existem agora (criados e ainda não apagados nem perdidos com o contexto). Diagnóstico:
      * com as reproduções estáveis, buffers = vozes × {@link #POOL_SIZE} e fontes = vozes, sempre.

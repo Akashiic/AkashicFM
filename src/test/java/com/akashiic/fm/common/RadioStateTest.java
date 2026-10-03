@@ -23,6 +23,7 @@ class RadioStateTest {
         RadioState s = new RadioState();
         s.url = "https://stream.example.com/live.mp3";
         s.stations.addAll(Arrays.asList("http://a.com/1", "http://b.com/2"));
+        s.playlist = true;
         s.playing = true;
         s.volume = 77;
         s.range = 33;
@@ -57,6 +58,7 @@ class RadioStateTest {
         RadioState r = roundTrip(s, true);
         assertEquals(s.url, r.url);
         assertEquals(s.stations, r.stations);
+        assertTrue(r.playlist);
         assertTrue(r.playing);
         assertEquals(77, r.volume);
         assertEquals(33, r.range);
@@ -182,6 +184,7 @@ class RadioStateTest {
         assertEquals(RadioLimits.RANGE_DEFAULT, s.range);
         assertEquals(RadioLimits.SCREEN_COLOR_DEFAULT, s.screenColor);
         assertNull(s.owner);
+        assertFalse(s.playlist); // NBT de antes da Fase 7: playlist desligada
     }
 
     @Test
@@ -193,6 +196,7 @@ class RadioStateTest {
         r.readSettings(tag, MAX_RANGE, MAX_SPEAKERS);
         assertEquals(s.url, r.url);
         assertEquals(s.stations, r.stations);
+        assertTrue(r.playlist); // a playlist viaja com o item
         assertEquals(77, r.volume);
         assertEquals(33, r.range);
         assertEquals("Rock FM", r.screenText);

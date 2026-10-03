@@ -19,7 +19,7 @@ import cpw.mods.fml.common.network.FMLNetworkEvent;
  * Liga o mod ao ciclo do cliente. Registrado nos dois barramentos (FML para ticks e rede, Forge para mundo).
  * <ul>
  * <li>início do tick: executa o que a rede deixou na fila;</li>
- * <li>fim do tick: o controlador decide o que toca e com que ganho;</li>
+ * <li>fim do tick: as teclas de silenciar e o controlador, que decide o que toca e com que ganho;</li>
  * <li>início do frame: a engine alimenta o OpenAL;</li>
  * <li>mundo descarregado ou desconexão: silêncio imediato, nada fica tocando sozinho.</li>
  * </ul>
@@ -32,6 +32,8 @@ public final class ClientEvents {
             ClientTaskQueue.drain();
             ClockSync.tick(Minecraft.getMinecraft());
         } else {
+            MuteKeys.tick(Minecraft.getMinecraft()); // antes do controlador: o silêncio vale já neste tick
+            ListeningReporter.tick(Minecraft.getMinecraft());
             RadioAudioController.tick(Minecraft.getMinecraft());
         }
     }
@@ -60,6 +62,8 @@ public final class ClientEvents {
             ClockSync.reset();
             RadioAudioController.resetNowPlaying();
             ClientPortables.clear();
+            ClientMutes.clear(); // o silêncio de uma rádio vale só para a sessão
+            ListeningReporter.reset();
             World current = Minecraft.getMinecraft().theWorld;
             ClientRadioRegistry.retainWorld(current);
             if (current == null) AudioEngine.INSTANCE.stopAll();

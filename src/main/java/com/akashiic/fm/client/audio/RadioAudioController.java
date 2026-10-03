@@ -13,12 +13,14 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.World;
 
 import com.akashiic.fm.audio.dsp.GainModel;
 import com.akashiic.fm.audio.spatial.OcclusionTracer;
 import com.akashiic.fm.audio.spatial.RoomModel;
+import com.akashiic.fm.client.ClientMutes;
 import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.client.ClientRadioRegistry;
 import com.akashiic.fm.client.NowPlaying;
@@ -168,6 +170,8 @@ public final class RadioAudioController {
             // Sintonizada, toca a URL do transmissor ouvido (vazia = sem sinal, silêncio).
             final String url = s.effectiveUrl();
             if (!s.playing || url.isEmpty()) continue;
+            // Silenciada por este jogador (tecla): só as fontes dela saem; o grupo do relay segue com as outras.
+            if (ClientMutes.radioMuted(radio.dimension(), radio.pos(), url)) continue;
             if (s.transport == Transport.DIRECT && !FmConfig.Client.allowDirectStreams) continue;
             RelayFeed relay = null;
             if (s.transport == Transport.RELAY) {
@@ -322,6 +326,12 @@ public final class RadioAudioController {
             if (p.transport == Transport.DIRECT && !FmConfig.Client.allowDirectStreams) continue;
             boolean self = p.entityId == player.getEntityId();
             Entity carrier = self ? player : world.getEntityByID(p.entityId);
+            if (!self) {
+                // O portátil de outro jogador silenciado (pelo UUID), ou tocando uma estação silenciada. O seu
+                // próprio portátil não: foi você que ligou.
+                if (carrier instanceof EntityPlayer) ClientMutes.sawCarrier(p.entityId, carrier.getUniqueID());
+                if (ClientMutes.carrierMuted(p.entityId) || ClientMutes.urlMuted(p.url)) continue;
+            }
             RelayFeed relay = null;
             if (p.transport == Transport.RELAY) {
                 relay = RelayClient.feedForUrl(p.url);

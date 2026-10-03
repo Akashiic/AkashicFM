@@ -44,6 +44,10 @@ O jar já traz os codecs (Opus, MP3, OGG Vorbis/Opus, AAC/HE-AAC), relocados. N�
 
 Com os dois ligados, o relay tem preferência. O modo direto entra só quando uma estação não cabe nos limites do relay (`maxStations`).
 
+**Quem não ouve não gasta banda.** Um jogador que silencia todas as rádios (tecla), desliga o áudio do mod ou zera o volume sai da audiência do relay, como quem está longe: o servidor para de mandar áudio para ele. Uma estação que fica sem ouvintes fecha em 10 s.
+
+**Playlist:** só no relay. No modo direto ela não avança, porque o servidor não sabe quando o arquivo termina.
+
 ## Config (`config/akashicfm.cfg`)
 
 As categorias abaixo valem no servidor. **Recarregáveis** com `/fm reload`, sem reiniciar, exceto onde a tabela diz o contrário.
@@ -56,7 +60,7 @@ As categorias abaixo valem no servidor. **Recarregáveis** com `/fm reload`, sem
 | `opusBitrateKbps` | `64` | Bitrate do Opus por ouvinte (24 a 128). Vale para as estações que começarem depois do reload. |
 | `maxStations` | `8` | Estações diferentes baixadas ao mesmo tempo. |
 | `maxListeners` | `64` | Jogadores recebendo áudio pelo relay ao mesmo tempo, somando todas as estações. |
-| `latencyTargetMs` | `1500` | Atraso fixo até a reprodução (300 a 5000). **Só ao reiniciar o servidor:** os ouvintes conectados guardam a latência antiga. |
+| `latencyTargetMs` | `1500` | Atraso fixo até a reprodução (300 a 5000). Abaixo de ~1000, sobra menos folga para engasgos do jogo dos clientes (cada fonte guarda até 1 s de áudio). **Só ao reiniciar o servidor:** os ouvintes conectados guardam a latência antiga. |
 
 ### `direct`
 

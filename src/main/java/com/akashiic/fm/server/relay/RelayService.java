@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -84,6 +85,8 @@ public final class RelayService {
     private static final StationHub HUB = new StationHub();
     /** Assinaturas por jogador, por id de estação. Só a thread principal. */
     private static final Map<UUID, Map<Integer, Subscription>> SUBS = new HashMap<>();
+    /** Jogadores com o som do mod desligado no cliente ({@code C2SListening}): fora de toda audiência. */
+    private static final Set<UUID> NOT_LISTENING = ConcurrentHashMap.newKeySet();
     private static final Map<UUID, Long> BYTES_SENT = new HashMap<>();
     private static final Map<Pos, Long> TITLE_UPDATED_MS = new HashMap<>();
     private static final ConcurrentLinkedQueue<Ping> PINGS = new ConcurrentLinkedQueue<>();
@@ -166,6 +169,7 @@ public final class RelayService {
                 if (!(o instanceof EntityPlayerMP) || o instanceof FakePlayer) continue;
                 EntityPlayerMP player = (EntityPlayerMP) o;
                 UUID id = player.getUniqueID();
+                if (NOT_LISTENING.contains(id)) continue; // som desligado no cliente: como quem está longe
                 for (TileRadio r : radios) {
                     String url = r.state.effectiveUrl();
                     boolean already = isSubscribedTo(id, url);
@@ -182,7 +186,7 @@ public final class RelayService {
         // Rádios portáteis: o PortableSources já decidiu quem ouve cada uma (com histerese própria).
         for (Map.Entry<UUID, Set<String>> e : PortableSources.relayWants()
             .entrySet()) {
-            if (!online.containsKey(e.getKey())) continue;
+            if (!online.containsKey(e.getKey()) || NOT_LISTENING.contains(e.getKey())) continue;
             wanted.computeIfAbsent(e.getKey(), k -> new HashSet<>())
                 .addAll(e.getValue());
             wantedUrls.addAll(e.getValue());
@@ -278,13 +282,16 @@ public final class RelayService {
     }
 
     private static void updateRadioStatus(long now) {
+        PlaylistService.beginCycle();
         for (WorldServer world : DimensionManager.getWorlds()) {
             if (world == null) continue;
             for (TileRadio r : ServerRadioRegistry.inDimension(world.provider.dimensionId)) {
                 if (!relayed(r)) continue;
+                PlaylistService.keep(r);
                 Station s = HUB.get(r.state.effectiveUrl());
                 if (s == null) continue;
-                String status = statusFor(s);
+                // Com playlist, o fim da faixa não é "terminou": o fim ainda está soando e a próxima vem.
+                String status = PlaylistService.willAdvance(r, s) ? "" : statusFor(s);
                 boolean changed = false;
                 if (!status.equals(r.state.status)) {
                     r.state.status = status;
@@ -299,9 +306,11 @@ public final class RelayService {
                         changed = true;
                     }
                 }
+                if (PlaylistService.update(r, s, now, latencyMs())) changed = true;
                 if (changed) r.markStateChanged();
             }
         }
+        PlaylistService.endCycle();
         if (TITLE_UPDATED_MS.size() > 4096) TITLE_UPDATED_MS.clear();
     }
 
@@ -360,6 +369,18 @@ public final class RelayService {
         return s == null ? "" : statusFor(s);
     }
 
+    /**
+     * Fecha já a estação da URL se nenhuma rádio nem portátil a toca mais pelo relay (a playlist trocou de faixa: a
+     * vaga do limite de estações volta na hora, sem esperar o prazo de expiração).
+     */
+    static void releaseIfUnused(String url) {
+        if (url == null || url.isEmpty() || HUB.get(url) == null) return;
+        for (TileRadio r : ServerRadioRegistry.snapshot()) if (relayed(r) && url.equals(r.state.effectiveUrl())) return;
+        if (PortableSources.relayedUrls()
+            .contains(url)) return;
+        HUB.restart(url);
+    }
+
     /** A estação da URL terminou com erro ou fim: um novo "tocar" tenta de novo com outra conexão. */
     public static boolean retryIfFailed(String url) {
         Station s = HUB.get(url);
@@ -385,7 +406,19 @@ public final class RelayService {
         return n;
     }
 
+    /** O cliente disse se está ouvindo (rede: thread-safe). Sem aviso, ouve. */
+    public static void setListening(UUID player, boolean listening) {
+        if (player == null) return;
+        if (listening) NOT_LISTENING.remove(player);
+        else NOT_LISTENING.add(player);
+    }
+
+    public static boolean isListening(UUID player) {
+        return !NOT_LISTENING.contains(player);
+    }
+
     public static void forget(UUID player) {
+        NOT_LISTENING.remove(player);
         SUBS.remove(player);
         PING_LIMITER.forget(player);
     }
@@ -406,6 +439,8 @@ public final class RelayService {
         SUBS.clear();
         BYTES_SENT.clear();
         TITLE_UPDATED_MS.clear();
+        PlaylistService.clear();
+        NOT_LISTENING.clear();
         PINGS.clear();
         PENDING_PINGS.set(0);
         PING_LIMITER.clear();

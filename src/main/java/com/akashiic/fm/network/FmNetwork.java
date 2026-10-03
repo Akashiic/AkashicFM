@@ -44,6 +44,8 @@ public final class FmNetwork {
         id = ClockStamps.PONG_DISCRIMINATOR + 1;
         CHANNEL.registerMessage(C2SPortableAction.Handler.class, C2SPortableAction.class, id++, Side.SERVER);
         CHANNEL.registerMessage(S2CPortableSources.Handler.class, S2CPortableSources.class, id++, Side.CLIENT);
+        // Fase 7b.
+        CHANNEL.registerMessage(C2SListening.Handler.class, C2SListening.class, id++, Side.SERVER);
     }
 
     public static void sendTo(IMessage message, EntityPlayerMP player) {
