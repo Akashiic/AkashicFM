@@ -178,6 +178,21 @@ akashicfm.cmd.already_blocked=%s is already blocked.
 akashicfm.cmd.not_blocked=%s is not blocked.
 akashicfm.cmd.blocked_list=Blocked players: %s
 akashicfm.cmd.queued=The server is busy: the command will run on the next tick (the result goes to the audit log).
+akashicfm.cmd.radio=dim %s %s · %s · %s · %s
+akashicfm.cmd.radio_info=playing=%s volume=%s range=%s speakers=%s access=%s session=%s
+akashicfm.cmd.fm_tuned=%s FM -> %s
+akashicfm.cmd.fm_no_signal=%s FM (no signal)
+akashicfm.cmd.no_owner=no owner
+akashicfm.cmd.transmitter=dim %s %s · %s MHz · %s · %s blocks · %s · %s
+akashicfm.cmd.transmitter_head=dim %s %s · %s MHz · %s · %s
+akashicfm.cmd.transmitter_info=url=%s broadcasting=%s on_air=%s antennas=%s range=%s
+akashicfm.cmd.transmitter_energy=energy=%s/%s
+akashicfm.cmd.on_air=on air
+akashicfm.cmd.off_air=off air
+akashicfm.cmd.owner_blocked=%s (owner blocked)
+akashicfm.cmd.portable=%s · %s · %s · %s listening
+akashicfm.cmd.portable_headphones=%s · %s · %s · headphones · %s listening
+akashicfm.cmd.no_signal=(no signal)
 key.categories.akashicfm=AkashicFM
 key.akashicfm.mute_all=Mute all radios
 key.akashicfm.mute_target=Mute the radio I'm looking at

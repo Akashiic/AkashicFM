@@ -4,9 +4,11 @@ Como instalar e operar o AkashicFM num servidor multiplayer: o que vai no servid
 
 ## Instalação
 
-**No servidor e em todos os clientes**, o mesmo jar:
+**Base:** Minecraft 1.7.10 com Forge 10.13.4.1614; Java 8, ou Java 17+ com o lwjgl3ify (como no GTNH).
+
+**No servidor e em todos os clientes**, o mesmo jar (o Forge recusa a conexão com versões diferentes):
 - `akashicfm-<versão>.jar`;
-- **GTNHLib** 0.11.52 ou mais novo (obrigatório);
+- **GTNHLib** 0.5.23 ou mais novo (obrigatório): testado com os mods de produção do GTNH 2.7.4, 2.8.4 e 2.9. Com um mais antigo, o Forge mostra a tela de dependência faltando;
 - **UniMixins** (obrigatório; já vem em qualquer pack GTNH).
 
 **Opcionais** (o mod detecta sozinho, sem config):
@@ -134,6 +136,8 @@ O alcance novo vale em até 1 s; o consumo, na hora.
 
 - **`recipes`:** `registerDefaultRecipes` só vale ao reiniciar o jogo.
 - **`client`:** cada jogador tem o seu (volume, rádios simultâneas, oclusão, reverb etc.), pela tela de config do mod.
+
+**GTNHLib anterior à 0.9.62** (GTNH 2.7 e 2.8): ele não tem o recarregamento próprio. O `/fm reload` relê o arquivo por outro caminho, com o mesmo resultado; a latência do relay continua só ao reiniciar.
 
 ## Comandos (`/fm`, op nível 2)
 

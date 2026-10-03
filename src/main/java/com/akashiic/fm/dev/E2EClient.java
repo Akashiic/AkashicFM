@@ -1816,13 +1816,13 @@ public final class E2EClient {
                 // De frente para a rádio, olhando para ela (o /fm info sem coordenadas usa o bloco olhado).
                 mc().thePlayer.rotationYaw = 180f;
                 mc().thePlayer.rotationPitch = 37f;
-                seen = countChat("tocando=true");
+                seen = countChat("playing=true");
             }
 
             @Override
             String tick(int t) {
                 if (t == 5) say("/fm info");
-                return countChat("tocando=true") > seen ? "" : null;
+                return countChat("playing=true") > seen ? "" : null;
             }
         });
         steps.add(reloadReadsFile());

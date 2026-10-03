@@ -74,8 +74,15 @@ public class CommonProxy {
             .bus()
             .register(events);
         MinecraftForge.EVENT_BUS.register(events);
-        // OpenComputers opcional: os drivers ficam num pacote que só carrega com o OC instalado.
-        if (Loader.isModLoaded("OpenComputers")) OcCompat.register();
+        // OpenComputers opcional: os drivers ficam num pacote que só carrega com o OC instalado. Um OC com API
+        // incompatível desliga só os componentes, nunca derruba o jogo.
+        if (Loader.isModLoaded("OpenComputers")) {
+            try {
+                OcCompat.register();
+            } catch (LinkageError | RuntimeException e) {
+                AkashicFM.LOG.warn("OpenComputers: versão incompatível, componentes desligados ({})", e.toString());
+            }
+        }
     }
 
     public void serverStarting(FMLServerStartingEvent event) {

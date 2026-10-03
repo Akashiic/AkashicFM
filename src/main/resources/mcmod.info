@@ -13,9 +13,6 @@
 		"logoFile": "",
 		"screenshots": [],
 		"parent": "",
-		"requiredMods": ["gtnhlib"],
-		"dependencies": ["gtnhlib"],
-		"dependants": [],
-		"useDependencyInformation": true
+		"useDependencyInformation": false
 	}]
 }

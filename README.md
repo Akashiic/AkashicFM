@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: Fase 7
+## Estado atual: 1.0.0
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -82,6 +82,12 @@ Feito:
 - **Fase 7c:**
   - **OpenComputers (opcional):** o componente `openfm_radio`, com os nomes e as respostas do OpenFM (scripts antigos funcionam por um Adaptador encostado na rádio), e o novo `akashicfm_transmitter`;
   - **seguro:** o computador tem as permissões de um jogador qualquer, passa pela mesma política de URL, faz no máximo 4 mudanças por segundo por bloco e fica no log de auditoria.
+- **1.0.0:**
+  - **jars de produção testados** num servidor Forge dedicado com um cliente Forge de verdade, nos mods do GTNH 2.7.4, 2.8.4 (estável) e 2.9 (`tools/prod`);
+  - **compatível com o GTNH estável:** GTNHLib 0.5.23 ou mais novo, com o `/fm reload` funcionando também nos GTNHLib sem recarregamento próprio;
+  - **saída do `/fm` traduzida** (inglês e português).
+
+  Detalhes em [`docs/FASE7-RESULTADOS.md`](docs/FASE7-RESULTADOS.md#100-revisão-final-e-teste-com-os-jars-de-produção).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -98,9 +104,16 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 7a | Admin (`/fm`), log de auditoria e bloqueio de jogador ✅ |
 | 7b | Playlist, teclas de silenciar e áudio robusto a engasgos ✅ |
 | 7c | OpenComputers (opcional) ✅ |
-| 1.0.0 | Revisão final, teste com os jars de produção e release |
+| 1.0.0 | Revisão final, teste com os jars de produção e release ✅ |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
+
+## Instalação
+
+- **Base:** Minecraft 1.7.10 com Forge 10.13.4.1614; Java 8, ou Java 17+ com o lwjgl3ify (como no GTNH).
+- **O mesmo jar no servidor e em todos os clientes**, com **GTNHLib 0.5.23 ou mais novo** e **UniMixins**, que já vêm no pack: testado com os mods de produção do GTNH 2.7.4, 2.8.4 e 2.9.
+- **Opcionais**, detectados sozinhos: IC2/GregTech ou RF (energia do transmissor), Baubles Expanded (fone), WAILA e OpenComputers.
+- Guia completo do servidor (config, relay, comandos, auditoria) em [`docs/ADMIN.md`](docs/ADMIN.md).
 
 ## Como usar
 

@@ -3,7 +3,8 @@
 A Fase 7 fecha o projeto em três partes:
 - **7a:** ferramentas de admin (`/fm`), log de auditoria e bloqueio de jogadores;
 - **7b:** mute no cliente e playlist;
-- **7c:** OpenComputers opcional, revisão final e release 1.0.0.
+- **7c:** OpenComputers opcional;
+- **1.0.0:** revisão final, teste com os jars de produção e release.
 
 ## 7a: admin, auditoria e bloqueio
 
@@ -255,3 +256,75 @@ A Fase 7 fecha o projeto em três partes:
 - **Toda chamada de computador falhava** (achado pelo E2E). O OC gera, no pacote dele, uma classe que chama cada callback direto. Com as classes do adaptador package-private, isso dava `IllegalAccessError` em toda chamada. Agora são públicas.
 - **O componente não se chamaria `openfm_radio`** (achado pelo E2E). O Adaptador junta os drivers num componente só, com o nome do bloco ("akashicfm_radio"), e os scripts do OpenFM não o achariam. Os ambientes implementam `NamedBlock` com o nome preferido.
 - **Computador com mais poder que um jogador.** Numa rádio pública de alguém, o computador mudaria a tela e a redstone, que são do dono. Agora segue as mesmas permissões.
+
+## 1.0.0: revisão final e teste com os jars de produção
+
+### Teste com os jars de produção (`tools/prod`)
+O E2E roda no ambiente de dev (deobfuscado, `GradleStart`). Ficava sem prova o que só existe no jar de verdade:
+- os nomes reobfuscados (SRG) e os mixins dentro do jar;
+- o lançador do Forge;
+- o LWJGL 2.9.1 e o OpenAL Soft originais do Java 8;
+- a convivência com os mods de produção.
+
+As ferramentas:
+- **`tools/prod/setup.sh`:** instala o Forge 1.7.10-10.13.4.1614 como servidor dedicado, baixa os mods de produção e monta o classpath de um cliente Forge de verdade (`client.jar` vanilla e bibliotecas da Mojang).
+- **`tools/prod/packs.sh`:** os conjuntos de mods, com as versões dos manifestos de release do GTNH.
+- **`tools/prod/run.sh gtnh-2.9|gtnh-2.8|gtnh-2.7|min`:** servidor dedicado + cliente com o OpenAL gravando a mixagem num WAV.
+  - A rádio entra pelo console (`setblock` com NBT) e liga por um bloco de redstone.
+  - Toca ~45 s pelo relay e para pela redstone.
+  - Um `/fm reload` com uma allowlist que recusa a URL impede de ligar de novo; outro volta ao normal.
+  - Toca ~25 s, e o `/fm stopall` para.
+  - Também entram um transmissor com antena e o portátil e o fone no inventário, sem IC2, RF nem Baubles.
+- **`tools/prod/analyze.py`:** confere o WAV contra as marcas do roteiro, o `/fm info` nos dois momentos, o aviso de contexto OpenAL do mixin do cliente e que nenhuma pilha de exceção (nem erro de mixin) passa pelo mod.
+- **`tools/prod/refuse.sh`:** o servidor com o GTNHLib abaixo do mínimo.
+
+| Conjunto (Java 8, servidor + cliente) | Resultado |
+|---|---|
+| **GTNH 2.8.4** (estável): GTNHLib 0.7.10, UniMixins 0.1.23, Hodgepodge 2.6.112, OpenComputers 1.11.20 | **OK**: som de 25,4 a 66,8 s (esperado 22,8 a 66,9) e de 87,0 a 109,9 s (85,0 a 110,0); `/fm reload` pelo caminho alternativo nos dois sentidos |
+| **GTNH 2.7.4:** GTNHLib 0.5.23, UniMixins 0.1.19, Hodgepodge 2.5.90, OpenComputers 1.10.30 | **OK**: 25,9 a 67,2 s e 87,5 a 110,3 s |
+| **GTNH 2.9** (as versões do build, ~2.9.0-RC-1): GTNHLib 0.11.52, UniMixins 0.3.1, Hodgepodge 2.7.206, OpenComputers 1.12.64 | **OK**: 25,5 a 67,1 s e 87,3 a 110,1 s |
+| **Mínimo:** só GTNHLib 0.5.23 e UniMixins 0.1.19 | **OK**: 26,9 a 67,9 s e 88,3 a 111,0 s |
+| **Recusa:** GTNHLib 0.5.22 | **OK**: "The mod akashicfm (AkashicFM) requires mod versions [gtnhlib@[0.5.23,)]" |
+
+Em todos:
+- os dois mixins aplicaram, e o cliente avisou o contexto OpenAL na abertura e na recriação do som;
+- o transmissor contou a antena (alcance 96) e o portátil e o fone foram para o inventário;
+- nenhuma pilha de exceção passou pelo mod.
+
+### Achados (corrigidos antes do release)
+- **O mod só tinha sido testado com o GTNHLib do GTNH 2.9, e o estável é o 2.8.4.** Pelos manifestos de release do GTNH, o 2.8.4 (dezembro de 2025) traz GTNHLib 0.7.10, UniMixins 0.1.23, Hodgepodge 2.6.112 e OpenComputers 1.11.20; a 2.9 ainda está em RC.
+  - **Conferido nos jars do nexus da GTNH, versão a versão:** o `@Config.Reloadable` e o `reloadConfig` (o `/fm reload`) só existem a partir da 0.9.62, e o construtor da tela de config que o mod usa, a partir da 0.5.16. Fora isso, a API é a mesma desde a 0.5.16, e a do OpenComputers que os drivers usam é idêntica no 1.10.30, no 1.11.20 e no 1.12.64.
+  - **`/fm reload` em GTNHLib anterior à 0.9.62:** antes daria `NoSuchMethodError`. Agora o `ConfigReload` usa um caminho alternativo: o `Configuration` que o GTNHLib guarda relê o arquivo, e um novo `registerConfig` reaplica os campos. A latência do relay continua só ao reiniciar. Testado de verdade no GTNH 2.8.4 e no 2.7.4.
+  - **Mínimo declarado:** `required-after:gtnhlib@[0.5.23,)`, o GTNHLib mais antigo testado (GTNH 2.7.4).
+  - **OpenComputers com API incompatível** passa a desligar só os componentes, com um aviso no log, em vez de derrubar o jogo no init.
+- **A faixa do `@Mod` não valia** (achado pelo teste de recusa: o servidor subiu com um GTNHLib abaixo do mínimo). O `mcmod.info` pedia `useDependencyInformation`, e com isso o FML usa as listas dele e ignora o `dependencies` da anotação. Agora o `mcmod.info` não sobrepõe a anotação, e o `ModDependencyTest` lê a faixa como o FML e confere o `mcmod.info`.
+- **Saída do `/fm` em dois idiomas** (visto no console do servidor de produção): as linhas de `list` e `info` tinham rótulos fixos em português ("tocando=", "sem dono", "no ar") no meio das mensagens traduzidas. Agora vão por chaves de idioma (inglês e português): o admin no jogo lê no idioma dele, o console no do servidor.
+- **Refmap vazio no jar, de propósito:** os dois mixins usam `remap = false`, porque miram nomes que não mudam em produção (`channelRead0` do netty, `init`/`cleanup` do paulscode). O teste de produção confirmou os dois aplicando, sem erro de mixin, e o contexto OpenAL avisado no cliente.
+- **Armadilha do teste, não do mod:** o manifest do jar universal do Forge tem `Class-Path` para o `minecraft_server.1.7.10.jar` ao lado dele. Lançado da pasta do servidor, o cliente puxava classes do servidor (o FML acusa "binary discrepancy"). O `assemble.py` usa uma cópia isolada; num cliente instalado de verdade o jar fica em `libraries/`.
+
+### Matriz de regressão do release
+
+No código da tag (depois de todas as correções acima):
+
+| Rodada | Resultado |
+|---|---|
+| Testes unitários | **289/289** |
+| Java 21, relay | **137/137 + 23/23** |
+| Java 8, relay | **137/137 + 23/23** |
+| Java 21, modo direto | **125/125 + 20/20** |
+| Java 21, sem EFX | **137/137 + 23/23** |
+| Soak de 10 min | OK: 36 amostras, **0 violações**, 19 trocas de caixa, 4 recarregamentos do som, 0 underruns, heap 171 → 165 MB |
+| Prova acústica, com EFX | OK: lã −10,8 dB no nível e −19,6 dB nos agudos; vidro +0,3 e −3,0 dB; cauda na sala de pedra −21,7 dB; aberto sem cauda (−67,5 dB) |
+| Prova acústica, sem EFX | OK: lã −12,1 dB no nível e −3,5 dB nos agudos; sem cauda (−65,6 dB) |
+
+### Revisão linha a linha (sem mudança)
+- **Threads:** os handlers de rede só enfileiram para o tick ou usam estruturas thread-safe; o `/fm` vindo de RCON ou de ponte de chat passa pela fila da thread principal.
+- **Limites:** strings e listas dos pacotes têm teto; todo NBT é saneado na leitura, inclusive o de item vindo de cliente criativo.
+- **Lados:** nenhuma classe de cliente no servidor dedicado (o de produção rodou sem nenhum aviso de lado do mod); o WAILA só registra onde há cliente.
+- **OpenAL/EFX:** os contadores de fontes, buffers e objetos EFX vivos voltam a zero ao desconectar (E2E), e a engine recria tudo quando o contexto é recriado.
+- **`@Optional`:** IC2, RF e Baubles são cortados sem os mods (o servidor de produção instanciou o transmissor e os itens sem eles).
+- **Idiomas:** inglês e português com as mesmas chaves e os mesmos argumentos (`LangFilesTest`).
+
+### Para depois
+- Uma rádio ligada por redstone cuja URL a política recusa fica parada sem dizer o motivo; o botão Tocar diz. O OpenFM também não dizia.
+- Os logs do servidor ficam em português, escolha do projeto. Tudo que jogadores e admins leem no jogo é traduzido.

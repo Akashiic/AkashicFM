@@ -12,6 +12,8 @@ import java.util.UUID;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.util.IChatComponent;
 import net.minecraftforge.common.util.FakePlayer;
 
 import com.akashiic.fm.audio.http.UrlPolicy;
@@ -68,7 +70,7 @@ public final class PortableSources {
     private static Map<UUID, Set<String>> relayWants = Collections.emptyMap();
     private static Set<String> relayedUrls = Collections.emptySet();
     /** Linhas do último ciclo para o {@code /fm list portables}. */
-    private static List<String> described = Collections.emptyList();
+    private static List<IChatComponent> described = Collections.emptyList();
     private static int ticks;
 
     private PortableSources() {}
@@ -91,7 +93,7 @@ public final class PortableSources {
         Map<UUID, List<S2CPortableSources.Entry>> perListener = new HashMap<>();
         Map<UUID, Set<String>> wants = new HashMap<>();
         Set<String> urls = new HashSet<>();
-        List<String> lines = new ArrayList<>();
+        List<IChatComponent> lines = new ArrayList<>();
         for (Map.Entry<UUID, S2CPortableSources.Entry> se : sources.entrySet()) {
             EntityPlayerMP carrier = online.get(se.getKey());
             S2CPortableSources.Entry e = se.getValue();
@@ -108,14 +110,12 @@ public final class PortableSources {
             }
             c.audience = audience;
             lines.add(
-                carrier.getCommandSenderName() + " · "
-                    + (e.url.isEmpty() ? "(sem sinal)" : e.url)
-                    + " · "
-                    + e.transport
-                    + (e.headphones ? " · fone" : "")
-                    + " · "
-                    + audience.size()
-                    + " ouvindo");
+                new ChatComponentTranslation(
+                    e.headphones ? "akashicfm.cmd.portable_headphones" : "akashicfm.cmd.portable",
+                    carrier.getCommandSenderName(),
+                    e.url.isEmpty() ? new ChatComponentTranslation("akashicfm.cmd.no_signal") : e.url,
+                    e.transport.toString(),
+                    audience.size()));
             for (UUID l : audience) perListener.computeIfAbsent(l, k -> new ArrayList<>())
                 .add(e);
             if (e.transport == Transport.RELAY && !e.url.isEmpty()) {
@@ -271,7 +271,7 @@ public final class PortableSources {
     }
 
     /** Portadores do último ciclo (nome, URL, transporte, fone, ouvintes), para o {@code /fm}. */
-    public static List<String> describeCarriers() {
+    public static List<IChatComponent> describeCarriers() {
         return new ArrayList<>(described);
     }
 

@@ -17,12 +17,19 @@ import cpw.mods.fml.common.event.FMLServerStoppedEvent;
     name = AkashicFM.NAME,
     version = Tags.VERSION,
     acceptedMinecraftVersions = "[1.7.10]",
-    dependencies = "required-after:gtnhlib",
+    // Vale esta faixa, não a do mcmod.info (lá useDependencyInformation=false; o ModDependencyTest confere).
+    dependencies = "required-after:gtnhlib@[" + AkashicFM.MIN_GTNHLIB + ",)",
     guiFactory = "com.akashiic.fm.client.gui.FmGuiFactory")
 public class AkashicFM {
 
     public static final String MODID = "akashicfm";
     public static final String NAME = "AkashicFM";
+    /**
+     * O GTNHLib mais antigo testado com o mod (o do GTNH 2.7.4). Com um mais antigo, o FML mostra a tela de
+     * dependência: a 0.5.15 nem tem o construtor da tela de config que o mod usa. Abaixo da 0.9.62 (GTNH 2.7 e 2.8) o
+     * /fm reload vai pelo caminho alternativo do {@code ConfigReload}.
+     */
+    public static final String MIN_GTNHLIB = "0.5.23";
     public static final Logger LOG = LogManager.getLogger(NAME);
 
     @SidedProxy(clientSide = "com.akashiic.fm.ClientProxy", serverSide = "com.akashiic.fm.CommonProxy")

@@ -176,7 +176,7 @@ public final class FmCommand extends CommandBase {
     private void list(ICommandSender sender, String[] args) {
         String what = args.length > 0 ? args[0].toLowerCase(java.util.Locale.ROOT) : "radios";
         int page = args.length > 1 ? parseIntWithMin(sender, args[1], 1) : 1;
-        List<String> lines = new ArrayList<>();
+        List<IChatComponent> lines = new ArrayList<>();
         if (what.startsWith("radio")) {
             for (TileRadio r : ServerRadioRegistry.snapshot()) {
                 if (r.isInvalid() || !r.state.playing) continue;
@@ -186,7 +186,7 @@ public final class FmCommand extends CommandBase {
             for (TransmitterIndex.Entry e : TransmitterIndex.get(overworld())
                 .all()) lines.add(describe(e));
         } else if (what.startsWith("port")) {
-            lines.addAll(PortableSources.describeCarriers());
+            for (IChatComponent c : PortableSources.describeCarriers()) lines.add(c.createCopy());
         } else {
             throw new WrongUsageException("akashicfm.cmd.usage");
         }
@@ -194,7 +194,7 @@ public final class FmCommand extends CommandBase {
         page = Math.min(page, pages);
         reply(sender, new ChatComponentTranslation("akashicfm.cmd.list." + listKey(what), lines.size(), page, pages));
         for (int i = (page - 1) * PAGE_SIZE; i < Math.min(lines.size(), page * PAGE_SIZE); i++) {
-            reply(sender, new ChatComponentText(" " + lines.get(i)));
+            reply(sender, new ChatComponentText(" ").appendSibling(lines.get(i)));
         }
     }
 
@@ -202,34 +202,43 @@ public final class FmCommand extends CommandBase {
         return what.startsWith("radio") ? "radios" : what.startsWith("trans") ? "transmitters" : "portables";
     }
 
-    static String describe(TileRadio r) {
+    // As linhas vão traduzidas: o admin no jogo as vê no idioma dele, o console no do servidor.
+
+    static IChatComponent describe(TileRadio r) {
         RadioState s = r.state;
-        String source = s.mode == TuneMode.FREQUENCY
-            ? Frequency.format(s.frequency) + " FM" + (s.tunedUrl.isEmpty() ? " (sem sinal)" : " -> " + s.tunedUrl)
-            : s.url;
-        return "dim " + r
-            .dimension() + " " + r.pos() + " · " + source + " · " + s.transport + " · " + owner(s.ownerName);
+        Object source = s.url;
+        if (s.mode == TuneMode.FREQUENCY) {
+            String f = Frequency.format(s.frequency);
+            source = s.tunedUrl.isEmpty() ? new ChatComponentTranslation("akashicfm.cmd.fm_no_signal", f)
+                : new ChatComponentTranslation("akashicfm.cmd.fm_tuned", f, s.tunedUrl);
+        }
+        return new ChatComponentTranslation(
+            "akashicfm.cmd.radio",
+            r.dimension(),
+            r.pos()
+                .toString(),
+            source,
+            s.transport.toString(),
+            owner(s.ownerName));
     }
 
-    static String describe(TransmitterIndex.Entry e) {
-        return "dim " + e.dim
-            + " "
-            + e.pos
-            + " · "
-            + Frequency.format(e.frequency)
-            + " MHz · "
-            + (e.name.isEmpty() ? "-" : e.name)
-            + " · "
-            + e.range
-            + " blocos · "
-            + (e.active ? "no ar" : "fora do ar")
-            + (Moderation.isBlocked(e.owner) ? " (dono bloqueado)" : "")
-            + " · "
-            + e.url;
+    static IChatComponent describe(TransmitterIndex.Entry e) {
+        IChatComponent state = new ChatComponentTranslation(
+            e.active ? "akashicfm.cmd.on_air" : "akashicfm.cmd.off_air");
+        if (Moderation.isBlocked(e.owner)) state = new ChatComponentTranslation("akashicfm.cmd.owner_blocked", state);
+        return new ChatComponentTranslation(
+            "akashicfm.cmd.transmitter",
+            e.dim,
+            e.pos.toString(),
+            Frequency.format(e.frequency),
+            e.name.isEmpty() ? "-" : e.name,
+            e.range,
+            state,
+            e.url);
     }
 
-    private static String owner(String name) {
-        return name == null || name.isEmpty() ? "sem dono" : name;
+    private static Object owner(String name) {
+        return name == null || name.isEmpty() ? new ChatComponentTranslation("akashicfm.cmd.no_owner") : name;
     }
 
     // ---- info / stop ----
@@ -238,51 +247,47 @@ public final class FmCommand extends CommandBase {
         Target t = target(sender, args);
         if (t.radio != null) {
             RadioState s = t.radio.state;
-            reply(sender, new ChatComponentText(EnumChatFormatting.GOLD + describe(t.radio)));
+            reply(sender, gold(describe(t.radio)));
             reply(
                 sender,
-                new ChatComponentText(
-                    " tocando=" + s.playing
-                        + " volume="
-                        + s.volume
-                        + " alcance="
-                        + s.range
-                        + " caixas="
-                        + s.speakers.size()
-                        + " acesso="
-                        + s.access
-                        + " sessão="
-                        + s.session));
+                new ChatComponentText(" ").appendSibling(
+                    new ChatComponentTranslation(
+                        "akashicfm.cmd.radio_info",
+                        String.valueOf(s.playing),
+                        s.volume,
+                        s.range,
+                        s.speakers.size(),
+                        s.access.toString(),
+                        s.session)));
             if (!s.nowPlaying.isEmpty()) reply(sender, new ChatComponentText(" ♪ " + s.nowPlaying));
             if (!s.status.isEmpty()) reply(sender, new ChatComponentText(" status: " + s.status));
         } else if (t.transmitter != null) {
             TransmitterState s = t.transmitter.state;
             reply(
                 sender,
-                new ChatComponentText(
-                    EnumChatFormatting.GOLD + "dim "
-                        + t.transmitter.dimension()
-                        + " "
-                        + t.transmitter.pos()
-                        + " · "
-                        + Frequency.format(s.frequency)
-                        + " MHz · "
-                        + (s.name.isEmpty() ? "-" : s.name)
-                        + " · "
-                        + owner(s.ownerName)));
-            reply(
-                sender,
-                new ChatComponentText(
-                    " url=" + s.url
-                        + " transmitindo="
-                        + s.broadcasting
-                        + " no ar="
-                        + s.active()
-                        + " antenas="
-                        + s.antennas
-                        + " alcance="
-                        + s.range
-                        + (s.energyRequired ? " energia=" + s.energy + "/" + s.energyCapacity : "")));
+                gold(
+                    new ChatComponentTranslation(
+                        "akashicfm.cmd.transmitter_head",
+                        t.transmitter.dimension(),
+                        t.transmitter.pos()
+                            .toString(),
+                        Frequency.format(s.frequency),
+                        s.name.isEmpty() ? "-" : s.name,
+                        owner(s.ownerName))));
+            IChatComponent line = new ChatComponentText(" ").appendSibling(
+                new ChatComponentTranslation(
+                    "akashicfm.cmd.transmitter_info",
+                    s.url,
+                    String.valueOf(s.broadcasting),
+                    String.valueOf(s.active()),
+                    s.antennas,
+                    s.range));
+            if (s.energyRequired) {
+                line.appendText(" ")
+                    .appendSibling(
+                        new ChatComponentTranslation("akashicfm.cmd.transmitter_energy", s.energy, s.energyCapacity));
+            }
+            reply(sender, line);
         } else {
             throw new CommandException("akashicfm.cmd.no_target");
         }
@@ -553,6 +558,12 @@ public final class FmCommand extends CommandBase {
 
     private static void reply(ICommandSender sender, IChatComponent msg) {
         sender.addChatMessage(msg);
+    }
+
+    private static IChatComponent gold(IChatComponent c) {
+        c.getChatStyle()
+            .setColor(EnumChatFormatting.GOLD);
+        return c;
     }
 
     static World overworld() {
