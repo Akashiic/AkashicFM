@@ -5,14 +5,18 @@ Segmentos esperados, separados por silêncio (rádio muda por 2 s):
   R0 aquecimento | A aberto | B lã | C vidro | D aberto | E sala de pedra (para dentro: cauda) | F aberto (para)
 
 Para cada segmento (sem o 1º segundo e o último meio segundo): nível RMS (dBFS) e "agudos" = energia acima de
-4 kHz (passa-altas Butterworth de 2ª ordem) em relação à energia total, em dB. A música muda de um segmento
-para outro, então os limites são largos; o efeito da lã (-34 dB nos agudos, -8,6 dB no geral) passa muito deles.
-A referência dos agudos é a mediana dos quatro trechos sem parede (R0, A, D e F): um trecho só pode cair numa
-passagem musical quase sem agudos (já aconteceu: A 14 dB abaixo dos outros três), e a mediana não se deixa levar.
+4 kHz (passa-altas Butterworth de 2ª ordem) em relação à energia total, em dB. A fonte padrão é chuva forte, que
+quase não muda de um trecho para outro (±1 dB no nível, ±0,5 dB nos agudos). Os limites continuam largos, para
+valerem também com uma rádio ao vivo (AKASHICFM_E2E_URL), em que a música muda de um segmento para outro; o efeito
+da lã (-34 dB nos agudos, -8,6 dB no geral) passa muito deles. A referência dos agudos é a mediana dos quatro
+trechos sem parede (R0, A, D e F): com música, um trecho pode cair numa passagem quase sem agudos (já aconteceu: A
+14 dB abaixo dos outros três), e a mediana não se deixa levar.
 
 Cauda: na parada (E e F) mede a energia de 30 a 330 ms depois do corte em relação aos 500 ms antes dele.
 A fonte é apagada no corte, então o que sobra é o reverb: na sala de pedra fica acima de -45 dB; no aberto,
-silêncio (abaixo de -60 dB).
+silêncio (abaixo de -60 dB). A gravação é em float32: sem o dither da saída em 16 bits (~-99 dBFS), o silêncio
+depois do corte é zero de verdade, e a medida não depende do volume da fonte logo antes dele (com o dither, uma
+passagem baixa da música já punha o "silêncio" a -54 dB).
 
 Uso: analyze_acoustic.py arquivo.wav log-do-cliente [--no-efx]
 """
@@ -231,8 +235,8 @@ def main():
     if no_efx:
         check('sem EFX: sem cauda na sala (%.1f dB)' % e_tail, e_tail < -60)
     else:
-        # O som direto some no corte (a fonte é apagada): energia depois dele só pode ser o reverb. O reverb do
-        # OpenAL Soft 1.15 (LWJGL2, Java 8) é mais discreto que o das versões novas (~-33 contra ~-21 dB).
+        # O som direto some no corte (a fonte é apagada): energia depois dele só pode ser o reverb. Com a chuva,
+        # ~-20 dB no OpenAL Soft 1.15 (LWJGL2, Java 8) e no novo; com música, o 1.15 chegou a dar ~-33 dB.
         check('sala de pedra: cauda do reverb %.1f dB (esperado > -45; no aberto < -60)' % e_tail, e_tail > -45)
     check('aberto: sem cauda na parada (%.1f dB)' % f_tail, f_tail < -60)
     ok = all(checks)

@@ -2,6 +2,7 @@
 # Prova acústica (~2 min): o OpenAL Soft do cliente grava a mixagem num WAV (backend "wave") enquanto o cenário
 # "acoustic" toca segmentos (aberto, lã, vidro, aberto, sala de pedra com parada, parada no aberto); depois
 # tools/e2e/analyze_acoustic.py mede nível, agudos e cauda de reverb de cada um. Sai com 1 se falhar.
+# A fonte é chuva forte (estável; AKASHICFM_E2E_URL troca) e o WAV é float32 (sem dither: silêncio é zero).
 # Uso: tools/e2e/run-acoustic.sh [runServer21 runClient21 | runServer runClient]  (AKASHICFM_E2E_NO_EFX=1: sem EFX)
 set -uo pipefail
 STASK=${1:-runServer21}; CTASK=${2:-runClient21}
@@ -10,7 +11,7 @@ LOGS="$ROOT/build/e2e/logs"; mkdir -p "$LOGS"
 WAV="$ROOT/build/e2e/acoustic-$CTASK${AKASHICFM_E2E_NO_EFX:+-noefx}.wav"
 CONF="$ROOT/build/e2e/alsoft-acoustic.conf"
 rm -f "$WAV"
-printf '[general]\ndrivers = wave\nchannels = stereo\nsample-type = int16\nfrequency = 48000\n\n[wave]\nfile = %s\n' "$WAV" > "$CONF"
+printf '[general]\ndrivers = wave\nchannels = stereo\nsample-type = float32\nfrequency = 48000\n\n[wave]\nfile = %s\n' "$WAV" > "$CONF"
 OFFLINE_UUID=$(python3 -c 'import hashlib,uuid; h=bytearray(hashlib.md5(b"OfflinePlayer:Developer").digest()); h[6]=(h[6]&15)|48; h[8]=(h[8]&63)|128; print(uuid.UUID(bytes=bytes(h)))')
 mkdir -p "$ROOT/run/server"; rm -rf "$ROOT/run/server/world"
 printf '[{"uuid":"%s","name":"Developer","level":4}]\n' "$OFFLINE_UUID" > "$ROOT/run/server/ops.json"

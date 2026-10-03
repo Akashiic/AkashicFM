@@ -94,6 +94,11 @@ public final class E2EClient {
     private static final double TRACK1_SECONDS = 6.0;
     /** Segunda estação (outro transmissor), para provar a troca de fonte na sintonia. */
     private static final String DEFAULT_URL2 = "https://stream.radioparadise.com/mellow-128";
+    /**
+     * Fonte da prova acústica: chuva forte (OGG Opus, 8 min), estável em nível (±1 dB) e em agudos (±0,5 dB) de um
+     * trecho para outro. A rádio ao vivo mudava com a música: uma passagem baixa derrubava as comparações.
+     */
+    private static final String ACOUSTIC_URL = "https://actions.google.com/sounds/v1/weather/rain_heavy_loud.ogg";
 
     private final String scenario;
     private final String url;
@@ -120,7 +125,7 @@ public final class E2EClient {
     private E2EClient(String scenario) {
         this.scenario = scenario;
         String u = System.getenv("AKASHICFM_E2E_URL");
-        this.url = u == null || u.isEmpty() ? DEFAULT_URL : u;
+        this.url = u != null && !u.isEmpty() ? u : scenario.startsWith("acoustic") ? ACOUSTIC_URL : DEFAULT_URL;
         String u2 = System.getenv("AKASHICFM_E2E_URL2");
         this.url2 = u2 == null || u2.isEmpty() ? DEFAULT_URL2 : u2;
         if (scenario.startsWith("peer")) buildPeer();
