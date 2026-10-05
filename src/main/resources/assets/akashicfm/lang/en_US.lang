@@ -6,6 +6,7 @@ tile.akashicfm.speaker.name=Speaker
 tile.akashicfm.transmitter.name=FM Transmitter
 tile.akashicfm.antenna.name=Antenna
 tile.akashicfm.ipod_player.name=iPod Player
+tile.akashicfm.ceiling_speaker.name=Ceiling Speaker
 item.akashicfm.tuner.name=Tuner
 item.akashicfm.portable_radio.name=Portable Radio
 item.akashicfm.headphones.name=Headphones
@@ -20,6 +21,7 @@ akashicfm.limit.chunk=This chunk already has the maximum number of radios (%s).
 akashicfm.limit.player=You already own the maximum number of radios (%s).
 akashicfm.limit.transmitters=You already own the maximum number of transmitters (%s).
 akashicfm.protection.not_yours=This block belongs to someone else.
+akashicfm.protection.holds_speaker=This block holds someone else's speaker.
 
 # Server replies to radio actions
 akashicfm.notice.too_far=You are too far away.
@@ -58,8 +60,10 @@ akashicfm.tuner.speaker_missing=The selected speaker no longer exists.
 akashicfm.tuner.too_far=The speaker is too far from the radio (maximum %s blocks).
 akashicfm.tuner.speaker_not_yours=This speaker belongs to someone else.
 akashicfm.tuner.already_linked=This speaker is already linked to this radio.
+akashicfm.tuner.already_linked_ipod=This speaker is already linked to this iPod Player.
 akashicfm.tuner.radio_full=This radio already has the maximum number of speakers (%s).
 akashicfm.tuner.linked=Speaker linked (%s on this radio).
+akashicfm.tuner.linked_ipod=Speaker linked (%s on this iPod Player).
 akashicfm.tuner.channel=Speaker channel: %s
 akashicfm.tuner.tooltip_selected=Selected speaker: %s
 akashicfm.tuner.tooltip_help1=Right-click a speaker, then a radio, to link them.
@@ -118,6 +122,7 @@ akashicfm.waila.access=Access: %s
 akashicfm.waila.speakers=Linked speakers: %s
 akashicfm.waila.speaker.channel=Channel: %s
 akashicfm.waila.speaker.linked=Linked to the radio at %s, %s, %s
+akashicfm.waila.speaker.linked_ipod=Linked to the iPod Player at %s, %s, %s
 akashicfm.waila.speaker.unlinked=No radio linked
 
 # Radio in FM mode
@@ -297,3 +302,5 @@ akashicfm.gui.ipod.unlink_one=Unlink speaker
 akashicfm.gui.ipod.no_speakers=No speakers linked. With the tuner, click a speaker and then this block; it plays the same queue.
 akashicfm.gui.ipod.blocks=%s blocks
 akashicfm.cmd.ipod_block=iPod: %s (%s queued)
+akashicfm.ceiling_speaker.help=Goes under a block (ceiling) or on its side (wall)
+akashicfm.ceiling_speaker.help2=Link it to a radio or an iPod Player with the tuner

@@ -6,6 +6,7 @@ tile.akashicfm.speaker.name=Caixa de Som
 tile.akashicfm.transmitter.name=Transmissor de FM
 tile.akashicfm.antenna.name=Antena
 tile.akashicfm.ipod_player.name=iPod Player
+tile.akashicfm.ceiling_speaker.name=Alto-falante de Teto
 item.akashicfm.tuner.name=Sintonizador
 item.akashicfm.portable_radio.name=Rádio Portátil
 item.akashicfm.headphones.name=Fone de Ouvido
@@ -20,6 +21,7 @@ akashicfm.limit.chunk=Este chunk já tem o máximo de rádios (%s).
 akashicfm.limit.player=Você já tem o máximo de rádios (%s).
 akashicfm.limit.transmitters=Você já tem o máximo de transmissores (%s).
 akashicfm.protection.not_yours=Este bloco pertence a outro jogador.
+akashicfm.protection.holds_speaker=Este bloco segura o alto-falante de outro jogador.
 
 # Respostas do servidor às ações na rádio
 akashicfm.notice.too_far=Você está longe demais.
@@ -58,8 +60,10 @@ akashicfm.tuner.speaker_missing=A caixa selecionada não existe mais.
 akashicfm.tuner.too_far=A caixa está longe demais da rádio (máximo %s blocos).
 akashicfm.tuner.speaker_not_yours=Esta caixa pertence a outro jogador.
 akashicfm.tuner.already_linked=Esta caixa já está ligada a esta rádio.
+akashicfm.tuner.already_linked_ipod=Esta caixa já está ligada a este iPod Player.
 akashicfm.tuner.radio_full=Esta rádio já tem o máximo de caixas (%s).
 akashicfm.tuner.linked=Caixa ligada (%s nesta rádio).
+akashicfm.tuner.linked_ipod=Caixa ligada (%s neste iPod Player).
 akashicfm.tuner.channel=Canal da caixa: %s
 akashicfm.tuner.tooltip_selected=Caixa selecionada: %s
 akashicfm.tuner.tooltip_help1=Botão direito numa caixa e depois numa rádio para ligar as duas.
@@ -118,6 +122,7 @@ akashicfm.waila.access=Acesso: %s
 akashicfm.waila.speakers=Caixas ligadas: %s
 akashicfm.waila.speaker.channel=Canal: %s
 akashicfm.waila.speaker.linked=Ligada à rádio em %s, %s, %s
+akashicfm.waila.speaker.linked_ipod=Ligada ao iPod Player em %s, %s, %s
 akashicfm.waila.speaker.unlinked=Sem rádio ligada
 
 # Rádio no modo FM
@@ -297,3 +302,5 @@ akashicfm.gui.ipod.unlink_one=Desligar a caixa
 akashicfm.gui.ipod.no_speakers=Nenhuma caixa ligada. Com o sintonizador, clique numa caixa e depois neste bloco; ela toca a mesma fila.
 akashicfm.gui.ipod.blocks=%s blocos
 akashicfm.cmd.ipod_block=iPod: %s (%s na fila)
+akashicfm.ceiling_speaker.help=Vai embaixo de um bloco (teto) ou na lateral (parede)
+akashicfm.ceiling_speaker.help2=Ligue numa rádio ou num iPod Player com o sintonizador

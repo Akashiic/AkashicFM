@@ -24,6 +24,7 @@ import net.minecraftforge.fluids.IFluidBlock;
 import com.akashiic.fm.AkashicFM;
 import com.akashiic.fm.audio.spatial.AcousticOverrides;
 import com.akashiic.fm.content.BlockAntenna;
+import com.akashiic.fm.content.BlockCeilingSpeaker;
 
 /**
  * Propriedades acústicas dos blocos, em duas grandezas diferentes:
@@ -230,7 +231,8 @@ public final class BlockAcoustics {
         if (block instanceof BlockFence || block instanceof BlockWall
             || block instanceof BlockPane
             || block instanceof BlockAntenna) return Shape.THIN;
-        if (block instanceof BlockCarpet) return Shape.CARPET;
+        // O alto-falante de teto/parede é uma placa fina: o som passa quase todo, como num tapete.
+        if (block instanceof BlockCarpet || block instanceof BlockCeilingSpeaker) return Shape.CARPET;
         if (block instanceof BlockSnow) return Shape.SNOW_LAYER;
         if (block instanceof BlockLiquid || block instanceof IFluidBlock) return Shape.FULL;
         if (m == Material.web) return Shape.FULL;

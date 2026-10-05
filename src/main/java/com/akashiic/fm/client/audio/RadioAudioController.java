@@ -398,9 +398,12 @@ public final class RadioAudioController {
         int clientVolume) {
         RadioState s = radio.state;
         List<EmitterSpec> out = new ArrayList<>();
+        Pos rp = radio.pos();
         addEmitter(
             out,
-            radio.pos(),
+            rp.centerX(),
+            rp.centerY(),
+            rp.centerZ(),
             Facing.sanitize(radio.getBlockMetadata()),
             SpeakerChannel.STEREO,
             s,
@@ -413,26 +416,18 @@ public final class RadioAudioController {
             if (!world.blockExists(p.x, p.y, p.z)) continue; // caixa em chunk que o cliente não tem: não toca
             TileEntity te = world.getTileEntity(p.x, p.y, p.z);
             if (!(te instanceof TileSpeaker)) continue;
-            addEmitter(
-                out,
-                p,
-                Facing.sanitize(world.getBlockMetadata(p.x, p.y, p.z)),
-                ((TileSpeaker) te).channel,
-                s,
-                lx,
-                ly,
-                lz,
-                records,
-                clientVolume);
+            TileSpeaker sp = (TileSpeaker) te;
+            // O centro do bloco na caixa de chão; o da placa no alto-falante de teto/parede.
+            double[] at = sp.emitterPoint();
+            addEmitter(out, at[0], at[1], at[2], sp.stereoFacing(), sp.channel, s, lx, ly, lz, records, clientVolume);
         }
         if (out.size() > MAX_VOICES_PER_RADIO)
             out = new ArrayList<>(nearestFirst(out, lx, ly, lz).subList(0, MAX_VOICES_PER_RADIO));
         return out;
     }
 
-    private static void addEmitter(List<EmitterSpec> out, Pos block, int facing, SpeakerChannel channel, RadioState s,
-        double lx, double ly, double lz, float records, int clientVolume) {
-        double cx = block.centerX(), cy = block.centerY(), cz = block.centerZ();
+    private static void addEmitter(List<EmitterSpec> out, double cx, double cy, double cz, int facing,
+        SpeakerChannel channel, RadioState s, double lx, double ly, double lz, float records, int clientVolume) {
         if (channel == SpeakerChannel.STEREO) {
             double[] r = Facing.rightVector(facing);
             add(

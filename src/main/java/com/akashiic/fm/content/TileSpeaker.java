@@ -80,6 +80,21 @@ public class TileSpeaker extends TileEntity {
         if (tag != null) readShared(tag);
     }
 
+    /** De onde o som sai, em coordenadas do mundo: o centro do bloco (o alto-falante de teto/parede muda). */
+    public double[] emitterPoint() {
+        return new double[] { xCoord + 0.5, yCoord + 0.5, zCoord + 0.5 };
+    }
+
+    /** A orientação horizontal da frente, para o par estéreo (índices de {@link Facing}). */
+    public int stereoFacing() {
+        return Facing.sanitize(worldMeta());
+    }
+
+    /** O metadata no mundo agora (o do tile fica em cache e só se atualiza quando o mundo avisa). */
+    protected int worldMeta() {
+        return worldObj == null ? 0 : worldObj.getBlockMetadata(xCoord, yCoord, zCoord);
+    }
+
     public boolean isOwner(UUID player) {
         return owner != null && owner.equals(player);
     }

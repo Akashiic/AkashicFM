@@ -5,6 +5,7 @@ import java.util.List;
 
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.StatCollector;
+import net.minecraft.world.World;
 
 import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.Pos;
@@ -82,17 +83,23 @@ public final class RadioInfo {
                 t(
                     "akashicfm.channel." + speaker.channel.name()
                         .toLowerCase(java.util.Locale.ROOT))));
-        if (speaker.linkedRadio == null) out.add("§7" + t("akashicfm.waila.speaker.unlinked"));
-        else out.add(
-            t("akashicfm.waila.speaker.linked", speaker.linkedRadio.x, speaker.linkedRadio.y, speaker.linkedRadio.z));
-        if (speaker.linkedRadio != null && speaker.getWorldObj() != null) {
-            Pos r = speaker.linkedRadio;
-            TileEntity te = speaker.getWorldObj()
-                .getTileEntity(r.x, r.y, r.z);
+        if (speaker.linkedRadio == null) {
+            out.add("§7" + t("akashicfm.waila.speaker.unlinked"));
+            return out;
+        }
+        Pos r = speaker.linkedRadio;
+        World world = speaker.getWorldObj();
+        TileEntity te = world == null ? null : world.getTileEntity(r.x, r.y, r.z);
+        // "Ligada à rádio" ou "ao iPod Player"; com o bloco fora do alcance do cliente, rádio (o que era antes).
+        out.add(
+            t(
+                te instanceof TileIPodPlayer ? "akashicfm.waila.speaker.linked_ipod" : "akashicfm.waila.speaker.linked",
+                r.x,
+                r.y,
+                r.z));
+        if (world != null) {
             String url = te instanceof TileRadio ? ((TileRadio) te).state.effectiveUrl() : null;
-            if (ClientMutes.radioMuted(speaker.getWorldObj().provider.dimensionId, r, url)) {
-                out.add("§6" + t("akashicfm.waila.muted"));
-            }
+            if (ClientMutes.radioMuted(world.provider.dimensionId, r, url)) out.add("§6" + t("akashicfm.waila.muted"));
         }
         return out;
     }

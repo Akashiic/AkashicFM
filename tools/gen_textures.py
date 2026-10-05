@@ -367,6 +367,40 @@ def ipod_player_top():
     return img
 
 
+def ceiling_speaker_front():
+    """Alto-falante de teto/parede: moldura clara e o cone redondo (raio 4,6 px, o TESR pulsa este disco)."""
+    img = Image.new("RGBA", (16, 16))
+    for y in range(16):
+        for x in range(16):
+            img.putpixel((x, y), jitter((222, 224, 228), 3))
+    for i in range(2, 14):  # borda da placa (a face usa só os pixels 2..13)
+        for p in ((i, 2), (i, 13), (2, i), (13, i)):
+            img.putpixel(p, (176, 180, 188, 255))
+    for y in range(16):
+        for x in range(16):
+            d = ((x + 0.5 - 8) ** 2 + (y + 0.5 - 8) ** 2) ** 0.5
+            if d > 4.6:
+                continue
+            if d < 1.2:
+                c = (150, 154, 162)  # tampa central
+            elif d < 2.4:
+                c = (52, 54, 60)
+            elif d < 3.6:
+                c = (74, 76, 84) if (x + y) % 2 else (60, 62, 70)
+            else:
+                c = (96, 98, 106)  # borda de borracha
+            img.putpixel((x, y), c + (255,))
+    return img
+
+
+def ceiling_speaker_side():
+    img = Image.new("RGBA", (16, 16))
+    for y in range(16):
+        for x in range(16):
+            img.putpixel((x, y), jitter((206, 208, 214), 3))
+    return img
+
+
 def main():
     out = {
         "blocks/radio_front.png": radio_front(),
@@ -389,6 +423,9 @@ def main():
         "blocks/ipod_player_front.png": ipod_player_front(),
         "blocks/ipod_player_side.png": ipod_player_side(),
         "blocks/ipod_player_top.png": ipod_player_top(),
+        # Fase 9c (no fim, pelo mesmo motivo).
+        "blocks/ceiling_speaker_front.png": ceiling_speaker_front(),
+        "blocks/ceiling_speaker_side.png": ceiling_speaker_side(),
     }
     for rel, img in out.items():
         path = os.path.join(ROOT, rel)

@@ -313,6 +313,56 @@ public final class E2EServer {
             event.player
                 .addChatMessage(new ChatComponentText("e2e-result index total=" + total + " loaded=" + loaded + " ."));
         }
+        if (event.message.startsWith("e2e:break ") && event.player != null) {
+            // Quem fala tenta quebrar o bloco: o evento de quebra do Forge com o jogador de verdade (cavar no
+            // sobrevivência exigiria segurar o clique pelo tempo da dureza; o que se testa é a proteção do mod).
+            String[] a = event.message.split(" ");
+            int x = Integer.parseInt(a[1]), y = Integer.parseInt(a[2]), z = Integer.parseInt(a[3]);
+            boolean canceled = net.minecraftforge.common.ForgeHooks
+                .onBlockBreakEvent(
+                    event.player.worldObj,
+                    event.player.theItemInWorldManager.getGameType(),
+                    event.player,
+                    x,
+                    y,
+                    z)
+                .isCanceled();
+            DevE2E.log("quebra de {} em {} {} {}: cancelada={}", event.username, x, y, z, canceled);
+            event.player.addChatMessage(new ChatComponentText("e2e-result break canceled=" + canceled));
+        }
+        if (event.message.startsWith("e2e:nbt ") && event.player != null) {
+            // Diagnóstico de um passo que esgotou o prazo: o estado do tile no servidor, a distância de quem
+            // pede e se o servidor considera que esse jogador recebe as atualizações do chunk.
+            String[] a = event.message.split(" ");
+            int x = Integer.parseInt(a[1]), y = Integer.parseInt(a[2]), z = Integer.parseInt(a[3]);
+            net.minecraft.world.World w = event.player.worldObj;
+            String nbt = "chunk descarregado";
+            if (w.blockExists(x, y, z)) {
+                net.minecraft.tileentity.TileEntity te = w.getTileEntity(x, y, z);
+                if (te == null) nbt = "sem tile (" + w.getBlock(x, y, z) + ")";
+                else {
+                    net.minecraft.nbt.NBTTagCompound tag = new net.minecraft.nbt.NBTTagCompound();
+                    te.writeToNBT(tag);
+                    nbt = te.getClass()
+                        .getSimpleName() + " meta="
+                        + w.getBlockMetadata(x, y, z)
+                        + " "
+                        + tag;
+                }
+            }
+            boolean watching = w instanceof net.minecraft.world.WorldServer
+                && ((net.minecraft.world.WorldServer) w).getPlayerManager()
+                    .isPlayerWatchingChunk(event.player, x >> 4, z >> 4);
+            DevE2E.log(
+                "nbt em {} {} {} para {} (distância {}, recebe o chunk={}): {}",
+                x,
+                y,
+                z,
+                event.username,
+                String.format("%.1f", Math.sqrt(event.player.getDistanceSq(x + 0.5, y + 0.5, z + 0.5))),
+                watching,
+                nbt);
+        }
         if (event.message.startsWith("e2e:check-unloaded ") && event.player != null) {
             // Responde ao cliente se o chunk da coordenada está carregado (chunkExists nunca carrega).
             String[] a = event.message.split(" ");

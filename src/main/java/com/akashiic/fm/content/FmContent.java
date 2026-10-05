@@ -37,6 +37,7 @@ public final class FmContent {
     public static ItemIPod ipod;
     public static ItemHeadphones headphones;
     public static BlockIPodPlayer ipodPlayer;
+    public static BlockCeilingSpeaker ceilingSpeaker;
 
     /** preInit: blocos e itens precisam existir antes do init. */
     public static void registerBlocksAndItems() {
@@ -63,6 +64,10 @@ public final class FmContent {
         ipodPlayer = new BlockIPodPlayer();
         GameRegistry.registerBlock(ipodPlayer, ItemBlockIPodPlayer.class, "ipod_player");
         GameRegistry.registerTileEntity(TileIPodPlayer.class, AkashicFM.MODID + ":ipod_player");
+        // Fase 9c (no fim, pelo mesmo motivo).
+        ceilingSpeaker = new BlockCeilingSpeaker();
+        GameRegistry.registerBlock(ceilingSpeaker, ItemBlockCeilingSpeaker.class, "ceiling_speaker");
+        GameRegistry.registerTileEntity(TileCeilingSpeaker.class, AkashicFM.MODID + ":ceiling_speaker");
     }
 
     /** init: receitas padrão (o modpack pode desligar e definir as próprias). */
@@ -154,6 +159,9 @@ public final class FmContent {
                 Blocks.noteblock,
                 'R',
                 "dustRedstone"));
+        // Alto-falante de teto/parede: uma caixa vira duas placas finas.
+        GameRegistry
+            .addRecipe(new ShapedOreRecipe(new ItemStack(ceilingSpeaker, 2), "PSP", 'P', "slabWood", 'S', speaker));
         // O bloco do iPod: um iPod numa base com jukebox.
         GameRegistry.addRecipe(
             new ShapedOreRecipe(

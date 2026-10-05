@@ -12,6 +12,7 @@ import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
+import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 
@@ -55,8 +56,10 @@ public final class SpeakerLinks {
         if (!Permissions.canAdmin(radio.state, player)) return new Result(false, "akashicfm.notice.no_permission", "");
         if (!canAdminSpeaker(speaker, player)) return new Result(false, "akashicfm.tuner.speaker_not_yours", "");
         RadioState s = radio.state;
+        // O texto diz "rádio" ou "iPod Player", conforme o bloco.
+        String ipod = radio instanceof TileIPodPlayer ? "_ipod" : "";
         if (radioPos.equals(speaker.linkedRadio) && s.speakers.contains(speakerPos)) {
-            return new Result(false, "akashicfm.tuner.already_linked", "");
+            return new Result(false, "akashicfm.tuner.already_linked" + ipod, "");
         }
         int cap = RadioLimits.clamp(FmConfig.Limits.maxSpeakersPerRadio, 0, RadioLimits.MAX_SPEAKERS_HARD);
         if (s.speakers.size() >= cap) return new Result(false, "akashicfm.tuner.radio_full", String.valueOf(cap));
@@ -75,7 +78,7 @@ public final class SpeakerLinks {
         speaker.linkedRadio = radioPos;
         speaker.markChanged();
         radio.markStateChanged();
-        return new Result(true, "akashicfm.tuner.linked", String.valueOf(s.speakers.size()));
+        return new Result(true, "akashicfm.tuner.linked" + ipod, String.valueOf(s.speakers.size()));
     }
 
     /** Caixa quebrada: sai da lista da rádio dela. */

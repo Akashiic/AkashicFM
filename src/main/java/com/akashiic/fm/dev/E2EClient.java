@@ -10,6 +10,7 @@ import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.multiplayer.GuiConnecting;
 import net.minecraft.entity.item.EntityItem;
+import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.play.client.C0BPacketEntityAction;
@@ -59,12 +60,16 @@ import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.BlockRadio;
+import com.akashiic.fm.content.CeilingMount;
+import com.akashiic.fm.content.Facing;
 import com.akashiic.fm.content.FmContent;
+import com.akashiic.fm.content.ItemBlockCeilingSpeaker;
 import com.akashiic.fm.content.ItemBlockIPodPlayer;
 import com.akashiic.fm.content.ItemHeadphones;
 import com.akashiic.fm.content.ItemIPod;
 import com.akashiic.fm.content.ItemPortableRadio;
 import com.akashiic.fm.content.ItemTuner;
+import com.akashiic.fm.content.TileCeilingSpeaker;
 import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
@@ -195,6 +200,16 @@ public final class E2EClient {
 
         /** null: continua; "": passou; outro texto: falhou, com o motivo. */
         abstract String tick(int t);
+
+        /** O que o passo esperava e não veio, para o log de um prazo esgotado (null: só os contadores do áudio). */
+        String diagnose() {
+            return null;
+        }
+
+        /** Outro bloco cujo estado no servidor vale registrar quando o prazo esgota (além da rádio). */
+        int[] diagnoseAt() {
+            return null;
+        }
     }
 
     private void advance() {
@@ -214,7 +229,30 @@ public final class E2EClient {
             com.akashiic.fm.AkashicFM.LOG.error("[E2E] exceção no passo", e);
         }
         t++;
-        if (r == null && t > s.timeoutTicks) r = "prazo de " + s.timeoutTicks / TPS + " s esgotado";
+        if (r == null && t > s.timeoutTicks) {
+            r = "prazo de " + s.timeoutTicks / TPS + " s esgotado";
+            String d;
+            try {
+                d = s.diagnose();
+            } catch (Throwable e) {
+                d = "diagnóstico falhou: " + e;
+            }
+            DevE2E.log("diagnóstico de {}: {}{}", s.name, d == null ? "" : d + " · ", alCounters());
+            // O lado do servidor (o tile como ele vê, a fila de ações e se este jogador recebe o chunk), no log dele.
+            TileRadio here = radio();
+            DevE2E.log(
+                "rádio no cliente: {}",
+                here == null ? "fora do registro"
+                    : "epoch " + here.state.epoch
+                        + " sessão "
+                        + here.state.session
+                        + " tela '"
+                        + here.state.screenText
+                        + "'");
+            if (rx != 0 || ry != 0 || rz != 0) say("e2e:nbt " + rx + " " + ry + " " + rz);
+            int[] at = s.diagnoseAt();
+            if (at != null) say("e2e:nbt " + at[0] + " " + at[1] + " " + at[2]);
+        }
         if (r == null) return;
         if (r.isEmpty()) {
             pass++;
@@ -356,8 +394,13 @@ public final class E2EClient {
      * não existe objeto AL do mod fora das vozes.
      */
     private static boolean alInvariantsHold() {
+        return AudioEngine.INSTANCE.playingSources() == AudioEngine.INSTANCE.totalVoices() && alLeakFree();
+    }
+
+    /** Sem vazamento: toda fonte e todo buffer AL do mod pertencem a uma voz (vale até durante um engasgo). */
+    private static boolean alLeakFree() {
         int voices = AudioEngine.INSTANCE.totalVoices();
-        return AudioEngine.INSTANCE.playingSources() == voices && AudioEngine.liveSources() == voices
+        return AudioEngine.liveSources() == voices
             && AudioEngine.liveBuffers() == voices * AudioEngine.BUFFERS_PER_VOICE;
     }
 
@@ -1599,6 +1642,10 @@ public final class E2EClient {
                 if (e == null || e.headphones != headphones || e.transport != expectedTransport()) return null;
                 AudioEngine.PlaybackInfo i = portableInfo(e);
                 if (i == null || !i.playing || i.relativeVoices != voices || i.dryVoices != dry) return null;
+                // Vazamento falha na hora. Uma voz parada pode ser um engasgo da outra reprodução (a rádio ao vivo
+                // recompõe o buffer em ~1 s): espera, e só o prazo esgotado conta como falha.
+                if (!alLeakFree()) return "objetos AL fora do esperado: " + alCounters();
+                if (!alInvariantsHold()) return null;
                 DevE2E.log(
                     "portátil próprio: vozes={} relativas={} sem filtro={} fone={} sessão={} {}",
                     i.voices,
@@ -1607,7 +1654,7 @@ public final class E2EClient {
                     e.headphones,
                     e.session,
                     alCounters());
-                return alInvariantsHold() ? "" : "objetos AL fora do esperado: " + alCounters();
+                return "";
             }
         };
     }
@@ -2326,6 +2373,9 @@ public final class E2EClient {
             }
         });
         // Relay desligado com o iPod tocando (o que o /fm reload faz): para com o motivo; religado, volta sozinho.
+        // A rádio principal (relay, sem modo direto) fica sem transporte e a manutenção a desliga (a cada 5 s). O
+        // passo espera isso acontecer: com a janela curta, às vezes acontecia e às vezes não, e os passos seguintes
+        // que precisam da rádio tocando falhavam de vez em quando.
         steps.add(new Step("ipod-relay-desligado-para", 20) {
 
             @Override
@@ -2337,8 +2387,20 @@ public final class E2EClient {
             String tick(int t) {
                 S2CIPodStatus st = ipodStatus();
                 S2CPortableSources.Entry e = ipodEntry(true);
+                TileRadio r = radio();
                 return st != null && st.status.startsWith("akashicfm.ipod.err.no_relay")
-                    && (e == null || e.url.isEmpty()) ? "" : null;
+                    && (e == null || e.url.isEmpty())
+                    && r != null
+                    && !r.state.playing ? "" : null;
+            }
+
+            @Override
+            String diagnose() {
+                TileRadio r = radio();
+                S2CIPodStatus st = ipodStatus();
+                return "iPod " + (st == null ? "sem status" : st.status)
+                    + " rádio "
+                    + (r == null ? "fora do registro" : "tocando=" + r.state.playing + " " + r.state.transport);
             }
         });
         steps.add(new Step("ipod-relay-religado-volta-a-tocar", 45) {
@@ -2350,13 +2412,19 @@ public final class E2EClient {
 
             @Override
             String tick(int t) {
+                // A rádio não volta sozinha (o iPod volta): o roteiro liga de novo, depois de o relay voltar.
+                if (t == 20) send(Action.PLAY, 0, "");
                 S2CIPodStatus st = ipodStatus();
                 IPodState s = ipodState();
+                TileRadio r = radio();
                 return st != null && st.phase == S2CIPodStatus.Phase.PLAYING
                     && s != null
                     && s.on
                     && s.index == 4
-                    && ownIPodPlaying() ? "" : null;
+                    && ownIPodPlaying()
+                    && r != null
+                    && r.state.playing
+                    && r.state.transport == Transport.RELAY ? "" : null;
             }
         });
         steps.add(new Step("ipod-fm-list-portables-mostra-a-faixa", 10) {
@@ -2452,6 +2520,19 @@ public final class E2EClient {
             return null;
         RelayFeed feed = RelayClient.feedForUrl(b.state.effectiveUrl());
         return feed == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.relayKey(feed));
+    }
+
+    private String describeBlockPlayback() {
+        TileIPodPlayer b = ipodBlock();
+        if (b == null) return "sem bloco";
+        AudioEngine.PlaybackInfo i = blockInfo(b);
+        return "ligado=" + b.ipod.on
+            + " tocando="
+            + b.state.playing
+            + " "
+            + b.state.transport
+            + (i == null ? " sem reprodução"
+                : " vozes " + i.voices + " tocando " + i.playing + " underruns " + i.underruns);
     }
 
     /** O bloco toca aqui pelo relay; com {@code voices} > 0, com essas vozes (e sem vazamento de fonte). */
@@ -2826,7 +2907,20 @@ public final class E2EClient {
                 return countChat("akashicfm.ipod.status.idle") > seen ? "" : null;
             }
         });
-        steps.add(teleport("ipodbloco-voltar", () -> bx, bz - rz + 2.5));
+        steps.add(new Step("ipodbloco-voltar", 15) {
+
+            @Override
+            void start() {
+                // As coordenadas do bloco só existem quando o passo começa (não quando o roteiro é montado).
+                say("/tp " + (bx + 0.5) + " " + by + " " + (bz + 2.5));
+            }
+
+            @Override
+            String tick(int t) {
+                double dx = mc().thePlayer.posX - (bx + 0.5), dz = mc().thePlayer.posZ - (bz + 2.5);
+                return t > 20 && dx * dx + dz * dz < 1 ? "" : null;
+            }
+        });
         steps.add(new Step("ipodbloco-volta-a-tocar-quando-alguem-chega", 45) {
 
             @Override
@@ -2849,6 +2943,7 @@ public final class E2EClient {
                     () -> "e2e:oc " + bx + " " + by + " " + bz + " greet",
                     () -> "e2e-result oc semdriver"));
         }
+        addCeilingSpeakerSteps(expectPeer);
         addIPodBlockBreakSteps();
     }
 
@@ -2961,6 +3056,335 @@ public final class E2EClient {
         steps
             .add(peerPortable("peer-bloco-longe-silencia", "ipodblock-far", this::iPodBlockSilent, "ipodblock-far-ok"));
         steps.add(peerPortable("peer-bloco-volta-ouve", "ipodblock-back", this::hearsIPodBlock, "ipodblock-back-ok"));
+        addPeerCeilingSpeakerSteps();
+    }
+
+    // ---- Fase 9c: o alto-falante de teto/parede ----
+
+    /** O alto-falante do teto (embaixo de uma pedra) e o da parede (no lado de outra pedra). */
+    private int csx, csy, csz, wsx, wsy, wsz;
+
+    private TileCeilingSpeaker ceilingAt(int x, int y, int z) {
+        TileEntity te = mc().theWorld.getTileEntity(x, y, z);
+        return te instanceof TileCeilingSpeaker && !te.isInvalid() ? (TileCeilingSpeaker) te : null;
+    }
+
+    /** Clique direito na face {@code side} do bloco, como um jogador mirando nela. */
+    private static void rightClickFace(int x, int y, int z, int side) {
+        double hx = x + 0.5, hy = y + 0.5, hz = z + 0.5;
+        switch (side) {
+            case 0:
+                hy = y;
+                break;
+            case 1:
+                hy = y + 1;
+                break;
+            case 2:
+                hz = z;
+                break;
+            case 3:
+                hz = z + 1;
+                break;
+            case 4:
+                hx = x;
+                break;
+            default:
+                hx = x + 1;
+                break;
+        }
+        mc().playerController.onPlayerRightClick(
+            mc().thePlayer,
+            mc().theWorld,
+            mc().thePlayer.getHeldItem(),
+            x,
+            y,
+            z,
+            side,
+            Vec3.createVectorHelper(hx, hy, hz));
+    }
+
+    private boolean holdHotbar(Class<?> itemClass) {
+        for (int slot = 0; slot < 9; slot++) {
+            ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+            if (st != null && itemClass.isInstance(st.getItem())) {
+                mc().thePlayer.inventory.currentItem = slot;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A barra, o item na mão e os blocos em volta de onde o alto-falante deveria estar. */
+    private String placementDiagnostics(int x, int y, int z) {
+        StringBuilder b = new StringBuilder("barra=[");
+        for (int slot = 0; slot < 9; slot++) {
+            ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+            b.append(slot)
+                .append(':')
+                .append(st == null ? "-" : st.getUnlocalizedName() + "x" + st.stackSize)
+                .append(' ');
+        }
+        b.append("] mão=")
+            .append(mc().thePlayer.inventory.currentItem);
+        for (int dy = -1; dy <= 1; dy++) {
+            b.append(" y")
+                .append(y + dy)
+                .append('=')
+                .append(Block.blockRegistry.getNameForObject(mc().theWorld.getBlock(x, y + dy, z)))
+                .append('/')
+                .append(mc().theWorld.getBlockMetadata(x, y + dy, z));
+        }
+        return b.toString();
+    }
+
+    private boolean holdCeilingSpeaker() {
+        return holdHotbar(ItemBlockCeilingSpeaker.class);
+    }
+
+    private void addCeilingSpeakerSteps(boolean expectPeer) {
+        steps.add(new Step("teto-colocar-no-teto-com-a-mao", 20) {
+
+            boolean placed;
+
+            @Override
+            void start() {
+                csx = bx - 2;
+                csy = by + 1;
+                csz = bz;
+                // Perto o bastante para colocar (o servidor aceita até 6 blocos do centro do bloco clicado).
+                say("/tp " + (bx + 0.5) + " " + by + " " + (bz + 2.5));
+                say("/setblock " + csx + " " + csy + " " + csz + " air");
+                say("/setblock " + csx + " " + (csy + 1) + " " + csz + " minecraft:stone");
+                say("/give " + mc().thePlayer.getCommandSenderName() + " akashicfm:ceiling_speaker 3");
+            }
+
+            @Override
+            String tick(int t) {
+                if (!placed && t >= 20 && holdCeilingSpeaker()) {
+                    lookAt(csx + 0.5, csy + 1, csz + 0.5);
+                    rightClickFace(csx, csy + 1, csz, 0); // embaixo da pedra
+                    placed = true;
+                }
+                if (t % 100 == 0 && t > 0) DevE2E.log("teto: {}", placementDiagnostics(csx, csy, csz));
+                TileCeilingSpeaker sp = ceilingAt(csx, csy, csz);
+                if (sp == null || sp.ownerName.isEmpty()) return null;
+                int meta = sp.getBlockMetadata();
+                if (!CeilingMount.isCeiling(meta)) return "não ficou no teto: meta " + meta;
+                return mc().thePlayer.getCommandSenderName()
+                    .equals(sp.ownerName) ? "" : "dono: '" + sp.ownerName + "'";
+            }
+        });
+        steps.add(new Step("teto-colocar-na-parede-com-a-mao", 20) {
+
+            boolean placed;
+
+            @Override
+            void start() {
+                wsx = bx - 3;
+                wsy = by + 1;
+                wsz = bz;
+                say("/setblock " + wsx + " " + wsy + " " + wsz + " air");
+                say("/setblock " + (wsx - 1) + " " + wsy + " " + wsz + " minecraft:stone");
+            }
+
+            @Override
+            String tick(int t) {
+                if (!placed && t >= 10 && holdCeilingSpeaker()) {
+                    lookAt(wsx, wsy + 0.5, wsz + 0.5);
+                    rightClickFace(wsx - 1, wsy, wsz, 5); // no lado leste da pedra
+                    placed = true;
+                }
+                TileCeilingSpeaker sp = ceilingAt(wsx, wsy, wsz);
+                if (sp == null || sp.ownerName.isEmpty()) return null;
+                int meta = sp.getBlockMetadata();
+                return meta == Facing.EAST ? "" : "parede com meta " + meta;
+            }
+        });
+        steps.add(new Step("teto-em-cima-do-bloco-recusado", 10) {
+
+            @Override
+            void start() {
+                say("/setblock " + (wsx - 1) + " " + (wsy - 1) + " " + (wsz + 2) + " minecraft:stone");
+                say("/setblock " + (wsx - 1) + " " + wsy + " " + (wsz + 2) + " air");
+            }
+
+            boolean clicked;
+
+            @Override
+            String tick(int t) {
+                if (t == 10) {
+                    if (!holdCeilingSpeaker()) return "sem alto-falante na mão para tentar";
+                    rightClickFace(wsx - 1, wsy - 1, wsz + 2, 1);
+                    clicked = true;
+                }
+                if (t < 40 || !clicked) return null;
+                // Em cima de um bloco não vai (nem no cliente, nem no servidor).
+                return ceilingAt(wsx - 1, wsy, wsz + 2) == null ? "" : "ficou em cima de um bloco";
+            }
+        });
+        steps.add(new Step("teto-ligar-no-bloco-do-ipod", 20) {
+
+            @Override
+            String tick(int t) {
+                if (t == 2) holdHotbar(ItemTuner.class);
+                if (t == 5) rightClick(csx, csy, csz); // seleciona o alto-falante do teto
+                if (t == 15) rightClick(bx, by, bz); // liga no bloco do iPod
+                TileIPodPlayer b = ipodBlock();
+                if (b == null || !b.state.speakers.contains(new Pos(csx, csy, csz))) return null;
+                // O aviso fala do iPod Player, não de uma rádio.
+                if (!chatKeys.contains("akashicfm.tuner.linked_ipod")) return null;
+                // Bloco em estéreo (2) + caixa de chão (1) + teto em MIX (1).
+                return blockPlaying(4) ? "" : null;
+            }
+        });
+        steps.add(new Step("teto-parede-na-radio-em-estereo", 30) {
+
+            int linkedAt = -1;
+
+            @Override
+            void start() {
+                markContinuity();
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 2) holdHotbar(ItemTuner.class);
+                if (t == 5) rightClick(wsx, wsy, wsz);
+                if (t == 15) rightClick(rx, ry, rz);
+                TileRadio r = radio();
+                if (linkedAt < 0) {
+                    if (r == null || !r.state.speakers.contains(new Pos(wsx, wsy, wsz))) return null;
+                    linkedAt = t;
+                }
+                // MIX -> LEFT -> RIGHT -> STEREO: três cliques agachado; em estéreo a placa vira duas fontes.
+                int k = t - linkedAt;
+                if (k == 5) sneak(true);
+                if (k == 9 || k == 19 || k == 29) rightClick(wsx, wsy, wsz);
+                if (k == 35) sneak(false);
+                TileCeilingSpeaker sp = ceilingAt(wsx, wsy, wsz);
+                if (k < 35 || sp == null || sp.channel != SpeakerChannel.STEREO) return null;
+                return voicesAre(4) ? continuityBroken() : null; // rádio (2) + parede em estéreo (2)
+            }
+
+            @Override
+            String diagnose() {
+                TileRadio r = radio();
+                TileCeilingSpeaker sp = ceilingAt(wsx, wsy, wsz);
+                AudioEngine.PlaybackInfo i = info();
+                return "ligada em " + linkedAt
+                    + " canal="
+                    + (sp == null ? "sem placa" : sp.channel + " meta=" + sp.getBlockMetadata())
+                    + " caixas="
+                    + (r == null ? "sem rádio"
+                        : r.state.speakers + " tocando=" + r.state.playing + " " + r.state.transport)
+                    + " rádio="
+                    + (i == null ? "sem reprodução" : "vozes " + i.voices + " tocando " + i.playing)
+                    + " bloco="
+                    + describeBlockPlayback();
+            }
+
+            @Override
+            int[] diagnoseAt() {
+                return new int[] { wsx, wsy, wsz };
+            }
+        });
+        steps.add(new Step("teto-e-parede-captura-e-waila", 15) {
+
+            @Override
+            void start() {
+                say("/tp " + (wsx + 0.5) + " " + by + " " + (wsz + 2.5));
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 25) {
+                    lookAt(wsx - 0.5, wsy + 0.5, wsz + 0.5);
+                    mc().gameSettings.hideGUI = true;
+                }
+                if (t == 45) {
+                    screenshot("e2e-alto-falante-teto-parede.png");
+                    mc().gameSettings.hideGUI = false;
+                }
+                if (t < 45) return null;
+                TileCeilingSpeaker sp = ceilingAt(csx, csy, csz);
+                if (sp == null) return "o alto-falante do teto sumiu";
+                List<String> lines = RadioInfo.lines(sp);
+                DevE2E.log("waila do alto-falante do teto: {}", lines);
+                String linked = "iPod Player at " + bx + ", " + by + ", " + bz;
+                for (String l : lines) if (l.contains(linked)) return "";
+                return "linhas sem o bloco ligado: " + lines;
+            }
+        });
+        if (expectPeer) {
+            // O outro jogador tenta quebrar a pedra que segura a parede: a proteção cancela (a caixa é do principal).
+            steps.add(handshake("teto-o-outro-nao-derruba", "ceiling-support", "ceiling-support-ok"));
+            steps.add(new Step("teto-apoio-continua-de-pe", 5) {
+
+                @Override
+                String tick(int t) {
+                    if (t < 20) return null;
+                    boolean support = mc().theWorld.getBlock(wsx - 1, wsy, wsz) == Blocks.stone;
+                    return support && ceilingAt(wsx, wsy, wsz) != null ? "" : "o apoio ou a parede caiu";
+                }
+            });
+        }
+        steps.add(new Step("teto-sem-apoio-cai-e-desliga", 20) {
+
+            @Override
+            void start() {
+                say("/setblock " + csx + " " + (csy + 1) + " " + csz + " air");
+            }
+
+            @Override
+            String tick(int t) {
+                TileIPodPlayer b = ipodBlock();
+                if (ceilingAt(csx, csy, csz) != null || b == null) return null;
+                if (b.state.speakers.contains(new Pos(csx, csy, csz))) return null;
+                return blockPlaying(3) ? "" : null; // voltou a bloco (2) + caixa de chão (1)
+            }
+        });
+        steps.add(new Step("teto-limpar-a-parede", 15) {
+
+            @Override
+            void start() {
+                send(Action.UNLINK_ALL_SPEAKERS, 0, "");
+                say("/setblock " + wsx + " " + wsy + " " + wsz + " air");
+                say("/setblock " + (wsx - 1) + " " + wsy + " " + wsz + " air");
+                say("/setblock " + (wsx - 1) + " " + (wsy - 1) + " " + (wsz + 2) + " air");
+                say("/clear " + mc().thePlayer.getCommandSenderName() + " akashicfm:ceiling_speaker");
+                say("/tp " + (bx + 0.5) + " " + by + " " + (bz + 2.5));
+            }
+
+            @Override
+            String tick(int t) {
+                TileRadio r = radio();
+                return t > 10 && ceilingAt(wsx, wsy, wsz) == null
+                    && r != null
+                    && r.state.speakers.isEmpty()
+                    && voicesAre(2) ? "" : null;
+            }
+        });
+    }
+
+    private void addPeerCeilingSpeakerSteps() {
+        steps.add(new Step("peer-nao-derruba-o-alto-falante-do-outro", 900) {
+
+            int askedAt = -1;
+
+            @Override
+            String tick(int t) {
+                if (!chatSaw("e2e:main ceiling-support") || pbKey == null) return null;
+                // A pedra fica a 4 blocos do bloco do iPod, um acima (o principal a pôs lá).
+                if (askedAt < 0 || t - askedAt > 100) {
+                    say("e2e:break " + (pbx - 4) + " " + (pby + 1) + " " + pbz);
+                    askedAt = t;
+                }
+                if (!chatSaw("e2e-result break canceled=true")
+                    || !chatKeys.contains("akashicfm.protection.holds_speaker")) return null;
+                say("e2e:peer ceiling-support-ok");
+                return "";
+            }
+        });
     }
 
     // ---- Fase 7a: /fm, bloqueio e auditoria ----

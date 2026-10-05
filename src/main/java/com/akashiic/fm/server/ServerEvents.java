@@ -3,11 +3,14 @@ package com.akashiic.fm.server;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.world.World;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.world.BlockEvent;
 
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.Permissions;
+import com.akashiic.fm.content.BlockCeilingSpeaker;
+import com.akashiic.fm.content.TileCeilingSpeaker;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.content.TileTransmitter;
@@ -62,17 +65,43 @@ public final class ServerEvents {
             TileTransmitter t = (TileTransmitter) te;
             allowed = Permissions.canBreak(t.state.owner, t.state.access, player);
         } else if (te instanceof TileSpeaker) {
-            TileSpeaker speaker = (TileSpeaker) te;
-            allowed = speaker.owner == null || SpeakerLinks.canAdminSpeaker(speaker, player)
-                || (player != null && !(player instanceof FakePlayer) && Permissions.isOp(player));
+            allowed = canBreakSpeaker((TileSpeaker) te, player);
         } else {
-            return;
+            allowed = true;
+        }
+        String reason = "akashicfm.protection.not_yours";
+        // O bloco que segura um alto-falante de teto/parede: quebrá-lo derrubaria a caixa de outro jogador.
+        if (allowed && holdsProtectedSpeaker(event.world, event.x, event.y, event.z, player)) {
+            allowed = false;
+            reason = "akashicfm.protection.holds_speaker";
         }
         if (!allowed) {
             event.setCanceled(true);
             if (player != null && !(player instanceof FakePlayer)) {
-                player.addChatMessage(new ChatComponentTranslation("akashicfm.protection.not_yours"));
+                player.addChatMessage(new ChatComponentTranslation(reason));
             }
         }
+    }
+
+    private static boolean canBreakSpeaker(TileSpeaker speaker, EntityPlayer player) {
+        return speaker.owner == null || SpeakerLinks.canAdminSpeaker(speaker, player)
+            || (player != null && !(player instanceof FakePlayer) && Permissions.isOp(player));
+    }
+
+    /** Algum alto-falante de teto/parede preso em (x, y, z) que este jogador não pode derrubar. Não carrega chunk. */
+    static boolean holdsProtectedSpeaker(World world, int x, int y, int z, EntityPlayer player) {
+        int[][] around = { { 0, -1, 0 }, { 0, 0, -1 }, { 0, 0, 1 }, { -1, 0, 0 }, { 1, 0, 0 } };
+        for (int[] d : around) {
+            int nx = x + d[0], ny = y + d[1], nz = z + d[2];
+            if (ny < 0 || ny > 255 || !world.blockExists(nx, ny, nz)) continue;
+            // Barato primeiro: isto roda em toda quebra (mineradores do GregTech incluídos).
+            if (!(world.getBlock(nx, ny, nz) instanceof BlockCeilingSpeaker)) continue;
+            TileEntity te = world.getTileEntity(nx, ny, nz);
+            if (!(te instanceof TileCeilingSpeaker)) continue;
+            int[] support = ((TileCeilingSpeaker) te).supportPos();
+            if (support[0] == x && support[1] == y && support[2] == z && !canBreakSpeaker((TileSpeaker) te, player))
+                return true;
+        }
+        return false;
     }
 }

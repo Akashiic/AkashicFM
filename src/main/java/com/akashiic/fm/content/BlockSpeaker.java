@@ -51,9 +51,14 @@ public class BlockSpeaker extends BlockContainer {
         return side == Facing.sanitize(meta) ? iconFront : iconSide;
     }
 
+    /** O metadata depois de colocado: a frente virada para quem colocou. */
+    protected int placedMeta(World world, int x, int y, int z, EntityLivingBase placer) {
+        return Facing.fromPlacer(placer);
+    }
+
     @Override
     public void onBlockPlacedBy(World world, int x, int y, int z, EntityLivingBase placer, ItemStack stack) {
-        world.setBlockMetadataWithNotify(x, y, z, Facing.fromPlacer(placer), 2);
+        world.setBlockMetadataWithNotify(x, y, z, placedMeta(world, x, y, z, placer), 2);
         if (world.isRemote || !(placer instanceof EntityPlayer)) return;
         TileEntity te = world.getTileEntity(x, y, z);
         if (te instanceof TileSpeaker && !(placer instanceof net.minecraftforge.common.util.FakePlayer)) {
