@@ -13,7 +13,12 @@ Roteiro "ipod": o yt-dlp ficou pronto, as duas estações do iPod abriram, o /fm
 (a do SoundCloud com o título que veio ao tocar; a do YouTube tocando pelo espelho), nenhuma falhou, e o som vai de
 ipod1 (depois da resolução) a ipod1end e de ipod2 (resolução e busca do espelho) ao stopall.
 
-Uso: analyze.py OUT_DIR [radio|ipod]   (sai com 1 se algo falhar)
+Roteiro "ipodblock": as estações dos dois iPod Players abriram, o /fm list e o /fm info mostraram cada um tocando a
+sua faixa (com a fila) e o alto-falante ligado, o primeiro parou ao desligar a redstone e o segundo com o /fm stop
+(com a redstone ainda ligada), nenhuma faixa falhou, e o som, que só chega pelos alto-falantes, vai de blk1 a blk1end
+e de blk2 ao stop.
+
+Uso: analyze.py OUT_DIR [radio|ipod|ipodblock]   (sai com 1 se algo falhar)
 """
 import os
 import re
@@ -98,6 +103,40 @@ def check_ipod(server, marks, fails):
     return [(marks['ipod1'], marks['ipod1end'], 25.0), (marks['ipod2'], marks['stopall'], 35.0)]
 
 
+def check_ipodblock(server, marks, fails):
+    if not timed(server, r'iPod: yt-dlp pronto'):
+        fails.append('o yt-dlp não ficou pronto')
+    # A chave da estação do bloco é a posição (dimensão, x, y, z).
+    for key, a, b, what in (('ipod:b0_16_4_2', 'blk1', 'blk1end', 'SoundCloud'), ('ipod:b0_16_4_6', 'blk2', 'stop',
+                                                                                   'YouTube')):
+        opened = timed(server, r'\[AkashicFM\]: Relay: esta\S+ \d+ aberta para ' + re.escape(key) + r'$')
+        if not any(marks[a] <= t <= marks[b] for t, _ in opened):
+            fails.append('a estação do iPod Player do %s (%s) não abriu' % (what, key))
+    # /fm list radios: "dim 0 (16, 4, 2) · iPod: faixa (1 queued) · RELAY · ..." (o console fala inglês e troca o
+    # ponto do meio por "?").
+    for pattern, a, b, what in ((r'iPod: Forss - Flickermood \(1 queued\) \S+ RELAY', 'blk1', 'blk1end', 'SoundCloud'),
+                                (r'iPod: Daft Punk - Get Lucky.* \(1 queued\) \S+ RELAY', 'blk2', 'stop', 'YouTube')):
+        if not any(marks[a] <= t <= marks[b] for t, _ in timed(server, pattern)):
+            fails.append('/fm list não mostrou o iPod Player do %s tocando' % what)
+    # /fm info: tocando, com o alcance curto e o alto-falante ligado; parado depois da redstone e do /fm stop.
+    info = timed(server, r'playing=(true|false) volume=\d+ range=\d+ speakers=\d+')
+    def seen(a, b, playing):
+        text = 'playing=%s volume=100 range=8 speakers=1' % playing
+        return any(a <= t <= b and text in line for t, line in info)
+    if not seen(marks['blk1'], marks['blk1end'], 'true'):
+        fails.append('/fm info não mostrou o iPod Player do teto tocando com o alto-falante ligado')
+    if not seen(marks['blk1end'], marks['blk2'], 'false'):
+        fails.append('/fm info não mostrou o iPod Player do teto parado depois de desligar a redstone')
+    if not seen(marks['blk2'], marks['stop'], 'true'):
+        fails.append('/fm info não mostrou o iPod Player da parede tocando com o alto-falante ligado')
+    if not seen(marks['stop'], marks['stop'] + 30, 'false'):
+        fails.append('/fm info não mostrou o iPod Player da parede parado depois do /fm stop')
+    for _, line in timed(server, r'iPod ipod:\S+: .* falhou'):
+        fails.append('faixa falhou: ' + line.split('] ', 2)[-1])
+    # Entrada: a resolução (o yt-dlp; com o espelho, também a busca) antes do relay.
+    return [(marks['blk1'], marks['blk1end'], 25.0), (marks['blk2'], marks['stop'], 35.0)]
+
+
 def main(out, scen='radio'):
     fails = []
     marks = {}
@@ -110,7 +149,8 @@ def main(out, scen='radio'):
 
     if not timed(server, r'\[AkashicFM\]: AkashicFM .* carregado'):
         fails.append('o mod não carregou no servidor')
-    exp = check_ipod(server, marks, fails) if scen == 'ipod' else check_radio(server, marks, fails)
+    check = {'ipod': check_ipod, 'ipodblock': check_ipodblock}.get(scen, check_radio)
+    exp = check(server, marks, fails)
     for name, text in (('servidor', server), ('cliente', client)):
         bad = mod_traces(text)
         if bad:

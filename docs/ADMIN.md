@@ -1,6 +1,6 @@
 # Guia do admin
 
-Como instalar e operar o AkashicFM num servidor multiplayer: o que vai no servidor, o que cada opção do config faz, os comandos `/fm`, o log de auditoria, o bloqueio de jogadores e o iPod (opcional).
+Como instalar e operar o AkashicFM num servidor multiplayer: o que vai no servidor, o que cada opção do config faz, os comandos `/fm`, o log de auditoria, o bloqueio de jogadores, o iPod (opcional), o iPod Player e o alto-falante de teto/parede.
 
 ## Instalação
 
@@ -26,7 +26,7 @@ O jar já traz os codecs (Opus, MP3, OGG Vorbis/Opus, AAC/HE-AAC), relocados. N�
 **Rede:**
 - **Nenhuma porta nova.** O áudio do relay vai pela própria conexão do Minecraft.
 - O servidor precisa de **HTTP/HTTPS de saída** para os hosts das rádios.
-- O iPod (desligado por padrão) precisa também do GitHub (para baixar o yt-dlp), do SoundCloud e do CDN dele, e do YouTube e do Spotify (só os dados das músicas).
+- O iPod (desligado por padrão) precisa também do GitHub (para baixar o yt-dlp), do SoundCloud e do CDN dele, e do YouTube e do Spotify (só os dados das músicas). A busca do Spotify, com a chave opcional, usa `accounts.spotify.com` e `api.spotify.com`.
 
 **Custo:**
 
@@ -60,7 +60,7 @@ As categorias abaixo valem no servidor. **Recarregáveis** com `/fm reload`, sem
 
 | Chave | Padrão | O que faz |
 |---|---|---|
-| `enabled` | `true` | Liga o relay. Desligado com o servidor rodando, ele encerra as estações e avisa os ouvintes; as rádios passam para o modo direto (se permitido) ou param. |
+| `enabled` | `true` | Liga o relay. Desligado com o servidor rodando, ele encerra as estações e avisa os ouvintes; as rádios passam para o modo direto (se permitido) ou param, e continuam paradas quando o relay volta (o iPod e o iPod Player voltam sozinhos). |
 | `opusBitrateKbps` | `64` | Bitrate do Opus por ouvinte (24 a 128). Vale para as estações que começarem depois do reload. |
 | `maxStations` | `8` | Estações diferentes baixadas ao mesmo tempo. |
 | `maxListeners` | `64` | Jogadores recebendo áudio pelo relay ao mesmo tempo, somando todas as estações. |
@@ -96,11 +96,13 @@ Ao recarregar uma allowlist mais restrita, as rádios que tocam uma URL que deix
 | `maxRange` | `48` | Alcance máximo que um jogador escolhe para a rádio |
 | `actionsPerSecond` | `10` | Ações por segundo de cada jogador (o excesso é descartado) |
 
+O **iPod Player** conta como rádio nesses limites (por jogador, por chunk, caixas por bloco e distância das caixas). Os alto-falantes de teto e de parede contam como caixas.
+
 ### `protection`
 
 | Chave | Padrão | O que faz |
 |---|---|---|
-| `protectPrivateBlocks` | `true` | Ninguém além do dono (e dos ops) quebra rádio e caixa privadas. Máquinas e FakePlayers são recusados sem erro. |
+| `protectPrivateBlocks` | `true` | Ninguém além do dono (e dos ops) quebra rádio, iPod Player e caixa privados, nem o bloco que segura o alto-falante de teto/parede de outro jogador. Máquinas e FakePlayers são recusados sem erro. |
 | `opsBypass` | `true` | Ops controlam qualquer rádio e ignoram os limites por jogador (o limite por chunk vale para todos). |
 
 ### `transmitter`
@@ -140,8 +142,10 @@ O alcance novo vale em até 1 s; o consumo, na hora.
 | `maxQueue` | `50` | Faixas na fila de um iPod (1 a 200). Uma playlist maior é cortada. |
 | `maxTrackMinutes` | `20` | Duração máxima de uma faixa (mixes maiores são recusados). |
 | `pauseTimeoutMinutes` | `10` | Minutos de pausa até o iPod parar sozinho. |
+| `spotifyClientId` | vazio | Liga a busca por nome na aba Spotify: o Client ID de um app do Spotify (ver "Busca do Spotify"). Vazio = a aba aceita só links. |
+| `spotifyClientSecret` | vazio | O Client Secret do mesmo app. Fica em **texto puro** no config: não compartilhe o arquivo. Nunca vai para o log nem para os jogadores. |
 
-O link do iPod passa por uma lista própria (SoundCloud, YouTube e Spotify); a `policy.allowedHosts` vale para as rádios, não para ele. O áudio vem do CDN do SoundCloud, com as mesmas regras fixas da `policy` (nunca endereço interno; só as portas 80 e 443).
+O link do iPod (item e bloco) passa por uma lista própria (SoundCloud, YouTube e Spotify); a `policy.allowedHosts` vale para as rádios, não para ele. O áudio vem do CDN do SoundCloud, com as mesmas regras fixas da `policy` (nunca endereço interno; só as portas 80 e 443).
 
 ### `opencomputers`
 
@@ -219,9 +223,10 @@ O jogador bloqueado:
 O iPod toca uma fila de músicas de qualquer slot do inventário, como o rádio portátil (quem está perto ouve; com fone, só o dono):
 - **SoundCloud** (faixas, sets, perfis) toca direto;
 - **YouTube** (vídeos e playlists) e **Spotify** (faixa, álbum, playlist) tocam a mesma música achada no SoundCloud, conferida pela duração, pelo título e pelo artista, sem outras versões (remix, cover, ao vivo, acelerada);
-- texto livre vira uma busca no SoundCloud.
+- texto livre vira uma busca no SoundCloud;
+- nas abas **SoundCloud**, **YouTube** e **Spotify** da tela, o jogador busca pelo nome e escolhe numa lista (ver "Busca e abas").
 
-O servidor resolve cada faixa com o **yt-dlp** (um programa à parte, que o mod baixa e atualiza) e retransmite pelo relay: precisa de `relay.enabled=true`, e cada iPod tocando ocupa uma estação de `relay.maxStations`.
+O servidor resolve cada faixa com o **yt-dlp** (um programa à parte, que o mod baixa e atualiza) e retransmite pelo relay: precisa de `relay.enabled=true`, e cada iPod tocando ocupa uma estação de `relay.maxStations`. O [iPod Player](#ipod-player-bloco), o bloco, usa o mesmo serviço e as mesmas opções.
 
 **Termos de uso:** SoundCloud, YouTube e Spotify não permitem esse uso nos termos deles. O recurso vem desligado, e quem liga responde por isso. Faixas com DRM (comuns em gravadoras) são puladas, nunca contornadas.
 
@@ -247,11 +252,71 @@ O Spotify não entrega áudio nenhum: o mod lê título, artistas e duração da
 - **Músicas de gravadora** no Spotify e no YouTube muitas vezes só existem com DRM no SoundCloud: o iPod pula ("Protegida no SoundCloud") ou não acha ("Não achada no SoundCloud"). Música independente, remixes e uploads de fãs funcionam bem.
 - **Falhas seguidas:** uma faixa que falha é pulada com o motivo na tela; cinco seguidas (ou a fila inteira, se for menor) param o iPod.
 - **Pausa:** o servidor para de baixar e retoma do ponto exato; depois de `pauseTimeoutMinutes`, o iPod para.
-- **Auditoria:** cada link ou busca vai para o log (`ipod.add`).
+- **Auditoria:** cada link ou busca vai para o log (`ipod.add`), e cada busca das abas também (`ipod.search`).
+
+### Busca e abas
+
+A tela do iPod (item e bloco) tem as abas **Fila**, **SoundCloud**, **YouTube** e **Spotify**. Numa aba de serviço, o jogador digita o nome da música e vê até 10 resultados, com artista e duração: um clique põe na fila (e começa, se estava parado), e "Tocar agora" toca o escolhido logo depois da atual. Um link colado em qualquer aba entra na fila direto.
+
+| Aba | Como busca | Como toca |
+|---|---|---|
+| SoundCloud | O yt-dlp (`scsearch`), sem as prévias de 30 s das faixas pagas | Direto |
+| YouTube | O yt-dlp (`ytsearch`); num IP de datacenter, a busca funciona, só o áudio é recusado | Pelo espelho no SoundCloud |
+| Spotify | A API oficial, **só com a chave** (abaixo); sem ela, a aba aceita links | Pelo espelho no SoundCloud |
+
+Faixas mais longas que `maxTrackMinutes` ficam fora da lista.
+
+**Segurança e custo:**
+- o cliente manda só o texto e, depois, o número do resultado escolhido: os links e os títulos ficam no servidor por 10 minutos, então ninguém põe na fila um link que a busca não devolveu;
+- uma busca por vez por jogador, com 2 s entre buscas, e no máximo 2 buscas ao mesmo tempo no servidor, que dividem os processos do yt-dlp (`maxResolves`) com as faixas tocando;
+- a busca do YouTube é montada no servidor, depois de conferir que o texto não é um link.
+
+### Busca do Spotify (opcional)
+
+Sem chave, a aba Spotify aceita links (faixa, álbum, playlist) e explica que a busca por nome precisa de uma chave no servidor. Para ligar a busca:
+
+1. Entre no [painel de desenvolvedor do Spotify](https://developer.spotify.com/dashboard) com uma conta do Spotify. **Desde fevereiro de 2026, o dono do app precisa ter Premium** (sem Premium, o Spotify recusa a chave), e cada busca devolve no máximo 10 resultados.
+2. Crie um app (**Create app**): nome e descrição quaisquer, marque **Web API** e ponha uma Redirect URI qualquer (o mod não a usa; por exemplo `http://127.0.0.1:8888/callback`).
+3. Nas configurações do app, copie o **Client ID** e o **Client Secret**.
+4. Em `config/akashicfm.cfg`, na seção `ipod`, preencha `S:spotifyClientId=` e `S:spotifyClientSecret=`, salve e rode `/fm reload`. A aba Spotify de quem abrir a tela passa a buscar.
+
+**Proteja o segredo:**
+- ele fica em **texto puro** no config. Num servidor com shell, deixe o arquivo só para o usuário do servidor (`chmod 600 config/akashicfm.cfg`; o Forge regrava o arquivo no lugar, então a permissão fica);
+- não mande o `akashicfm.cfg` em pedidos de suporte nem o inclua num modpack;
+- se vazar, gere outro no painel do Spotify (**Rotate client secret**), troque no config e rode `/fm reload`.
+
+O mod nunca escreve o segredo nem o token no log, nas mensagens ou nos pacotes. Ele pede o token só a `accounts.spotify.com` e busca só em `api.spotify.com`, sem seguir redirecionamentos, e guarda o token até expirar (trocar a chave descarta o antigo). Se o Spotify limitar as buscas (HTTP 429), as próximas esperam o tempo que ele pedir, e a tela avisa que o servidor está ocupado. Com `spotify=false`, a aba recusa links e busca.
+
+## iPod Player (bloco)
+
+O iPod Player é um bloco que toca uma fila como o iPod: a mesma tela (abas, busca, fila e controles), as mesmas regras de links e o mesmo yt-dlp. Precisa de `ipod.enabled=true` e de `relay.enabled=true`; com o iPod desligado no servidor, o bloco fica mudo e mostra o motivo. Receita: o iPod numa base de tábuas, com uma jukebox e redstone.
+
+Por dentro é uma rádio, então vale tudo o que vale para as rádios:
+- **dono e acesso:** privado, em que só o dono e os ops mexem, ou público, em que todos mexem na fila, no transporte, no volume e no alcance. Acesso, redstone, texto e cor da tela e caixas são sempre só do dono e dos ops. As ações da tela valem a até 8 blocos do iPod Player;
+- **limites:** conta como rádio em `limits` (por jogador e por chunk) e liga até `maxSpeakersPerRadio` caixas pelo sintonizador, de chão ou de teto/parede;
+- **relay:** cada iPod Player tocando ocupa uma estação de `relay.maxStations`; ouve quem está no alcance do bloco ou de uma das caixas;
+- **proteção:** com `protectPrivateBlocks`, só o dono e os ops quebram um iPod Player privado; máquinas são recusadas;
+- **redstone:** tocar enquanto ligada (desligar a redstone para a fila) ou alternar no pulso; uma fila vazia nunca liga;
+- **comandos:** `/fm list radios` e `/fm info` mostram "iPod: faixa (N na fila)"; `/fm stop`, `/fm stopall` e o bloqueio de jogador param o bloco como uma rádio, e ele fica parado até alguém ligar de novo;
+- **quebrar** devolve o item com a fila e as configurações, desligado.
+
+**Ninguém por perto:** se ninguém está no alcance (com 4 blocos de folga) do bloco nem das caixas, ele para de baixar e fecha a estação depois de 30 s, e a tela mostra "Ninguém por perto". Quando alguém chega, a faixa atual recomeça. Um bloco num chunk carregado sem ninguém por perto (um chunk loader, a volta do servidor) não abre estação nem chama o yt-dlp.
+
+**OpenComputers:** o componente `openfm_radio` não aparece no iPod Player (o Adaptador ignora o bloco). Os scripts controlam só as rádios.
+
+## Alto-falante de teto e de parede
+
+Uma caixa de som fina que vai **embaixo de um bloco** (teto) ou **na lateral** (parede); em cima de bloco não vai. Receita: uma caixa de som entre duas lajes de madeira dá dois alto-falantes.
+
+- **Liga como a caixa de chão:** com o sintonizador, numa rádio ou num iPod Player; agachado + clique troca o canal (mono, esquerdo, direito ou estéreo). Conta como caixa em `maxSpeakersPerRadio` e `maxSpeakerDistance`.
+- **Estéreo:** na parede, a frente é o lado para onde a placa olha; no teto, a direção de quem colocou.
+- **Apoio:** precisa de uma face sólida atrás (em cima, no teto). Se o apoio some (quebrado, empurrado por pistão, explodido), o alto-falante cai como item e se desliga da rádio.
+- **Proteção do apoio:** com `protectPrivateBlocks`, quebrar o bloco que segura o alto-falante de outro jogador é cancelado ("Este bloco segura o alto-falante de outro jogador."). O dono e os ops podem; máquinas (mineradores do GregTech e afins) são recusadas sem erro. Explosões e pistões não passam pelo evento de quebra do Forge: neles o alto-falante cai, como item.
+- **Custo:** a conferência roda em toda quebra de bloco, mas só lê um vizinho que já seja um alto-falante de teto/parede, e nunca carrega chunk.
 
 ## OpenComputers (opcional)
 
-Com o OpenComputers instalado, o computador alcança a rádio e o transmissor por um **Adaptador** encostado no bloco.
+Com o OpenComputers instalado, o computador alcança a rádio e o transmissor por um **Adaptador** encostado no bloco. O iPod Player fica de fora: a fila dele é só pela tela.
 
 **Componente `openfm_radio`:** o nome e os métodos do OpenFM, para os scripts antigos funcionarem sem mudança.
 - **Do OpenFM:**
@@ -298,3 +363,9 @@ As chamadas rodam na thread principal do servidor, uma por tick por computador, 
 | "O servidor ainda está instalando o yt-dlp" por muito tempo, ou "O yt-dlp não está disponível no servidor" | O log mostra o motivo (`iPod: ferramentas indisponíveis`). Sem saída para o GitHub, instale à mão (passo 5 do iPod) |
 | "Não achada no SoundCloud" ou "Protegida no SoundCloud (DRM)" | Esperado com músicas de gravadora (ver "O que esperar") |
 | O painel fecha o servidor por memória quando alguém usa o iPod | Folga fora do `-Xmx` (passo 4 do iPod) ou `ipod.maxResolves=1` |
+| "A busca do Spotify precisa de uma chave da API no servidor" | `ipod.spotifyClientId` e `ipod.spotifyClientSecret` (ver "Busca do Spotify"); sem chave, links do Spotify funcionam |
+| "O Spotify recusou a chave do servidor (confira o config)" | Client ID ou Secret errados, segredo trocado no painel do Spotify, ou o dono do app sem Premium |
+| A busca do YouTube dá "Falhou: …" | Num IP de datacenter, o YouTube pode recusar até a busca (nos testes, num IP de nuvem, ela funcionou); a aba SoundCloud continua |
+| iPod Player mostra "Ninguém por perto" | Esperado: sem ninguém no alcance do bloco nem das caixas, ele para de baixar e volta quando alguém chega |
+| Não dá para colocar o alto-falante de teto/parede | Precisa de uma face sólida atrás (embaixo de um bloco ou na lateral); em cima de bloco não vai |
+| "Este bloco segura o alto-falante de outro jogador." | Proteção do apoio (`protectPrivateBlocks`): o dono tira o alto-falante antes, ou um op quebra |

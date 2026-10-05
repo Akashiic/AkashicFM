@@ -15,7 +15,7 @@ Rádio de internet para **Minecraft 1.7.10** (Forge), feita para servidor públi
 | Só 44,1 kHz | Resampler para 48 kHz: MP3, AAC/HE-AAC, OGG Vorbis e OGG Opus |
 | Som sem posição | Áudio 3D posicional, oclusão por blocos e reverb por sala (EFX) |
 
-## Estado atual: 1.1.0
+## Estado atual: 1.2.0
 
 Feito:
 - **Fase 0:** buildscript GTNH, CI, pipeline de áudio validado contra 9 rádios reais (MP3, AAC, HE-AAC, OGG Vorbis e OGG Opus), cerca de 2% de um núcleo por estação, EFX validado em Java 8 e Java 21. Detalhes em [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md).
@@ -95,6 +95,12 @@ Feito:
   - **seguro:** só links do SoundCloud, do YouTube e do Spotify, sem endereço interno; faixas com DRM são puladas, nunca contornadas; cada link vai para o log de auditoria.
 
   Guia em [`docs/ADMIN.md`](docs/ADMIN.md#ipod-opcional); detalhes em [`docs/FASE8-RESULTADOS.md`](docs/FASE8-RESULTADOS.md).
+- **Fase 9 (1.2.0):**
+  - **busca com lista de resultados e abas no iPod:** Fila, SoundCloud, YouTube e Spotify; digite o nome da música, escolha na lista (um clique põe na fila, "Tocar agora" toca logo depois da atual). A busca do Spotify é opcional, com uma chave da API no servidor; sem chave, a aba aceita links;
+  - **iPod Player:** um bloco que fica no chão e toca uma fila como o iPod, com dono, acesso, alcance, volume, tela, redstone e caixas ligadas pelo sintonizador, como a rádio; sem ninguém por perto, para de baixar e volta quando alguém chega;
+  - **alto-falante de teto e de parede:** uma placa fina presa embaixo ou na lateral de um bloco, ligada a uma rádio ou a um iPod Player; cai se o apoio sumir, e ninguém derruba o de outro jogador quebrando o apoio.
+
+  Guia em [`docs/ADMIN.md`](docs/ADMIN.md#ipod-player-bloco); detalhes em [`docs/FASE9-RESULTADOS.md`](docs/FASE9-RESULTADOS.md).
 
 O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
@@ -113,6 +119,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 | 7c | OpenComputers (opcional) ✅ |
 | 1.0.0 | Revisão final, teste com os jars de produção e release ✅ |
 | 8 (1.1.0) | iPod: SoundCloud direto, YouTube e Spotify pelo espelho, fila e controles ✅ |
+| 9 (1.2.0) | Busca com resultados e abas no iPod, iPod Player (bloco) e alto-falante de teto/parede ✅ |
 
 > **Transporte:** por padrão as rádios tocam pelo relay do servidor. O modo direto (`direct.enabled`) é opcional, para servidores sem banda; nele cada cliente baixa o stream sozinho e o IP dos jogadores fica exposto ao servidor do stream.
 
@@ -136,9 +143,14 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
   - **Limite:** 4 transmissores por jogador (config).
 - **Rádio portátil:** botão direito abre a tela (URL ou FM, volume, ligar/desligar); agachado + botão direito liga e desliga. Toca de qualquer slot do inventário; se houver mais de um ligado, toca o primeiro. Sem fone, quem está a até 16 blocos (config) também ouve, de onde você está.
 - **iPod:** botão direito abre a tela; agachado + botão direito toca e pausa. Cole um link do SoundCloud, do YouTube ou do Spotify (faixa, álbum, playlist, set) ou digite uma busca: as faixas entram na fila e começam a tocar.
+  - **Abas:** Fila, SoundCloud, YouTube e Spotify. Numa aba de serviço, digite o nome da música e escolha na lista (até 10 resultados, com artista e duração): um clique põe na fila (e começa, se estava parado), "Tocar agora" toca logo depois da atual. Um link colado em qualquer aba entra na fila direto. A busca do Spotify só existe se o admin pôs a chave da API no servidor; sem ela, a aba aceita links.
   - Na tela: a faixa atual com o progresso, « (anterior; com mais de 5 s tocados, volta ao começo), tocar/pausar, parar, » (próxima), misturar as próximas, repetir (não, tudo, esta faixa), remover, limpar e volume. Clique duplo numa faixa toca ela.
   - Toca de qualquer slot, como o portátil (o primeiro aparelho ligado do inventário decide); quem está perto ouve, e com fone só você.
   - Precisa do iPod ligado no servidor (ver o [guia do admin](docs/ADMIN.md#ipod-opcional)).
+- **iPod Player (bloco):** coloque no chão e clique com o botão direito: a mesma tela do iPod (abas, busca, fila), para todos que podem mexer no bloco. O botão **Ajustes**, no canto, tem volume, alcance, acesso (privado ou público), redstone (tocar enquanto ligada, alternar no pulso), texto e cor da tela e as caixas ligadas.
+  - Toca pelo relay para quem está no alcance, com caixas de chão e alto-falantes de teto ligados pelo sintonizador, como a rádio. Sem ninguém por perto, para de baixar; volta quando alguém chega.
+  - Quebrar devolve o item com a fila (desligado). Conta nos limites de rádios.
+- **Alto-falante de teto/parede:** clique embaixo de um bloco (teto) ou na lateral dele (parede); em cima de bloco não vai. Ligue numa rádio ou num iPod Player com o sintonizador, como a caixa de chão (o canal também troca agachado). Precisa de uma face sólida atrás e cai se o apoio sumir; com a proteção ligada, ninguém derruba o alto-falante de outro jogador quebrando o apoio.
 - **Fone:** use no slot de capacete (ou, com o Baubles Expanded, nos slots de cabeça ou de brinco). Com ele o portátil toca só para você, em estéreo e sem o reverb da sala.
 - **Rádio no modo FM:** na tela da rádio, o botão "URL/FM" troca o modo. No FM, « ‹ › » giram a frequência (±1,0 e ±0,1 MHz; as setas ← → do teclado também) e a rádio toca o transmissor mais forte daquela frequência que alcança o lugar. A tela mostra "Sinal 73% · estação"; sem cobertura, "sem sinal".
 - **Playlist:** na tela da rádio, o botão "Playlist" (verde quando ligada) toca as favoritas em sequência.
@@ -155,7 +167,7 @@ O plano completo está em [`docs/PLANO.md`](docs/PLANO.md).
 
 | Comando | O que faz |
 |---|---|
-| `/fm list [radios\|transmitters\|portables] [página]` | Rádios tocando (carregadas), transmissores (índice, carregados ou não) ou portáteis e iPods tocando |
+| `/fm list [radios\|transmitters\|portables] [página]` | Rádios e iPod Players tocando (carregados; o bloco mostra a faixa e a fila), transmissores (índice, carregados ou não) ou portáteis e iPods tocando |
 | `/fm info [x y z]` | Detalhes da rádio ou do transmissor (sem coordenadas: o bloco que você olha) |
 | `/fm stop [x y z]` | Para a rádio ou tira o transmissor do ar |
 | `/fm stopall` | Para todas as rádios e transmissores carregados e desliga os portáteis e iPods de quem está online |
@@ -198,10 +210,10 @@ java -cp <classpath de teste> com.akashiic.fm.tools.RelayProbe 20 https://stream
 | `direct` | `enabled`. Padrão **desligado**, porque o modo direto expõe o IP dos jogadores à URL |
 | `policy` | `allowedHosts` (vazio = qualquer host público; endereços internos sempre recusados), `allowHighPorts` |
 | `limits` | `maxRadiosPerPlayer` (16), `maxSpeakersPerRadio` (8), `maxSpeakerDistance` (32), `maxRadiosPerChunk` (4), `maxRange` (48), `actionsPerSecond` (10) |
-| `protection` | `protectPrivateBlocks` (outros jogadores e máquinas não quebram rádio privada), `opsBypass` |
+| `protection` | `protectPrivateBlocks` (outros jogadores e máquinas não quebram rádio privada nem o apoio do alto-falante de teto de outro), `opsBypass` |
 | `transmitter` | `baseRange` (64), `rangePerAntenna` (32), `maxAntennas` (16), `maxRange` (512), `requireEnergy` (ligado; só vale com IC2 ou RF instalado), `euPerTick` (8), `energyCapacity` (8000), `maxInputPerTick` (128), `rfPerEu` (4), `maxPerPlayer` (4) |
 | `portable` | `enabled` (ligado), `range` (16: até onde os outros ouvem o portátil sem fone) |
-| `ipod` | `enabled` (**desligado**), `autoInstallTools` (ligado), `ytDlpPath`, `youtubeDirect` (desligado), `spotify` (ligado), `maxResolves` (2), `maxQueue` (50), `maxTrackMinutes` (20), `pauseTimeoutMinutes` (10) |
+| `ipod` | `enabled` (**desligado**), `autoInstallTools` (ligado), `ytDlpPath`, `youtubeDirect` (desligado), `spotify` (ligado), `maxResolves` (2), `maxQueue` (50), `maxTrackMinutes` (20), `pauseTimeoutMinutes` (10), `spotifyClientId` e `spotifyClientSecret` (vazios: a busca do Spotify fica desligada) |
 | `opencomputers` | `allowPrivate` (desligado: computadores só controlam bloco público ou sem dono) |
 | `recipes` | `registerDefaultRecipes` (desligue se o modpack define as próprias) |
 | `client` | `enableAudio`, `maxSimultaneousRadios` (4), `allowDirectStreams`, `radioVolume` (100), `enableOcclusion`, `enableReverb`, `acousticOverrides` (`modid:nome=absorção[,amortecimento]`), `showNowPlaying`, `radioVisualizer` |

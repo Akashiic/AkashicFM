@@ -13,14 +13,21 @@
 # conferido) e dá ao jogador, pelo console, um iPod com um link do SoundCloud (toca direto) e depois outro com um do
 # YouTube (toca a mesma música achada no SoundCloud); o /fm stopall desliga o segundo.
 #
-# Uso: tools/prod/run.sh gtnh-2.9|gtnh-2.8|gtnh-2.7|min [radio|ipod]   (antes, uma vez: tools/prod/setup.sh)
+# Roteiro "ipodblock" (~5 min, precisa de internet): o iPod Player (bloco) e os alto-falantes de teto e de parede,
+# com o yt-dlp de verdade. Liga o iPod como no roteiro "ipod". Os blocos entram pelo console (setblock com NBT), longe
+# do jogador e com alcance curto, cada um ligado a um alto-falante colado nele: o som só chega pelo alto-falante. Um
+# toca o SoundCloud (no teto) e para quando a redstone desliga; o outro toca o YouTube pelo espelho (na parede) e o
+# /fm stop para com a redstone ainda ligada.
+#
+# Uso: tools/prod/run.sh gtnh-2.9|gtnh-2.8|gtnh-2.7|min [radio|ipod|ipodblock]   (antes, uma vez: tools/prod/setup.sh)
 #   gtnh-*: GTNHLib, UniMixins, Hodgepodge e OpenComputers nas versões daquele pack (tools/prod/packs.sh)
 #   min:    só o obrigatório, com o GTNHLib mínimo declarado no @Mod
 # AKASHICFM_JAR escolhe o jar (padrão: o mais novo de build/libs); PROD_URL, o stream.
 set -uo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 W=$ROOT/build/prod; SET=${1:-gtnh-2.9}; SCEN=${2:-radio}
-[[ $SCEN == radio || $SCEN == ipod ]] || { echo "roteiro desconhecido: $SCEN (radio ou ipod)" >&2; exit 2; }
+[[ $SCEN == radio || $SCEN == ipod || $SCEN == ipodblock ]] \
+  || { echo "roteiro desconhecido: $SCEN (radio, ipod ou ipodblock)" >&2; exit 2; }
 . "$ROOT/tools/prod/java8.sh"
 . "$ROOT/tools/prod/packs.sh"
 [[ -f $W/client-classpath.txt ]] || { echo "rode antes: tools/prod/setup.sh" >&2; exit 1; }
@@ -29,7 +36,7 @@ JAR=${AKASHICFM_JAR:-$(ls -t "$ROOT"/build/libs/*.jar | grep -vE -- '-(dev|sourc
 MODS=""; for mod in $PACK; do MODS="$MODS $(mod_file "$mod")"; done
 URL=${PROD_URL:-https://stream.radioparadise.com/mp3-128}
 RFG=$HOME/.gradle/caches/retro_futura_gradle
-OUT=$W/out-$SET; [[ $SCEN == ipod ]] && OUT=$OUT-ipod; rm -rf "$OUT"; mkdir -p "$OUT/server/mods" "$OUT/client/mods" "$OUT/client/config"
+OUT=$W/out-$SET; [[ $SCEN != radio ]] && OUT=$OUT-$SCEN; rm -rf "$OUT"; mkdir -p "$OUT/server/mods" "$OUT/client/mods" "$OUT/client/config"
 STEPS=$OUT/steps.log
 log() { echo "[$(date +%T.%3N)] $*" | tee -a "$STEPS"; }
 log "jar $(basename "$JAR"); roteiro $SCEN; mods: $MODS"
@@ -120,13 +127,13 @@ log "Prod entrou"
 sleep 10
 cmd "tp Prod 0.5 10 0.5"
 sleep 8
-if [[ $SCEN == ipod ]]; then
-  SC=https://soundcloud.com/forss/flickermood
-  YT=https://www.youtube.com/watch?v=5NV6Rdv1a3I
-  # A fila como fica depois de adicionar o vídeo: título e canal do YouTube e a duração, que o espelho usa.
-  YT_TITLE="Daft Punk - Get Lucky (Official Audio) ft. Pharrell Williams, Nile Rodgers"
-  CFG=$OUT/server/config/akashicfm.cfg
-  python3 - "$CFG" <<'PY'
+SC=https://soundcloud.com/forss/flickermood
+YT=https://www.youtube.com/watch?v=5NV6Rdv1a3I
+# A fila como fica depois de adicionar o vídeo: título e canal do YouTube e a duração, que o espelho usa.
+YT_TITLE="Daft Punk - Get Lucky (Official Audio) ft. Pharrell Williams, Nile Rodgers"
+# Liga o iPod no arquivo de config e no /fm reload e espera o yt-dlp oficial.
+enable_ipod() {
+  python3 - "$OUT/server/config/akashicfm.cfg" <<'PY'
 import re, sys
 p = sys.argv[1]; s = open(p).read()
 s2 = re.sub(r'(ipod \{[^}]*?B:enabled=)false', r'\1true', s, flags=re.S)
@@ -134,7 +141,51 @@ assert s2 != s, 'ipod.enabled não encontrado'
 open(p, 'w').write(s2)
 PY
   cmd "fm reload"
-  wait_for "$OUT/server/server.out" 'iPod: yt-dlp pronto' 240 || { finish; exit 1; }
+  wait_for "$OUT/server/server.out" 'iPod: yt-dlp pronto' 240
+}
+if [[ $SCEN == ipodblock ]]; then
+  enable_ipod || { finish; exit 1; }
+  # O jogador está em (0.5, 4, 0.5). Os blocos ficam a ~16 blocos, com alcance 8 (a audiência vai até 8 + 4): sem o
+  # alto-falante a 1 ou 2 blocos do jogador, ninguém ouviria. redstoneMode 1 = tocar enquanto ligada.
+  # Teto: o apoio em (1, 7, 2) e o alto-falante embaixo (metadata 7: no teto, virado para o sul).
+  cmd "setblock 1 7 2 minecraft:stone"
+  cmd "setblock 1 6 2 akashicfm:ceiling_speaker 7 replace {linkedRadio:{x:16,y:4,z:2}}"
+  cmd "setblock 16 4 2 akashicfm:ipod_player 0 replace {radio:{redstoneMode:1b,volume:100b,range:8s,speakers:[{x:1,y:6,z:2}]},ipod:{index:0,session:1,q:[{s:0b,l:\"$SC\"}]}}"
+  # Parede: o apoio em (-1, 5, 1) e o alto-falante na face leste dele (metadata 5: virado para o leste).
+  cmd "setblock -1 5 1 minecraft:stone"
+  cmd "setblock 0 5 1 akashicfm:ceiling_speaker 5 replace {linkedRadio:{x:16,y:4,z:6}}"
+  cmd "setblock 16 4 6 akashicfm:ipod_player 0 replace {radio:{redstoneMode:1b,volume:100b,range:8s,speakers:[{x:0,y:5,z:1}]},ipod:{index:0,session:1,q:[{s:1b,l:\"$YT\",t:\"$YT_TITLE\",a:\"Daft Punk\",d:249}]}}"
+  sleep 3
+  log "MARK blk1"
+  cmd "setblock 17 4 2 minecraft:redstone_block"
+  sleep 35
+  cmd "fm list radios"
+  cmd "fm info 16 4 2"
+  sleep 1
+  log "MARK blk1end"
+  cmd "setblock 17 4 2 minecraft:air"
+  sleep 8
+  cmd "fm info 16 4 2"
+  log "MARK blk2"
+  cmd "setblock 17 4 6 minecraft:redstone_block"
+  sleep 45
+  cmd "fm list radios"
+  cmd "fm info 16 4 6"
+  sleep 1
+  log "MARK stop"
+  cmd "fm stop 16 4 6"
+  sleep 8
+  cmd "fm info 16 4 6"
+  cmd "fm list radios"
+  sleep 2
+  log "fechando"
+  finish
+  log "FIM"
+  python3 "$ROOT/tools/prod/analyze.py" "$OUT" ipodblock
+  exit $?
+fi
+if [[ $SCEN == ipod ]]; then
+  enable_ipod || { finish; exit 1; }
   log "MARK ipod1"
   cmd "give Prod akashicfm:ipod 1 0 {ipod:{on:1b,index:0,session:1,volume:100b,q:[{s:0b,l:\"$SC\"}]}}"
   sleep 35
