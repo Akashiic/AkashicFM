@@ -33,6 +33,9 @@ public final class S2CIPodStatus implements IMessage {
     public int index = -1;
     /** Chave de tradução (argumento depois de '|'), ou vazio. */
     public String status = "";
+    /** É o status do bloco do iPod em (x, y, z) (para quem está perto), não o do item do dono. */
+    public boolean block;
+    public int x, y, z;
 
     public S2CIPodStatus() {}
 
@@ -62,7 +65,23 @@ public final class S2CIPodStatus implements IMessage {
         durationMs = buf.readInt() & 0xFFFFFFFFL;
         index = buf.readShort();
         status = ByteBufUtils.readUTF8String(buf);
+        // Sem o campo, ou com as coordenadas cortadas (pacote truncado): é do item.
+        block = buf.isReadable() && buf.readBoolean() && buf.readableBytes() >= 12;
+        if (block) {
+            x = buf.readInt();
+            y = buf.readInt();
+            z = buf.readInt();
+        }
         sanitize();
+    }
+
+    /** O mesmo status, do bloco do iPod em (x, y, z). */
+    public S2CIPodStatus at(int x, int y, int z) {
+        block = true;
+        this.x = x;
+        this.y = y;
+        this.z = z;
+        return this;
     }
 
     @Override
@@ -74,6 +93,12 @@ public final class S2CIPodStatus implements IMessage {
         buf.writeInt((int) durationMs);
         buf.writeShort(Math.max(-1, Math.min(Short.MAX_VALUE, index)));
         ByteBufUtils.writeUTF8String(buf, status);
+        buf.writeBoolean(block);
+        if (block) {
+            buf.writeInt(x);
+            buf.writeInt(y);
+            buf.writeInt(z);
+        }
     }
 
     public static final class Handler implements IMessageHandler<S2CIPodStatus, IMessage> {

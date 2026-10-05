@@ -13,6 +13,8 @@ import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.world.World;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
@@ -21,11 +23,16 @@ import com.akashiic.fm.client.ClientIPod;
 import com.akashiic.fm.client.ClientPortables;
 import com.akashiic.fm.common.IPodState;
 import com.akashiic.fm.common.IPodTrack;
+import com.akashiic.fm.common.Pos;
+import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.RadioLimits;
+import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.content.ItemIPod;
+import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.network.C2SIPodAction;
 import com.akashiic.fm.network.C2SIPodAction.Action;
+import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CIPodSearchResults;
 import com.akashiic.fm.network.S2CIPodStatus;
@@ -35,14 +42,18 @@ import com.akashiic.fm.network.S2CRadioPerms;
 import com.akashiic.fm.server.ipod.IPodActionHandler;
 
 /**
- * Tela do iPod do slot. Como as outras, não guarda estado do iPod: mostra o item (fila, faixa atual e pausa, do NBT
- * que o inventário sincroniza), o status que o servidor manda ao dono ({@link ClientIPod}: posição, motivo) e manda
- * pedidos. Fecha sozinha se o slot deixar de ter o iPod.
+ * Tela do iPod: o do slot ou o bloco. Como as outras, não guarda estado do iPod: mostra o do item (fila, faixa atual e
+ * pausa, do NBT que o inventário sincroniza) ou o do bloco (do pacote de descrição), o status que o servidor manda
+ * ({@link ClientIPod}: posição, motivo) e manda pedidos. Fecha sozinha se o slot deixar de ter o iPod, ou se o bloco
+ * sumir ou ficar longe.
  * <p>
  * Abas: a fila e uma por serviço (SoundCloud, YouTube, Spotify). Numa aba de serviço o campo busca pelo nome e a
  * lista mostra os resultados: um clique põe na fila (e começa, se o iPod estava parado), "Tocar agora" toca o
  * escolhido logo depois da atual. Um link colado em qualquer aba entra na fila direto. Na fila: clique seleciona,
  * clique duplo toca; a roda do mouse rola a lista.
+ * <p>
+ * No bloco, a aba Ajustes tem as configurações da rádio (volume, alcance, acesso, redstone, tela, caixas ligadas), e
+ * os controles seguem as permissões que o servidor responde, como na tela da rádio.
  */
 public final class GuiIPod extends GuiScreen implements FmScreen {
 
@@ -52,9 +63,11 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         QUEUE(null),
         SOUNDCLOUD(IPodTrack.Source.SOUNDCLOUD),
         YOUTUBE(IPodTrack.Source.YOUTUBE),
-        SPOTIFY(IPodTrack.Source.SPOTIFY);
+        SPOTIFY(IPodTrack.Source.SPOTIFY),
+        /** Só no bloco: as configurações da rádio. */
+        SETTINGS(null);
 
-        /** O serviço buscado (null na fila). */
+        /** O serviço buscado (null na fila e nos ajustes). */
         final IPodTrack.Source source;
 
         Tab(IPodTrack.Source source) {
@@ -71,17 +84,22 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
     private static final long SEARCH_TIMEOUT_MS = 60_000;
     private static final int TAB_Y = 28, TAB_H = 14;
     private static final int ACTIVE = 0xFF7CFF8A;
+    /** Mesmo limite que o servidor usa para aceitar ações no bloco. */
+    private static final double MAX_DISTANCE_SQ = 64.0;
 
     private static final int ID_ADD = 1, ID_PREV = 2, ID_TOGGLE = 3, ID_STOP = 4, ID_NEXT = 5, ID_SHUFFLE = 6,
         ID_REPEAT = 7, ID_REMOVE = 8, ID_CLEAR = 9, ID_VOLUME = 10, ID_UP = 11, ID_DOWN = 12, ID_ADD_RESULT = 13,
-        ID_PLAY_RESULT = 14, ID_TAB = 100;
+        ID_PLAY_RESULT = 14, ID_SET_VOLUME = 15, ID_RANGE = 16, ID_ACCESS = 17, ID_REDSTONE = 18, ID_SCREEN_OK = 19,
+        ID_COLOR = 20, ID_UNLINK = 21, ID_UNLINK_ALL = 22, ID_TAB = 100;
 
     /** A aba da última vez que a tela foi aberta (na mesma sessão). */
     private static Tab lastTab = Tab.QUEUE;
 
-    private final int slot;
+    /** Bloco (em blockX/Y/Z) ou item (no slot). */
+    private final boolean block;
+    private final int slot, blockX, blockY, blockZ;
     private int left, top;
-    private Tab tab = lastTab;
+    private Tab tab;
     private GuiTextField input;
     private FlatButton add, prev, toggle, stop, next, shuffle, repeat, remove, clear, up, down, addResult, playResult;
     private final Map<Tab, FlatButton> tabButtons = new EnumMap<>(Tab.class);
@@ -99,31 +117,87 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
     private final Map<Tab, S2CIPodSearchResults> results = new EnumMap<>(Tab.class);
     private final Map<Tab, Set<Integer>> added = new EnumMap<>(Tab.class);
 
+    /** Bloco: permissões (do servidor) e os controles da aba Ajustes. */
+    private boolean permsKnown, canControl, canAdmin;
+    private int maxRange = RadioLimits.RANGE_DEFAULT;
+    private RadioAccess lastAccess;
+    /** O jogador digitou um texto de tela diferente do estado: o campo para de seguir o servidor até bater. */
+    private boolean screenEdited;
+    private GuiTextField screenField;
+    private FlatSlider setVolume, range;
+    private FlatButton access, redstone, screenOk, color, unlink, unlinkAll;
+
     private String noticeText = "";
     private boolean noticeError;
     private long noticeUntil;
 
+    /** A tela do iPod do slot. */
     public GuiIPod(int slot) {
+        this.block = false;
         this.slot = slot;
+        this.blockX = this.blockY = this.blockZ = 0;
+        this.tab = lastTab == Tab.SETTINGS ? Tab.QUEUE : lastTab;
+    }
+
+    /** A tela do bloco do iPod em (x, y, z). */
+    public GuiIPod(int x, int y, int z) {
+        this.block = true;
+        this.slot = -1;
+        this.blockX = x;
+        this.blockY = y;
+        this.blockZ = z;
+        this.tab = lastTab;
     }
 
     public int slot() {
         return slot;
     }
 
-    @Override
-    public boolean isFor(int x, int y, int z) {
-        return y == IPodActionHandler.NOTICE_Y;
+    public boolean isBlock() {
+        return block;
+    }
+
+    /** Bloco: o servidor já disse o que este jogador pode fazer. */
+    public boolean permsKnown() {
+        return permsKnown;
     }
 
     @Override
-    public void onPerms(S2CRadioPerms perms) {}
+    public boolean isFor(int x, int y, int z) {
+        return block ? x == blockX && y == blockY && z == blockZ : y == IPodActionHandler.NOTICE_Y;
+    }
+
+    @Override
+    public void onPerms(S2CRadioPerms perms) {
+        if (!block) return;
+        permsKnown = true;
+        canControl = perms.canControl;
+        canAdmin = perms.canAdmin;
+        maxRange = perms.maxRange;
+        IPodState s = ipod();
+        if (s != null && input != null) refreshWidgets(s);
+    }
 
     @Override
     public void onNotice(S2CRadioNotice notice) {
         noticeText = format(notice.key + (notice.arg.isEmpty() ? "" : "|" + notice.arg));
         noticeError = notice.error;
         noticeUntil = System.currentTimeMillis() + NOTICE_MILLIS;
+    }
+
+    /** Bloco: o estado do tile mudou (ClientProxy). */
+    public void onStateUpdated() {
+        TileIPodPlayer t = tile();
+        if (t == null) return;
+        RadioState rs = t.state;
+        if (screenField != null && screenField.getText()
+            .equals(rs.screenText)) screenEdited = false;
+        // Quem pode mexer depende do acesso (público/privado): mudou, pergunta de novo.
+        if (lastAccess != rs.access) {
+            lastAccess = rs.access;
+            sendRadio(C2SRadioAction.Action.REQUEST_PERMS, 0, "");
+        }
+        if (input != null) refreshWidgets(t.ipod);
     }
 
     /** "chave|a|b" traduzido com os argumentos (texto que não é chave do mod sai como veio). */
@@ -142,8 +216,28 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
     }
 
     private ItemStack stack() {
-        if (mc == null || mc.thePlayer == null) return null;
+        if (block || mc == null || mc.thePlayer == null) return null;
         return ItemIPod.at(mc.thePlayer, slot);
+    }
+
+    /** O bloco do iPod, carregado; senão null. */
+    private TileIPodPlayer tile() {
+        World world = mc == null ? null : mc.theWorld;
+        if (!block || world == null || blockY < 0 || blockY > 255) return null;
+        TileEntity te = world.getTileEntity(blockX, blockY, blockZ);
+        return te instanceof TileIPodPlayer && !te.isInvalid() ? (TileIPodPlayer) te : null;
+    }
+
+    /** O estado do iPod (o do item, ou o do bloco ao alcance), ou null se a tela deve fechar. */
+    private IPodState ipod() {
+        if (block) {
+            TileIPodPlayer t = tile();
+            if (t == null || mc.thePlayer == null
+                || mc.thePlayer.getDistanceSq(blockX + 0.5, blockY + 0.5, blockZ + 0.5) > MAX_DISTANCE_SQ) return null;
+            return t.ipod;
+        }
+        ItemStack st = stack();
+        return st == null ? null : state(st);
     }
 
     /**
@@ -159,17 +253,31 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         return cached;
     }
 
+    /** O volume: o do item, ou o da rádio no bloco (vale também para as caixas). */
+    private int volumeOf(IPodState s) {
+        TileIPodPlayer t = block ? tile() : null;
+        return t != null ? t.state.volume : s.volume;
+    }
+
+    /** O item é sempre do jogador; no bloco, só com a permissão do servidor. */
+    private boolean control() {
+        return !block || (permsKnown && canControl);
+    }
+
+    private boolean admin() {
+        return block && permsKnown && canAdmin;
+    }
+
     // ---- Montagem ----
 
     @Override
     public void initGui() {
         Keyboard.enableRepeatEvents(true);
-        ItemStack st = stack();
-        if (st == null) {
+        IPodState s = ipod();
+        if (s == null) {
             mc.displayGuiScreen(null);
             return;
         }
-        IPodState s = state(st);
         boolean first = input == null;
         left = (width - W) / 2;
         top = (height - H) / 2;
@@ -208,24 +316,87 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
                 "akashicfm.gui.volume",
                 RadioLimits.VOLUME_MIN,
                 RadioLimits.VOLUME_MAX,
-                s.volume,
+                volumeOf(s),
                 v -> send(Action.VOLUME, v, "")));
-        if (first) send(Action.HELLO, 0, ""); // a busca do Spotify depende do servidor
+        TileIPodPlayer t = tile();
+        if (t != null) layoutSettings(t.state, by);
+        if (first) {
+            send(Action.HELLO, 0, ""); // a busca do Spotify depende do servidor
+            if (block) sendRadio(C2SRadioAction.Action.REQUEST_PERMS, 0, "");
+        }
         refreshWidgets(s);
     }
 
-    /** As abas lado a lado, com a folga repartida para caber na largura (os nomes variam com o idioma). */
+    /** A aba Ajustes do bloco: os controles da rádio, nos mesmos lugares das outras abas. */
+    private void layoutSettings(RadioState rs, int bottomY) {
+        if (lastAccess == null) lastAccess = rs.access;
+        String screenText = screenField != null ? screenField.getText() : rs.screenText;
+        setVolume = add(
+            new FlatSlider(
+                ID_SET_VOLUME,
+                left + 8,
+                top + 48,
+                118,
+                16,
+                "akashicfm.gui.volume",
+                RadioLimits.VOLUME_MIN,
+                RadioLimits.VOLUME_MAX,
+                rs.volume,
+                v -> send(Action.VOLUME, v, "")));
+        range = add(
+            new FlatSlider(
+                ID_RANGE,
+                left + 130,
+                top + 48,
+                118,
+                16,
+                "akashicfm.gui.range",
+                RadioLimits.RANGE_MIN,
+                Math.max(maxRange, rs.range),
+                rs.range,
+                v -> sendRadio(C2SRadioAction.Action.SET_RANGE, v, "")));
+        access = add(new FlatButton(ID_ACCESS, left + 8, top + 70, 70, 16, ""));
+        redstone = add(new FlatButton(ID_REDSTONE, left + 82, top + 70, 166, 16, ""));
+        screenField = new GuiTextField(fontRendererObj, left + 9, top + 93, 150, 14);
+        screenField.setMaxStringLength(RadioLimits.MAX_SCREEN_TEXT);
+        setFieldText(screenField, screenText);
+        screenOk = add(new FlatButton(ID_SCREEN_OK, left + 164, top + 92, 24, 16, I18n.format("akashicfm.gui.ok")));
+        color = add(new FlatButton(ID_COLOR, left + 192, top + 92, 56, 16, I18n.format("akashicfm.gui.color")));
+        unlink = add(
+            new FlatButton(ID_UNLINK, left + 8, bottomY, 118, 16, I18n.format("akashicfm.gui.ipod.unlink_one")));
+        unlinkAll = add(new FlatButton(ID_UNLINK_ALL, left + 130, bottomY, 118, 16, ""));
+    }
+
+    /**
+     * As abas lado a lado, com a folga repartida para caber na largura (os nomes variam com o idioma). No bloco,
+     * Ajustes
+     * fica num botão no canto de cima: cinco abas não cabem numa linha sem cortar os nomes.
+     */
     private void layoutTabs() {
-        Tab[] tabs = Tab.values();
+        Tab[] tabs = { Tab.QUEUE, Tab.SOUNDCLOUD, Tab.YOUTUBE, Tab.SPOTIFY };
         int gap = 2, avail = W - 16 - gap * (tabs.length - 1), text = 0;
         for (Tab t : tabs) text += fontRendererObj.getStringWidth(tabLabel(t));
-        int pad = Math.max(4, Math.min(12, (avail - text) / tabs.length));
+        // O botão deixa 4 px de margem de cada lado do texto: com menos de 9 px de folga, ele corta o nome.
+        int pad = Math.max(9, Math.min(12, (avail - text) / tabs.length));
         int x = left + 8;
         for (Tab t : tabs) {
             int w = fontRendererObj.getStringWidth(tabLabel(t)) + pad;
             FlatButton b = add(new FlatButton(ID_TAB + t.ordinal(), x, top + TAB_Y, w, TAB_H, tabLabel(t)));
             tabButtons.put(t, b);
             x += w + gap;
+        }
+        if (block) {
+            int w = fontRendererObj.getStringWidth(tabLabel(Tab.SETTINGS)) + 10;
+            tabButtons.put(
+                Tab.SETTINGS,
+                add(
+                    new FlatButton(
+                        ID_TAB + Tab.SETTINGS.ordinal(),
+                        left + W - 8 - w,
+                        top + 4,
+                        w,
+                        12,
+                        tabLabel(Tab.SETTINGS))));
         }
     }
 
@@ -238,6 +409,15 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         return button;
     }
 
+    /**
+     * Texto vindo do estado: mostra o começo (o GuiTextField do 1.7.10 deixa o cursor no fim e, com texto maior que o
+     * campo, desenha um falso trecho selecionado).
+     */
+    private static void setFieldText(GuiTextField field, String text) {
+        field.setText(text);
+        field.setCursorPositionZero();
+    }
+
     @Override
     public void onGuiClosed() {
         Keyboard.enableRepeatEvents(false);
@@ -246,12 +426,13 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
 
     @Override
     public void updateScreen() {
-        ItemStack st = stack();
-        if (st == null || mc.thePlayer == null) {
+        IPodState s = ipod();
+        if (s == null || mc.thePlayer == null) {
             mc.displayGuiScreen(null);
             return;
         }
         input.updateCursorCounter();
+        if (screenField != null) screenField.updateCursorCounter();
         for (Tab t : Tab.values()) {
             Integer req = request.get(t);
             if (req == null) continue;
@@ -263,37 +444,79 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
                 scroll.put(t, 0);
             }
         }
-        refreshWidgets(state(st));
+        refreshWidgets(s);
     }
 
     private void refreshWidgets(IPodState s) {
         boolean has = !s.queue.isEmpty();
         boolean queueTab = tab == Tab.QUEUE;
+        boolean settings = tab == Tab.SETTINGS;
+        boolean control = control();
         for (Map.Entry<Tab, FlatButton> e : tabButtons.entrySet())
             e.getValue().textColor = e.getKey() == tab ? ACTIVE : 0;
+        add.visible = !settings;
+        add.enabled = control;
         add.displayString = I18n.format(
             queueTab || (tab == Tab.SPOTIFY && !spotifySearch()) ? "akashicfm.gui.ipod.add"
                 : "akashicfm.gui.ipod.search");
+        input.setEnabled(control);
+        if (!control || settings) input.setFocused(false);
+        prev.visible = toggle.visible = stop.visible = next.visible = shuffle.visible = repeat.visible = !settings;
         toggle.displayString = I18n.format(s.on && !s.paused ? "akashicfm.gui.ipod.pause" : "akashicfm.gui.play");
-        toggle.enabled = has;
-        stop.enabled = s.on;
-        prev.enabled = next.enabled = has;
-        shuffle.enabled = s.queue.size() - Math.max(0, s.index + 1) >= 2;
+        toggle.enabled = control && has;
+        stop.enabled = control && s.on;
+        prev.enabled = next.enabled = control && has;
+        shuffle.enabled = control && s.queue.size() - Math.max(0, s.index + 1) >= 2;
+        repeat.enabled = control;
         int rows = rowCount(s);
         int sel = selected(tab);
         if (sel >= rows) selected.remove(tab);
         remove.visible = clear.visible = queueTab;
-        addResult.visible = playResult.visible = !queueTab;
-        remove.enabled = queueTab && selected(tab) >= 0;
-        clear.enabled = has;
-        boolean picked = !queueTab && selected(tab) >= 0;
-        addResult.enabled = picked && !addedSet(tab).contains(selected(tab));
-        playResult.enabled = picked;
+        addResult.visible = playResult.visible = !queueTab && !settings;
+        remove.enabled = control && queueTab && selected(tab) >= 0;
+        clear.enabled = control && has;
+        boolean picked = !queueTab && !settings && selected(tab) >= 0;
+        addResult.enabled = control && picked && !addedSet(tab).contains(selected(tab));
+        playResult.enabled = control && picked;
         int sc = Math.max(0, Math.min(scroll(tab), Math.max(0, rows - ROWS)));
         scroll.put(tab, sc);
         up.enabled = sc > 0;
         down.enabled = sc < rows - ROWS;
-        volume.setValue(s.volume);
+        volume.visible = !settings;
+        volume.enabled = control;
+        volume.setValue(volumeOf(s));
+        TileIPodPlayer t = tile();
+        if (t != null && setVolume != null) refreshSettings(t.state, settings, control, admin());
+    }
+
+    /** Os controles da aba Ajustes (a rádio do bloco): como na tela da rádio. */
+    private void refreshSettings(RadioState rs, boolean settings, boolean control, boolean admin) {
+        setVolume.visible = range.visible = access.visible = redstone.visible = screenOk.visible = color.visible = settings;
+        unlink.visible = unlinkAll.visible = settings;
+        setVolume.enabled = control;
+        setVolume.setValue(rs.volume);
+        range.enabled = control;
+        range.setRange(RadioLimits.RANGE_MIN, Math.max(maxRange, rs.range));
+        range.setValue(rs.range);
+        access.enabled = admin;
+        access.displayString = I18n.format("akashicfm.gui.access." + rs.access.name());
+        redstone.enabled = admin;
+        redstone.displayString = I18n
+            .format("akashicfm.gui.redstone", I18n.format("akashicfm.gui.redstone." + rs.redstoneMode.name()));
+        screenField.setEnabled(admin);
+        if (!admin || !settings) screenField.setFocused(false);
+        if (!screenEdited && !screenField.isFocused()
+            && !screenField.getText()
+                .equals(rs.screenText))
+            setFieldText(screenField, rs.screenText);
+        screenOk.enabled = admin && !screenField.getText()
+            .equals(rs.screenText);
+        color.enabled = admin;
+        color.swatch = rs.screenColor;
+        int sel = selected(Tab.SETTINGS);
+        unlink.enabled = admin && sel >= 0 && sel < rs.speakers.size();
+        unlinkAll.enabled = admin && !rs.speakers.isEmpty();
+        unlinkAll.displayString = I18n.format("akashicfm.gui.unlink_all", rs.speakers.size());
     }
 
     private int selected(Tab t) {
@@ -311,9 +534,13 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         return s == null ? Collections.emptySet() : s;
     }
 
-    /** Linhas da lista da aba atual (fila ou resultados). */
+    /** Linhas da lista da aba atual (fila, resultados ou caixas ligadas). */
     private int rowCount(IPodState s) {
         if (tab == Tab.QUEUE) return s.queue.size();
+        if (tab == Tab.SETTINGS) {
+            TileIPodPlayer t = tile();
+            return t == null ? 0 : t.state.speakers.size();
+        }
         S2CIPodSearchResults r = results.get(tab);
         return r == null ? 0 : r.results.size();
     }
@@ -326,13 +553,13 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
 
     @Override
     protected void actionPerformed(GuiButton button) {
-        ItemStack st = stack();
-        if (st == null) return;
-        IPodState s = state(st);
+        IPodState s = ipod();
+        if (s == null) return;
         if (button.id >= ID_TAB && button.id < ID_TAB + Tab.values().length) {
             selectTab(Tab.values()[button.id - ID_TAB]);
             return;
         }
+        TileIPodPlayer t = tile();
         switch (button.id) {
             case ID_ADD:
                 submitText(input.getText());
@@ -378,17 +605,56 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
                 scroll.put(tab, Math.min(Math.max(0, rowCount(s) - ROWS), scroll(tab) + 1));
                 return;
             default:
+                break;
+        }
+        if (t == null) return;
+        RadioState rs = t.state;
+        switch (button.id) {
+            case ID_SCREEN_OK:
+                commitScreenText(rs);
+                return;
+            case ID_COLOR:
+                sendRadio(C2SRadioAction.Action.SET_SCREEN_COLOR, GuiRadio.nextColor(rs.screenColor), "");
+                return;
+            case ID_ACCESS: {
+                RadioAccess nextAccess = rs.access == RadioAccess.PUBLIC ? RadioAccess.PRIVATE : RadioAccess.PUBLIC;
+                sendRadio(C2SRadioAction.Action.SET_ACCESS, nextAccess.ordinal(), "");
+                return;
+            }
+            case ID_REDSTONE:
+                sendRadio(
+                    C2SRadioAction.Action.SET_REDSTONE_MODE,
+                    rs.redstoneMode.next()
+                        .ordinal(),
+                    "");
+                return;
+            case ID_UNLINK: {
+                int sel = selected(Tab.SETTINGS);
+                if (sel >= 0 && sel < rs.speakers.size()) sendRadio(C2SRadioAction.Action.UNLINK_SPEAKER, sel, "");
+                selected.remove(Tab.SETTINGS);
+                return;
+            }
+            case ID_UNLINK_ALL:
+                sendRadio(C2SRadioAction.Action.UNLINK_ALL_SPEAKERS, 0, "");
+                selected.remove(Tab.SETTINGS);
+                return;
+            default:
                 return;
         }
     }
 
-    /** Troca de aba (público para o teste em jogo). */
+    private void commitScreenText(RadioState rs) {
+        String text = TextSanitizer.clean(screenField.getText(), RadioLimits.MAX_SCREEN_TEXT);
+        if (!text.equals(rs.screenText)) sendRadio(C2SRadioAction.Action.SET_SCREEN_TEXT, 0, text);
+    }
+
+    /** Troca de aba (público para o teste em jogo). A aba Ajustes só existe no bloco. */
     public void selectTab(Tab t) {
-        if (t == null || t == tab) return;
+        if (t == null || t == tab || (t == Tab.SETTINGS && !block)) return;
         tab = t;
         lastClickRow = -1;
-        ItemStack st = stack();
-        if (st != null) refreshWidgets(state(st));
+        IPodState s = ipod();
+        if (s != null && input != null) refreshWidgets(s);
     }
 
     public Tab tab() {
@@ -400,6 +666,7 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
      * busca pelo nome, e um link colado entra na fila direto. Público para o teste em jogo.
      */
     public void submitText(String raw) {
+        if (tab == Tab.SETTINGS) return;
         String typed = TextSanitizer.clean(raw, RadioLimits.MAX_URL_LENGTH);
         if (typed.isEmpty()) {
             localNotice(
@@ -442,8 +709,21 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
             }
             if (input.textboxKeyTyped(typedChar, keyCode)) return;
         }
-        boolean typing = input.isFocused();
-        if (!typing && keyCode == Keyboard.KEY_SPACE) {
+        if (screenField != null && screenField.isFocused()) {
+            TileIPodPlayer t = tile();
+            if (enter) {
+                if (t != null && admin()) commitScreenText(t.state);
+                screenField.setFocused(false);
+                return;
+            }
+            if (screenField.textboxKeyTyped(typedChar, keyCode)) {
+                if (t != null) screenEdited = !screenField.getText()
+                    .equals(t.state.screenText);
+                return;
+            }
+        }
+        boolean typing = input.isFocused() || (screenField != null && screenField.isFocused());
+        if (!typing && keyCode == Keyboard.KEY_SPACE && tab != Tab.SETTINGS) {
             send(Action.TOGGLE, 0, "");
             return;
         }
@@ -463,31 +743,42 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         super.handleMouseInput();
         int wheel = Mouse.getEventDWheel();
         if (wheel == 0) return;
-        ItemStack st = stack();
-        if (st == null) return;
-        int rows = rowCount(state(st));
+        IPodState s = ipod();
+        if (s == null) return;
+        int rows = rowCount(s);
         scroll.put(tab, Math.max(0, Math.min(Math.max(0, rows - ROWS), scroll(tab) + (wheel > 0 ? -1 : 1))));
     }
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
-        input.mouseClicked(mouseX, mouseY, mouseButton);
-        ItemStack st = stack();
-        if (st == null || mouseButton != 0) return;
+        boolean settings = tab == Tab.SETTINGS;
+        // Campo desabilitado não ganha foco (o GuiTextField do 1.7.10 deixaria focar mesmo desabilitado).
+        if (!settings && control()) input.mouseClicked(mouseX, mouseY, mouseButton);
+        else input.setFocused(false);
+        if (screenField != null) {
+            if (settings && admin()) screenField.mouseClicked(mouseX, mouseY, mouseButton);
+            else screenField.setFocused(false);
+        }
+        IPodState s = ipod();
+        if (s == null || mouseButton != 0) return;
         int lx = left + 8, ly = top + LIST_Y;
         if (mouseX < lx || mouseX >= left + 232 || mouseY < ly || mouseY >= ly + ROWS * ROW_H) return;
         int row = scroll(tab) + (mouseY - ly) / ROW_H;
-        IPodState s = state(st);
         if (row >= rowCount(s)) return;
+        if (settings) {
+            selected.put(tab, row);
+            return;
+        }
         if (tab != Tab.QUEUE) {
+            if (!control()) return;
             // Um clique põe na fila (uma vez); o selecionado também pode tocar agora.
             if (!addedSet(tab).contains(row)) pickResult(row, false);
             selected.put(tab, row);
             return;
         }
         long now = System.currentTimeMillis();
-        if (row == lastClickRow && now - lastClickMs <= DOUBLE_CLICK_MS) {
+        if (row == lastClickRow && now - lastClickMs <= DOUBLE_CLICK_MS && control()) {
             send(Action.PLAY, row, "");
             lastClickRow = -1;
         } else {
@@ -504,34 +795,39 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         drawDefaultBackground();
         drawRect(left - 1, top - 1, left + W + 1, top + H + 1, 0xFFB0B8C8);
         drawGradientRect(left, top, left + W, top + H, 0xF8181C24, 0xF80E1116);
-        ItemStack st = stack();
-        if (st == null) return;
-        IPodState s = state(st);
+        IPodState s = ipod();
+        if (s == null) return;
         long now = System.currentTimeMillis();
-        S2CPortableSources.Entry own = mc.thePlayer == null ? null
-            : ClientPortables.own(mc.thePlayer.getEntityId(), now);
-        S2CIPodStatus status = ClientIPod.status(s.id, now);
+        TileIPodPlayer tile = tile();
+        boolean settings = tab == Tab.SETTINGS && tile != null;
 
-        drawCenteredString(fontRendererObj, I18n.format("akashicfm.gui.ipod.title"), left + W / 2, top + 6, 0xFFFFFF);
-        String state = I18n
-            .format(!s.on ? "akashicfm.ipod.off" : s.paused ? "akashicfm.ipod.paused" : "akashicfm.ipod.on");
-        String sub = state + " · "
-            + I18n
-                .format(own != null && own.headphones ? "akashicfm.gui.ipod.headphones" : "akashicfm.gui.ipod.speaker");
-        sub = fontRendererObj.trimStringToWidth(sub, W - 12);
-        drawCenteredString(fontRendererObj, sub, left + W / 2, top + 17, 0xFF9AA4B0);
+        String title = I18n.format(block ? "tile.akashicfm.ipod_player.name" : "akashicfm.gui.ipod.title");
+        drawCenteredString(fontRendererObj, title, left + W / 2, top + 6, 0xFFFFFF);
+        drawCenteredString(fontRendererObj, subtitle(s, tile, now), left + W / 2, top + 17, 0xFF9AA4B0);
 
-        input.drawTextBox();
-        if (input.getText()
-            .isEmpty() && !input.isFocused()) {
-            fontRendererObj.drawString(
-                fontRendererObj.trimStringToWidth(I18n.format(hintKey()), 172),
-                left + 12,
-                top + 51,
-                0xFF606870);
+        if (settings) {
+            screenField.drawTextBox();
+            if (screenField.getText()
+                .isEmpty() && !screenField.isFocused()) {
+                fontRendererObj.drawString(
+                    fontRendererObj.trimStringToWidth(I18n.format("akashicfm.gui.screen_hint"), 142),
+                    left + 13,
+                    top + 96,
+                    0xFF606870);
+            }
+        } else {
+            input.drawTextBox();
+            if (input.getText()
+                .isEmpty() && !input.isFocused()) {
+                fontRendererObj.drawString(
+                    fontRendererObj.trimStringToWidth(I18n.format(hintKey()), 172),
+                    left + 12,
+                    top + 51,
+                    0xFF606870);
+            }
         }
         super.drawScreen(mouseX, mouseY, partialTicks);
-        FlatButton active = tabButtons.get(tab);
+        FlatButton active = settings ? null : tabButtons.get(tab); // Ajustes (no canto) fica só em verde
         if (active != null) drawRect(
             active.xPosition + 1,
             active.yPosition + TAB_H,
@@ -539,17 +835,48 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
             active.yPosition + TAB_H + 2,
             ACTIVE);
 
-        drawNowPlaying(s, status, now);
-        if (tab == Tab.QUEUE) drawQueue(s);
-        else drawResults(now);
-
-        if (!noticeText.isEmpty() && now < noticeUntil) {
-            fontRendererObj.drawString(
-                fontRendererObj.trimStringToWidth(noticeText, W - 18),
-                left + 9,
-                top + H - 14,
-                noticeError ? 0xFFFF6060 : 0xFF70FF80);
+        if (settings) {
+            drawSpeakers(tile);
+        } else {
+            S2CIPodStatus status = block ? ClientIPod.blockStatus(blockX, blockY, blockZ, now)
+                : ClientIPod.status(s.id, now);
+            drawNowPlaying(s, status, tile, now);
+            if (tab == Tab.QUEUE) drawQueue(s);
+            else drawResults(now);
         }
+
+        String bottom = "";
+        int bottomColor = 0xFF9AA4B0;
+        if (!noticeText.isEmpty() && now < noticeUntil) {
+            bottom = noticeText;
+            bottomColor = noticeError ? 0xFFFF6060 : 0xFF70FF80;
+        } else if (block && !permsKnown) {
+            bottom = I18n.format("akashicfm.gui.status.checking");
+        }
+        if (!bottom.isEmpty()) {
+            fontRendererObj
+                .drawString(fontRendererObj.trimStringToWidth(bottom, W - 18), left + 9, top + H - 14, bottomColor);
+        }
+    }
+
+    /** Ligado/pausado/parado e, no item, quem ouve; no bloco, o dono e o acesso. */
+    private String subtitle(IPodState s, TileIPodPlayer tile, long now) {
+        String state = I18n
+            .format(!s.on ? "akashicfm.ipod.off" : s.paused ? "akashicfm.ipod.paused" : "akashicfm.ipod.on");
+        String sub;
+        if (tile != null) {
+            RadioState rs = tile.state;
+            String owner = rs.ownerName.isEmpty() ? I18n.format("akashicfm.gui.no_owner")
+                : I18n.format("akashicfm.gui.owner", rs.ownerName);
+            sub = state + " · " + owner + " · " + I18n.format("akashicfm.gui.access." + rs.access.name());
+        } else {
+            S2CPortableSources.Entry own = mc.thePlayer == null ? null
+                : ClientPortables.own(mc.thePlayer.getEntityId(), now);
+            sub = state + " · "
+                + I18n.format(
+                    own != null && own.headphones ? "akashicfm.gui.ipod.headphones" : "akashicfm.gui.ipod.speaker");
+        }
+        return fontRendererObj.trimStringToWidth(sub, W - 12);
     }
 
     private String hintKey() {
@@ -559,23 +886,28 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
     }
 
     /** Faixa atual, motivo e progresso. */
-    private void drawNowPlaying(IPodState s, S2CIPodStatus status, long now) {
+    private void drawNowPlaying(IPodState s, S2CIPodStatus status, TileIPodPlayer tile, long now) {
         int lx = left + 9, width = W - 18;
         IPodTrack cur = s.current();
         String title = cur == null ? I18n.format("akashicfm.gui.ipod.empty") : "♪ " + cur.display();
         fontRendererObj.drawString(fontRendererObj.trimStringToWidth(title, width), lx, top + 66, 0xFFE0E6EE);
+        // O motivo vem no status; no bloco, também na rádio (o status para quando ninguém está ouvindo).
+        String reason = status != null ? status.status : "";
+        if (reason.isEmpty() && tile != null && s.on) reason = tile.state.status;
         String line;
         int color = 0xFF9AA4B0;
-        if (status != null && !status.status.isEmpty()) {
-            line = format(status.status);
-            color = status.phase == S2CIPodStatus.Phase.ERROR ? 0xFFFF8070 : 0xFFFFD070;
+        if (!reason.isEmpty()) {
+            line = format(reason);
+            color = status != null && status.phase == S2CIPodStatus.Phase.ERROR ? 0xFFFF8070 : 0xFFFFD070;
         } else if (!s.on) {
             line = s.queue.isEmpty() ? I18n.format("akashicfm.gui.ipod.hint_empty") : I18n.format("akashicfm.ipod.off");
         } else {
             line = cur != null && cur.source != IPodTrack.Source.SOUNDCLOUD ? I18n.format("akashicfm.gui.ipod.mirror")
                 : I18n.format("akashicfm.gui.ipod.direct");
         }
-        long pos = status == null ? 0 : ClientIPod.positionMs(status, now);
+        long pos = status == null ? 0
+            : block ? ClientIPod.blockPositionMs(status, blockX, blockY, blockZ, now)
+                : ClientIPod.positionMs(status, now);
         long dur = status != null && status.durationMs > 0 ? status.durationMs
             : cur == null ? 0 : cur.durationSec * 1000L;
         String time = s.on ? clock(pos) + (dur > 0 ? " / " + clock(dur) : "") : dur > 0 ? clock(dur) : "";
@@ -605,7 +937,7 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
             if (i == sel) drawRect(left + 8, ry, left + 232, ry + ROW_H, 0x603A7BD5);
             int c = i == s.index ? 0xFF70FF80 : 0xFFD0D6E0;
             String text = (i + 1) + ". " + mark(t.source) + t.display();
-            drawRow(text, t.durationSec, ry, c);
+            drawRow(text, duration(t.durationSec), ry, c);
         }
         // O modo de repetição fica aqui (no botão não caberia).
         String count = I18n.format("akashicfm.ipod.queue", s.queue.size()) + " · "
@@ -652,7 +984,32 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
             int ry = ly + row * ROW_H;
             if (i == sel) drawRect(left + 8, ry, left + 232, ry + ROW_H, 0x603A7BD5);
             boolean in = done.contains(i);
-            drawRow((in ? "✓ " : "") + e.display(), e.durationSec, ry, in ? 0xFF70FF80 : 0xFFD0D6E0);
+            drawRow((in ? "✓ " : "") + e.display(), duration(e.durationSec), ry, in ? 0xFF70FF80 : 0xFFD0D6E0);
+        }
+    }
+
+    /** Ajustes: as caixas ligadas ao bloco (posição e distância). */
+    private void drawSpeakers(TileIPodPlayer tile) {
+        drawListBackground();
+        List<Pos> speakers = tile.state.speakers;
+        drawHeader(I18n.format("akashicfm.waila.speakers", speakers.size()), 0xFF707880);
+        if (speakers.isEmpty()) {
+            drawWrapped(I18n.format("akashicfm.gui.ipod.no_speakers"));
+            return;
+        }
+        int ly = top + LIST_Y, sc = scroll(Tab.SETTINGS), sel = selected(Tab.SETTINGS);
+        for (int row = 0; row < ROWS; row++) {
+            int i = sc + row;
+            if (i >= speakers.size()) break;
+            Pos p = speakers.get(i);
+            int ry = ly + row * ROW_H;
+            if (i == sel) drawRect(left + 8, ry, left + 232, ry + ROW_H, 0x603A7BD5);
+            double d = Math.sqrt(p.distanceSqTo(blockX + 0.5, blockY + 0.5, blockZ + 0.5));
+            drawRow(
+                (i + 1) + ". " + p.x + ", " + p.y + ", " + p.z,
+                I18n.format("akashicfm.gui.ipod.blocks", (int) Math.round(d)),
+                ry,
+                0xFFD0D6E0);
         }
     }
 
@@ -660,11 +1017,15 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         fontRendererObj.drawString(fontRendererObj.trimStringToWidth(text, W - 18), left + 9, top + LIST_Y - 11, color);
     }
 
-    private void drawRow(String text, int durationSec, int ry, int color) {
-        String d = durationSec > 0 ? clock(durationSec * 1000L) : "";
-        int dw = fontRendererObj.getStringWidth(d);
+    /** Uma linha da lista: o texto à esquerda (cortado) e {@code right} (duração, distância) à direita. */
+    private void drawRow(String text, String right, int ry, int color) {
+        int dw = fontRendererObj.getStringWidth(right);
         fontRendererObj.drawString(fontRendererObj.trimStringToWidth(text, 220 - dw - 8), left + 11, ry + 2, color);
-        fontRendererObj.drawString(d, left + 229 - dw, ry + 2, 0xFF8890A0);
+        fontRendererObj.drawString(right, left + 229 - dw, ry + 2, 0xFF8890A0);
+    }
+
+    private static String duration(int sec) {
+        return sec > 0 ? clock(sec * 1000L) : "";
     }
 
     /** Texto de várias linhas dentro da lista. */
@@ -694,9 +1055,17 @@ public final class GuiIPod extends GuiScreen implements FmScreen {
         noticeUntil = System.currentTimeMillis() + NOTICE_MILLIS;
     }
 
+    /** Uma ação do iPod: para o item do slot ou para o bloco. */
     private void send(Action action, int intArg, String strArg) {
-        ItemStack st = stack();
-        if (st == null) return;
-        FmNetwork.sendToServer(new C2SIPodAction(slot, state(st).id, action, intArg, strArg));
+        IPodState s = ipod();
+        if (s == null) return;
+        FmNetwork.sendToServer(
+            block ? C2SIPodAction.forBlock(blockX, blockY, blockZ, s.id, action, intArg, strArg)
+                : new C2SIPodAction(slot, s.id, action, intArg, strArg));
+    }
+
+    /** Bloco: uma ação de rádio (permissões e ajustes). */
+    private void sendRadio(C2SRadioAction.Action action, int intArg, String strArg) {
+        if (block) FmNetwork.sendToServer(new C2SRadioAction(blockX, blockY, blockZ, action, intArg, strArg));
     }
 }

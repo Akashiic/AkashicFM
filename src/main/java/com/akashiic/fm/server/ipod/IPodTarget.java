@@ -6,7 +6,10 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 
 import com.akashiic.fm.common.IPodState;
+import com.akashiic.fm.common.Permissions;
 import com.akashiic.fm.content.ItemIPod;
+import com.akashiic.fm.content.TileIPodPlayer;
+import com.akashiic.fm.server.Moderation;
 
 /**
  * O iPod a que uma ação se refere, mesmo desligado: para onde vai uma adição que termina depois (o jogador pode ter
@@ -36,6 +39,39 @@ interface IPodTarget {
             this.state = state;
             this.save = save;
         }
+    }
+
+    /**
+     * O bloco do iPod em (x, y, z) da dimensão, com esta identidade: achado de novo pela posição (ainda carregado,
+     * ainda o mesmo aparelho), e o jogador ainda tem de poder controlá-lo.
+     */
+    static IPodTarget block(int dim, int x, int y, int z, long id) {
+        String key = TileIPodPlayer.stationKey(dim, x, y, z);
+        return new IPodTarget() {
+
+            @Override
+            public String key() {
+                return key;
+            }
+
+            @Override
+            public long id() {
+                return id;
+            }
+
+            @Override
+            public Binding bind(EntityPlayerMP player) {
+                TileIPodPlayer t = IPodService.blockAt(dim, x, y, z);
+                if (t == null || t.ipod.id != id || player == null) return null;
+                if (Moderation.isBlocked(player) || !Permissions.canControl(t.state, player)) return null;
+                return new Binding(t.ipod, t::commitIPod);
+            }
+
+            @Override
+            public void notice(EntityPlayerMP player, boolean error, String status) {
+                IPodActionHandler.notice(player, x, y, z, error, status);
+            }
+        };
     }
 
     /** O iPod item de {@code owner} com esta identidade, em qualquer slot do inventário. */

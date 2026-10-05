@@ -83,6 +83,7 @@ public class ClientProxy extends CommonProxy {
     public void onClientRadioUpdated(TileRadio radio) {
         FmScreen gui = openGuiFor(radio.xCoord, radio.yCoord, radio.zCoord);
         if (gui instanceof GuiRadio) ((GuiRadio) gui).onStateUpdated();
+        else if (gui instanceof GuiIPod) ((GuiIPod) gui).onStateUpdated();
     }
 
     @Override
@@ -115,6 +116,12 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
+    public void openIPodBlockGui(World world, int x, int y, int z) {
+        Minecraft.getMinecraft()
+            .displayGuiScreen(new GuiIPod(x, y, z));
+    }
+
+    @Override
     public void onIPodStatus(S2CIPodStatus message) {
         ClientIPod.update(message, System.currentTimeMillis());
     }
@@ -143,8 +150,9 @@ public class ClientProxy extends CommonProxy {
         ChatComponentText line = new ChatComponentText("[AkashicFM] ");
         line.getChatStyle()
             .setColor(notice.error ? EnumChatFormatting.RED : EnumChatFormatting.GREEN);
-        // Os avisos do iPod podem ter vários argumentos ("a|b").
-        Object[] args = notice.y == IPodActionHandler.NOTICE_Y ? notice.arg.split("\\|", -1)
+        // Os avisos do iPod (item ou bloco) podem ter vários argumentos ("a|b").
+        Object[] args = notice.y == IPodActionHandler.NOTICE_Y || notice.key.startsWith("akashicfm.ipod.")
+            ? notice.arg.split("\\|", -1)
             : new Object[] { notice.arg };
         line.appendSibling(new ChatComponentTranslation(notice.key, args));
         mc.thePlayer.addChatMessage(line);

@@ -9,9 +9,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.multiplayer.GuiConnecting;
+import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.play.client.C0BPacketEntityAction;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.ChatComponentTranslation;
 import net.minecraft.util.ChunkCoordinates;
 import net.minecraft.util.MathHelper;
@@ -50,15 +53,19 @@ import com.akashiic.fm.common.PortableState;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioAccess;
 import com.akashiic.fm.common.RadioState;
+import com.akashiic.fm.common.RedstoneMode;
 import com.akashiic.fm.common.SpeakerChannel;
 import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
+import com.akashiic.fm.content.BlockRadio;
 import com.akashiic.fm.content.FmContent;
+import com.akashiic.fm.content.ItemBlockIPodPlayer;
 import com.akashiic.fm.content.ItemHeadphones;
 import com.akashiic.fm.content.ItemIPod;
 import com.akashiic.fm.content.ItemPortableRadio;
 import com.akashiic.fm.content.ItemTuner;
+import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.content.TileTransmitter;
@@ -965,6 +972,7 @@ public final class E2EClient {
         addFrequencySteps(expectPeer);
         addPortableSteps(expectPeer);
         addIPodSteps(expectPeer);
+        addIPodBlockSteps(expectPeer);
         addAdminSteps(expectPeer);
         if (relayMode()) addPlaylistSteps(expectPeer);
         addMuteSteps();
@@ -2426,6 +2434,535 @@ public final class E2EClient {
         steps.add(peerPortable("peer-ipod-parado", "ipod-gone", this::otherIPodSilent, "ipod-gone-ok"));
     }
 
+    // ---- Fase 9b: o bloco do iPod ----
+
+    /** O bloco do iPod e a caixa ligada a ele (principal). */
+    private int bx, by, bz, bsx, bsy, bsz;
+
+    private TileIPodPlayer ipodBlock() {
+        TileEntity te = mc().theWorld == null ? null : mc().theWorld.getTileEntity(bx, by, bz);
+        return te instanceof TileIPodPlayer && !te.isInvalid() ? (TileIPodPlayer) te : null;
+    }
+
+    /** A reprodução da estação do bloco aqui (pelo relay, como a de uma rádio). */
+    private static AudioEngine.PlaybackInfo blockInfo(TileIPodPlayer b) {
+        if (b == null || !b.state.playing
+            || b.state.effectiveUrl()
+                .isEmpty())
+            return null;
+        RelayFeed feed = RelayClient.feedForUrl(b.state.effectiveUrl());
+        return feed == null ? null : AudioEngine.INSTANCE.info(RadioAudioController.relayKey(feed));
+    }
+
+    /** O bloco toca aqui pelo relay; com {@code voices} > 0, com essas vozes (e sem vazamento de fonte). */
+    private boolean blockPlaying(int voices) {
+        TileIPodPlayer b = ipodBlock();
+        AudioEngine.PlaybackInfo i = blockInfo(b);
+        if (b == null || !b.ipod.on || b.ipod.paused || b.state.transport != Transport.RELAY) return false;
+        if (i == null || !i.playing) return false;
+        return voices <= 0 || (i.voices == voices && alInvariantsHold());
+    }
+
+    private void sendBlock(C2SIPodAction.Action action, int intArg, String strArg) {
+        TileIPodPlayer b = ipodBlock();
+        FmNetwork.sendToServer(C2SIPodAction.forBlock(bx, by, bz, b == null ? 0 : b.ipod.id, action, intArg, strArg));
+    }
+
+    private void sendBlockRadio(Action action, int intArg) {
+        FmNetwork.sendToServer(new C2SRadioAction(bx, by, bz, action, intArg, ""));
+    }
+
+    /** Um item do bloco no inventário; com {@code withSettings}, só o que voltou de um bloco quebrado. */
+    private ItemStack blockItemInInventory(boolean withSettings) {
+        for (int slot = 0; slot < mc().thePlayer.inventory.getSizeInventory(); slot++) {
+            ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+            if (st == null || !(st.getItem() instanceof ItemBlockIPodPlayer)) continue;
+            if (!withSettings || (st.hasTagCompound() && st.getTagCompound()
+                .hasKey(BlockRadio.SETTINGS_KEY, 10))) return st;
+        }
+        return null;
+    }
+
+    /** O item do bloco caído perto dele, com as configurações. */
+    private ItemStack droppedBlockItem() {
+        AxisAlignedBB box = AxisAlignedBB.getBoundingBox(bx - 4, by - 2, bz - 4, bx + 5, by + 3, bz + 5);
+        for (Object o : mc().theWorld.getEntitiesWithinAABB(EntityItem.class, box)) {
+            ItemStack st = ((EntityItem) o).getEntityItem();
+            if (st != null && st.getItem() instanceof ItemBlockIPodPlayer
+                && st.hasTagCompound()
+                && st.getTagCompound()
+                    .hasKey(BlockRadio.SETTINGS_KEY, 10))
+                return st;
+        }
+        return null;
+    }
+
+    /** Onde estão os itens do bloco (inventário e chão), para o log de um passo que não passou. */
+    private String dropDiagnostics() {
+        StringBuilder b = new StringBuilder("inventário=[");
+        for (int slot = 0; slot < mc().thePlayer.inventory.getSizeInventory(); slot++) {
+            ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+            if (st != null) b.append(slot)
+                .append(':')
+                .append(st.getUnlocalizedName())
+                .append(st.hasTagCompound() ? "+nbt" : "")
+                .append(' ');
+        }
+        b.append("] chão=[");
+        AxisAlignedBB box = AxisAlignedBB.getBoundingBox(bx - 4, by - 2, bz - 4, bx + 5, by + 3, bz + 5);
+        for (Object o : mc().theWorld.getEntitiesWithinAABB(EntityItem.class, box)) {
+            EntityItem e = (EntityItem) o;
+            ItemStack st = e.getEntityItem();
+            b.append(st == null ? "?" : st.getUnlocalizedName() + (st.hasTagCompound() ? "+nbt" : ""))
+                .append(String.format("@%.1f,%.1f,%.1f ", e.posX, e.posY, e.posZ));
+        }
+        return b.append("] jogador=")
+            .append(String.format("%.1f,%.1f,%.1f", mc().thePlayer.posX, mc().thePlayer.posY, mc().thePlayer.posZ))
+            .toString();
+    }
+
+    private void addIPodBlockSteps(boolean expectPeer) {
+        steps.add(new Step("ipodbloco-colocar-com-a-mao", 20) {
+
+            boolean placed;
+
+            @Override
+            void start() {
+                bx = rx + 2;
+                by = ry;
+                bz = rz - 4;
+                bringPeer();
+                say("/tp " + (bx + 0.5) + " " + by + " " + (bz + 2.5));
+                say("/setblock " + bx + " " + by + " " + bz + " air");
+                say("/setblock " + bx + " " + (by + 1) + " " + bz + " air");
+                say("/setblock " + bx + " " + (by - 1) + " " + bz + " minecraft:stone");
+                say("/give " + mc().thePlayer.getCommandSenderName() + " akashicfm:ipod_player");
+            }
+
+            @Override
+            String tick(int t) {
+                if (!placed && t >= 20) {
+                    for (int slot = 0; slot < 9; slot++) {
+                        ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+                        if (st != null && st.getItem() instanceof ItemBlockIPodPlayer) {
+                            mc().thePlayer.inventory.currentItem = slot;
+                            lookAt(bx + 0.5, by, bz + 0.5);
+                            rightClick(bx, by - 1, bz); // em cima da pedra, como um jogador
+                            placed = true;
+                            break;
+                        }
+                    }
+                }
+                TileIPodPlayer b = ipodBlock();
+                // Colocado à mão: o dono é quem colocou, e começa privado. O tile do cliente nasce da previsão da
+                // colocação, sem dono: o estado do servidor chega logo depois.
+                if (b == null || b.state.ownerName.isEmpty()) return null;
+                if (!mc().thePlayer.getCommandSenderName()
+                    .equals(b.state.ownerName)) return "dono do bloco: '" + b.state.ownerName + "'";
+                return b.state.access == RadioAccess.PRIVATE && !b.state.playing ? "" : null;
+            }
+        });
+        if (!relayMode()) {
+            // Sem relay o bloco não toca (como o iPod item): mostra o motivo na tela e no WAILA.
+            steps.add(new Step("ipodbloco-sem-relay-avisa", 30) {
+
+                @Override
+                void start() {
+                    sendBlock(C2SIPodAction.Action.ADD, 0, IPOD_LONG);
+                }
+
+                @Override
+                String tick(int t) {
+                    TileIPodPlayer b = ipodBlock();
+                    return b != null && b.ipod.on && b.state.status.startsWith("akashicfm.ipod.err.no_relay") ? ""
+                        : null;
+                }
+            });
+            addIPodBlockBreakSteps();
+            return;
+        }
+        steps.add(new Step("ipodbloco-adicionar-e-tocar", 45) {
+
+            @Override
+            void start() {
+                sendBlock(C2SIPodAction.Action.ADD, 0, IPOD_LONG);
+            }
+
+            @Override
+            String tick(int t) {
+                TileIPodPlayer b = ipodBlock();
+                // Sem caixas, o bloco toca em estéreo como a rádio: duas vozes.
+                return b != null && b.ipod.queue.size() == 1 && blockPlaying(2) ? "" : null;
+            }
+        });
+        steps.add(new Step("ipodbloco-tela-e-waila", 15) {
+
+            @Override
+            void start() {
+                lookAt(bx + 0.5, by + 0.5, bz + 0.5);
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 20) mc().gameSettings.hideGUI = true;
+                if (t == 40) {
+                    screenshot("e2e-ipod-bloco.png");
+                    mc().gameSettings.hideGUI = false;
+                }
+                if (t < 40) return null;
+                TileIPodPlayer b = ipodBlock();
+                if (b == null) return "o bloco sumiu";
+                List<String> lines = RadioInfo.lines(b);
+                DevE2E.log("waila do bloco do iPod: {}", lines);
+                boolean station = false, track = false, queue = false;
+                for (String l : lines) {
+                    if (l.contains("iPod")) station = true;
+                    if (l.contains("E2E - Cafe")) track = true;
+                    if (l.contains("1")) queue = true;
+                }
+                return station && track && queue ? "" : "linhas do bloco: " + lines;
+            }
+        });
+        steps.add(new Step("gui-do-bloco-do-ipod", 15) {
+
+            GuiIPod gui;
+
+            @Override
+            void start() {
+                gui = new GuiIPod(bx, by, bz);
+                mc().displayGuiScreen(gui);
+            }
+
+            @Override
+            String tick(int t) {
+                // O aviso do tutorial ("aperte E") cobre o canto de cima da tela, onde fica o botão Ajustes.
+                if (t == 30 || t == 70) mc().guiAchievement.func_146257_b();
+                if (t == 38) screenshot("e2e-gui-ipod-bloco.png");
+                if (t == 40) gui.selectTab(GuiIPod.Tab.SETTINGS);
+                if (t == 78) screenshot("e2e-gui-ipod-bloco-ajustes.png");
+                if (t < 80) return null;
+                boolean ok = mc().currentScreen == gui && gui.permsKnown() && gui.tab() == GuiIPod.Tab.SETTINGS;
+                gui.selectTab(GuiIPod.Tab.QUEUE); // a próxima tela abre na fila
+                mc().displayGuiScreen(null);
+                return ok ? "" : "a tela do bloco não abriu com as permissões";
+            }
+        });
+        steps.add(new Step("ipodbloco-caixa-de-chao", 20) {
+
+            @Override
+            void start() {
+                bsx = bx + 2;
+                bsy = by;
+                bsz = bz;
+                say("/setblock " + bsx + " " + bsy + " " + bsz + " air");
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 5) say("/setblock " + bsx + " " + bsy + " " + bsz + " akashicfm:speaker 3");
+                if (t == 15) {
+                    for (int slot = 0; slot < 9; slot++) {
+                        ItemStack st = mc().thePlayer.inventory.getStackInSlot(slot);
+                        if (st != null && st.getItem() instanceof ItemTuner)
+                            mc().thePlayer.inventory.currentItem = slot;
+                    }
+                }
+                if (t == 20) rightClick(bsx, bsy, bsz); // seleciona a caixa
+                if (t == 30) rightClick(bx, by, bz); // liga no bloco do iPod
+                TileIPodPlayer b = ipodBlock();
+                if (b == null || !b.state.speakers.contains(new Pos(bsx, bsy, bsz))) return null;
+                // Bloco em estéreo (2) + caixa em MIX (1).
+                return blockPlaying(3) ? "" : null;
+            }
+        });
+        if (expectPeer) {
+            steps.add(handshake("ipodbloco-segundo-jogador-ouve", "ipodblock-on", "ipodblock-heard"));
+            steps.add(handshake("ipodbloco-privado-recusa-o-outro", "ipodblock-private", "ipodblock-private-ok"));
+            steps.add(new Step("ipodbloco-recusado-nao-mexeu", 5) {
+
+                @Override
+                String tick(int t) {
+                    return t > 20 && blockPlaying(3) ? "" : null;
+                }
+            });
+        }
+        steps.add(new Step("ipodbloco-publico", 10) {
+
+            @Override
+            void start() {
+                sendBlockRadio(Action.SET_ACCESS, RadioAccess.PUBLIC.ordinal());
+            }
+
+            @Override
+            String tick(int t) {
+                TileIPodPlayer b = ipodBlock();
+                return b != null && b.state.access == RadioAccess.PUBLIC ? "" : null;
+            }
+        });
+        if (expectPeer) {
+            steps.add(new Step("ipodbloco-publico-o-outro-controla", 120) {
+
+                IPodState.Repeat before;
+
+                @Override
+                void start() {
+                    TileIPodPlayer b = ipodBlock();
+                    before = b == null ? null : b.ipod.repeat;
+                }
+
+                @Override
+                String tick(int t) {
+                    if (t % 100 == 0) say("e2e:main ipodblock-public");
+                    TileIPodPlayer b = ipodBlock();
+                    return b != null && b.ipod.repeat != before && chatSaw("e2e:peer ipodblock-public-sent") ? ""
+                        : null;
+                }
+            });
+        }
+        steps.add(new Step("ipodbloco-pausa", 20) {
+
+            @Override
+            void start() {
+                sendBlock(C2SIPodAction.Action.TOGGLE, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                TileIPodPlayer b = ipodBlock();
+                S2CIPodStatus st = ClientIPod.blockStatus(bx, by, bz, System.currentTimeMillis());
+                return b != null && b.ipod.on && b.ipod.paused && st != null && st.phase == S2CIPodStatus.Phase.PAUSED
+                    ? ""
+                    : null;
+            }
+        });
+        steps.add(new Step("ipodbloco-retoma", 30) {
+
+            @Override
+            void start() {
+                sendBlock(C2SIPodAction.Action.TOGGLE, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                S2CIPodStatus st = ClientIPod.blockStatus(bx, by, bz, System.currentTimeMillis());
+                return blockPlaying(3) && st != null && st.phase == S2CIPodStatus.Phase.PLAYING ? "" : null;
+            }
+        });
+        steps.add(command("ipodbloco-fm-list-mostra-a-faixa", "/fm list radios", "iPod: E2E - Cafe (1 "));
+        steps.add(new Step("ipodbloco-fm-stop-desliga", 15) {
+
+            @Override
+            void start() {
+                say("/fm stop " + bx + " " + by + " " + bz);
+            }
+
+            @Override
+            String tick(int t) {
+                TileIPodPlayer b = ipodBlock();
+                // A rádio para na hora; a fila acompanha no ciclo seguinte do serviço (desligado vence).
+                return b != null && !b.state.playing && !b.ipod.on && blockInfo(b) == null ? "" : null;
+            }
+        });
+        steps.add(new Step("ipodbloco-redstone-liga-e-desliga", 30) {
+
+            boolean wasOn;
+
+            @Override
+            void start() {
+                sendBlockRadio(Action.SET_REDSTONE_MODE, RedstoneMode.WHILE_POWERED.ordinal());
+            }
+
+            @Override
+            String tick(int t) {
+                TileIPodPlayer b = ipodBlock();
+                if (b == null) return null;
+                if (t == 10) say("/setblock " + (bx - 1) + " " + by + " " + bz + " minecraft:redstone_block");
+                if (!wasOn && t > 10 && b.ipod.on && b.state.playing) {
+                    wasOn = true;
+                    say("/setblock " + (bx - 1) + " " + by + " " + bz + " air");
+                }
+                if (!wasOn || b.ipod.on || b.state.playing) return null;
+                sendBlockRadio(Action.SET_REDSTONE_MODE, RedstoneMode.IGNORE.ordinal());
+                return "";
+            }
+        });
+        steps.add(new Step("ipodbloco-ligar-de-novo", 30) {
+
+            @Override
+            void start() {
+                sendBlock(C2SIPodAction.Action.TOGGLE, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                return blockPlaying(3) ? "" : null;
+            }
+        });
+        // Ninguém ao alcance do bloco nem da caixa por 30 s: a estação fecha (nada de relay nem yt-dlp à toa).
+        if (expectPeer) {
+            steps.add(new Step("ipodbloco-levar-o-outro-longe", 2) {
+
+                @Override
+                String tick(int t) {
+                    say("/tp Player2 " + (rx + 62.5) + " " + ry + " " + (rz + 2.3));
+                    return "";
+                }
+            });
+        }
+        steps.add(teleport("ipodbloco-ir-longe", () -> rx + 60, 2.3));
+        if (expectPeer) steps.add(handshake("ipodbloco-longe-o-outro-nao-ouve", "ipodblock-far", "ipodblock-far-ok"));
+        steps.add(new Step("ipodbloco-ninguem-perto-fecha", 75) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("akashicfm.ipod.status.idle");
+            }
+
+            @Override
+            String tick(int t) {
+                if (t % 40 == 0) say("/fm info " + bx + " " + by + " " + bz);
+                return countChat("akashicfm.ipod.status.idle") > seen ? "" : null;
+            }
+        });
+        steps.add(teleport("ipodbloco-voltar", () -> bx, bz - rz + 2.5));
+        steps.add(new Step("ipodbloco-volta-a-tocar-quando-alguem-chega", 45) {
+
+            @Override
+            void start() {
+                bringPeer();
+            }
+
+            @Override
+            String tick(int t) {
+                TileIPodPlayer b = ipodBlock();
+                return b != null && b.state.status.isEmpty() && blockPlaying(3) ? "" : null;
+            }
+        });
+        if (expectPeer) steps.add(handshake("ipodbloco-o-outro-ouve-de-novo", "ipodblock-back", "ipodblock-back-ok"));
+        if (Loader.isModLoaded("OpenComputers")) {
+            // O OC fala com rádios; o bloco do iPod toca uma fila e não aceita os comandos de rádio.
+            steps.add(
+                command(
+                    "ipodbloco-oc-recusa",
+                    () -> "e2e:oc " + bx + " " + by + " " + bz + " greet",
+                    () -> "e2e-result oc semdriver"));
+        }
+        addIPodBlockBreakSteps();
+    }
+
+    /** Quebrar o bloco: o item volta com a fila (desligada); a caixa fica sem bloco. */
+    private void addIPodBlockBreakSteps() {
+        steps.add(new Step("ipodbloco-quebrar-guarda-a-fila", 20) {
+
+            @Override
+            void start() {
+                say("/setblock " + bx + " " + by + " " + bz + " air 0 destroy");
+            }
+
+            @Override
+            String tick(int t) {
+                if (t == 10) say("/tp " + (bx + 0.5) + " " + by + " " + (bz + 0.5)); // pega o item que caiu
+                if (ipodBlock() != null) return null;
+                // O item que voltou do bloco: no inventário, ou ainda no chão (pegar é do vanilla, não do mod).
+                ItemStack st = blockItemInInventory(true);
+                if (st == null) st = droppedBlockItem();
+                if (t % 40 == 0) DevE2E.log("quebrar o bloco do iPod: {}", dropDiagnostics());
+                if (st == null) return null;
+                NBTTagCompound settings = st.getTagCompound()
+                    .getCompoundTag(BlockRadio.SETTINGS_KEY);
+                NBTTagCompound q = settings.getCompoundTag(IPodState.KEY);
+                int tracks = q.getTagList("q", 10)
+                    .tagCount();
+                DevE2E.log("item do bloco quebrado: {} faixas, ligado={}", tracks, q.getBoolean("on"));
+                return tracks == 1 && !q.getBoolean("on") ? "" : "item sem a fila: " + settings;
+            }
+        });
+        steps.add(new Step("ipodbloco-guardar", 10) {
+
+            @Override
+            void start() {
+                DevE2E.log("antes de guardar: {}", dropDiagnostics());
+                if (relayMode()) say("/setblock " + bsx + " " + bsy + " " + bsz + " air");
+                say("/clear " + mc().thePlayer.getCommandSenderName() + " akashicfm:ipod_player");
+                say("/tp " + (rx + 0.5) + " " + ry + " " + (rz + 2.3));
+            }
+
+            @Override
+            String tick(int t) {
+                return t > 10 && blockItemInInventory(false) == null ? "" : null;
+            }
+        });
+    }
+
+    /** O segundo jogador e o bloco do iPod (o principal o colocou e o deixou privado). */
+    private int pbx, pby, pbz;
+    private String pbKey;
+
+    private TileIPodPlayer peerBlock() {
+        for (TileRadio r : ClientRadioRegistry.snapshot()) {
+            if (r instanceof TileIPodPlayer && r.getWorldObj() == mc().theWorld && !r.isInvalid()) {
+                pbx = r.xCoord;
+                pby = r.yCoord;
+                pbz = r.zCoord;
+                if (r.state.playing) pbKey = r.state.effectiveUrl();
+                return (TileIPodPlayer) r;
+            }
+        }
+        return null;
+    }
+
+    private boolean hearsIPodBlock() {
+        AudioEngine.PlaybackInfo i = blockInfo(peerBlock());
+        return i != null && i.playing && i.voices >= 1;
+    }
+
+    private boolean iPodBlockSilent() {
+        return pbKey != null && RelayClient.feedForUrl(pbKey) == null;
+    }
+
+    private void addPeerIPodBlockSteps() {
+        if (!relayMode()) return;
+        steps.add(peerPortable("peer-ouve-o-bloco-do-ipod", "ipodblock-on", this::hearsIPodBlock, "ipodblock-heard"));
+        steps.add(new Step("peer-bloco-privado-recusa", 900) {
+
+            int before = -1;
+
+            @Override
+            String tick(int t) {
+                if (!chatSaw("e2e:main ipodblock-private")) return null;
+                TileIPodPlayer b = peerBlock();
+                if (b == null) return null;
+                if (before < 0) {
+                    before = notices.size();
+                    FmNetwork.sendToServer(
+                        C2SIPodAction.forBlock(pbx, pby, pbz, b.ipod.id, C2SIPodAction.Action.TOGGLE, 0, ""));
+                }
+                if (!notices.subList(before, notices.size())
+                    .contains("akashicfm.notice.no_permission")) return null;
+                say("e2e:peer ipodblock-private-ok");
+                return "";
+            }
+        });
+        steps.add(new Step("peer-bloco-publico-controla", 900) {
+
+            @Override
+            String tick(int t) {
+                if (!chatSaw("e2e:main ipodblock-public")) return null;
+                TileIPodPlayer b = peerBlock();
+                if (b == null) return null;
+                FmNetwork
+                    .sendToServer(C2SIPodAction.forBlock(pbx, pby, pbz, b.ipod.id, C2SIPodAction.Action.REPEAT, 0, ""));
+                say("e2e:peer ipodblock-public-sent");
+                return "";
+            }
+        });
+        steps
+            .add(peerPortable("peer-bloco-longe-silencia", "ipodblock-far", this::iPodBlockSilent, "ipodblock-far-ok"));
+        steps.add(peerPortable("peer-bloco-volta-ouve", "ipodblock-back", this::hearsIPodBlock, "ipodblock-back-ok"));
+    }
+
     // ---- Fase 7a: /fm, bloqueio e auditoria ----
 
     /** Manda um comando e espera uma linha do chat que contenha {@code expect} (nova, depois do comando). */
@@ -3841,6 +4378,7 @@ public final class E2EClient {
         addPeerFrequencySteps();
         addPeerPortableSteps();
         addPeerIPodSteps();
+        addPeerIPodBlockSteps();
         addPeerAdminSteps();
         if (relayMode()) addPeerPlaylistSteps();
         steps.add(new Step("peer-ve-a-parada", 900) {

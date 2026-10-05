@@ -39,7 +39,7 @@ public final class PortableState {
     }
 
     public void readFromNbt(NBTTagCompound tag) {
-        mode = TuneMode.byOrdinal(tag.getByte("mode"));
+        mode = TuneMode.tunable(tag.getByte("mode"));
         url = RadioState.str(tag, "url");
         frequency = tag.hasKey("frequency", 2) ? tag.getShort("frequency") : Frequency.DEFAULT;
         volume = tag.hasKey("volume") ? tag.getByte("volume") : RadioLimits.VOLUME_DEFAULT;

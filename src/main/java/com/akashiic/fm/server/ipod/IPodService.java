@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.World;
 import net.minecraftforge.common.util.FakePlayer;
 
 import com.akashiic.fm.AkashicFM;
@@ -30,11 +31,16 @@ import com.akashiic.fm.audio.stream.StreamPump;
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.IPodState;
 import com.akashiic.fm.common.IPodTrack;
+import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.content.ItemIPod;
+import com.akashiic.fm.content.TileIPodPlayer;
+import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CIPodStatus;
 import com.akashiic.fm.server.AuditLog;
 import com.akashiic.fm.server.Moderation;
+import com.akashiic.fm.server.PortableActionHandler;
+import com.akashiic.fm.server.ServerRadioRegistry;
 import com.akashiic.fm.server.relay.RelayService;
 
 /**
@@ -79,6 +85,12 @@ public final class IPodService {
     public static final String STATUS_NO_RELAY = "akashicfm.ipod.err.no_relay";
     public static final String STATUS_RELAY_FULL = "akashicfm.ipod.err.relay_full";
     public static final String STATUS_BUSY = "akashicfm.ipod.err.busy";
+    public static final String STATUS_IDLE = "akashicfm.ipod.status.idle";
+
+    /** Bloco ligado sem ninguém ao alcance por este tempo: a estação fecha (volta quando alguém chega). */
+    static final long IDLE_CLOSE_MS = 30_000;
+    /** O status do bloco vai para quem está até aqui (a tela abre até 8 blocos). */
+    static final double BLOCK_STATUS_RADIUS = 10;
 
     /** Uma faixa sendo resolvida (a atual ou a próxima, adiantada). */
     private static final class Resolve {
@@ -149,6 +161,8 @@ public final class IPodService {
     private static final Map<String, Session> SESSIONS = new HashMap<>();
     /** Uma adição por vez por jogador. */
     private static final Map<UUID, PendingAdd> ADDS = new HashMap<>();
+    /** Blocos ligados sem ninguém perto, desde quando (pela chave da estação). */
+    private static final Map<String, Long> IDLE_SINCE = new HashMap<>();
     private static ToolManager tools;
     /** Lido também pelas threads das estações (renovação da URL). */
     private static volatile MediaResolver resolver;
@@ -179,6 +193,10 @@ public final class IPodService {
         if (++ticks % INTERVAL_TICKS != 0) return;
         if (!FmConfig.IPod.enabled) {
             if (!SESSIONS.isEmpty() || !ADDS.isEmpty()) stopAll();
+            // Os blocos ligados ficam ligados (como o item), mudos e com o motivo na tela.
+            for (TileRadio r : ServerRadioRegistry.snapshot()) {
+                if (r instanceof TileIPodPlayer && r.state.playing) show((TileIPodPlayer) r, null, STATUS_DISABLED);
+            }
             return;
         }
         if (ticks % (INTERVAL_TICKS * TOOLS_CYCLES) == INTERVAL_TICKS) ensureTools();
@@ -218,7 +236,63 @@ public final class IPodService {
             if (s.id == 0) continue; // a identidade chega no próximo onUpdate do item
             out.add(new ItemHost(p, st, s));
         }
+        long now = RelayService.nowMs();
+        Set<String> blocks = new HashSet<>();
+        for (TileRadio r : ServerRadioRegistry.snapshot()) {
+            if (!(r instanceof TileIPodPlayer) || r.isInvalid()) continue;
+            TileIPodPlayer t = (TileIPodPlayer) r;
+            String key = t.stationKey();
+            blocks.add(key);
+            // Uma parada de rádio (/fm stop, stopall, bloqueio) desligou o bloco: a fila acompanha.
+            if (t.reconcile()) t.commitIPod();
+            if (!t.ipod.on) {
+                IDLE_SINCE.remove(key);
+                continue;
+            }
+            if (t.ipod.id == 0) {
+                t.ipod.id = PortableActionHandler.newId();
+                t.commitIPod();
+            }
+            if (someoneNear(t)) {
+                IDLE_SINCE.remove(key);
+            } else {
+                // Ninguém ouvindo: nada de estação nem yt-dlp à toa. Tocando, espera um pouco (quem saiu pode
+                // voltar); sem sessão (um chunk carregado sem ninguém perto, a volta do servidor), nem começa.
+                Long since = IDLE_SINCE.get(key);
+                if (since == null) IDLE_SINCE.put(key, since = now);
+                if (!SESSIONS.containsKey(key) || now - since >= IDLE_CLOSE_MS) {
+                    show(t, null, STATUS_IDLE);
+                    continue;
+                }
+            }
+            out.add(new BlockHost(t));
+        }
+        IDLE_SINCE.keySet()
+            .retainAll(blocks); // blocos quebrados ou descarregados
         return out;
+    }
+
+    /** Alguém ao alcance do bloco ou de uma das caixas dele (com a mesma folga da audiência do relay). */
+    private static boolean someoneNear(TileIPodPlayer t) {
+        World w = t.getWorldObj();
+        if (w == null) return false;
+        double limit = t.state.range + 4;
+        for (Object o : w.playerEntities) {
+            if (!(o instanceof EntityPlayerMP) || o instanceof FakePlayer) continue;
+            EntityPlayerMP p = (EntityPlayerMP) o;
+            if (RelayService.nearestEmitter(t, p.posX, p.posY, p.posZ) <= limit) return true;
+        }
+        return false;
+    }
+
+    /** Mostra no bloco (tela, WAILA, "tocando agora") a faixa e o motivo; manda só se mudou. */
+    private static void show(TileIPodPlayer t, IPodTrack track, String status) {
+        String title = track == null ? t.state.nowPlaying : track.display();
+        String st = status == null ? "" : status;
+        if (title.equals(t.state.nowPlaying) && st.equals(t.state.status)) return;
+        t.state.nowPlaying = title;
+        t.state.status = st;
+        t.markStateChanged();
     }
 
     private static void update(IPodHost host, Session ses) {
@@ -232,6 +306,7 @@ public final class IPodService {
             ses.session = Integer.MIN_VALUE;
             ses.status = STATUS_NO_RELAY;
             sendStatus(host, ses);
+            host.showing(s.current(), ses.status);
             return;
         }
         if (s.session != ses.session || !cur.link.equals(ses.link)) startTrack(ses, s, cur);
@@ -259,6 +334,7 @@ public final class IPodService {
             follow(host, ses, cur, now);
         }
         if (++ses.cycles % STATUS_CYCLES == 0) sendStatus(host, ses);
+        host.showing(ses.shown != null ? ses.shown : s.current(), ses.status);
     }
 
     /** A faixa mudou (pedido do jogador ou avanço): fecha a anterior e resolve a nova (ou usa a adiantada). */
@@ -597,6 +673,13 @@ public final class IPodService {
         for (PendingAdd a : ADDS.values()) a.future.cancel(true);
         ADDS.clear();
         IPodSearch.clear();
+        IDLE_SINCE.clear();
+    }
+
+    /** O bloco do iPod em (x, y, z) da dimensão, carregado; senão null. */
+    static TileIPodPlayer blockAt(int dim, int x, int y, int z) {
+        TileRadio r = ServerRadioRegistry.get(dim, new Pos(x, y, z));
+        return r instanceof TileIPodPlayer && !r.isInvalid() ? (TileIPodPlayer) r : null;
     }
 
     /** O jogador saiu: esquece as buscas dele. */
@@ -662,6 +745,55 @@ public final class IPodService {
         @Override
         public void sendStatus(S2CIPodStatus status) {
             FmNetwork.sendTo(status, player);
+        }
+    }
+
+    /** O bloco do iPod: a fila no tile, status para quem está perto, a faixa e o motivo na tela do bloco. */
+    private static final class BlockHost implements IPodHost {
+
+        private final TileIPodPlayer tile;
+
+        BlockHost(TileIPodPlayer tile) {
+            this.tile = tile;
+        }
+
+        @Override
+        public String key() {
+            return tile.stationKey();
+        }
+
+        @Override
+        public long id() {
+            return tile.ipod.id;
+        }
+
+        @Override
+        public IPodState state() {
+            return tile.ipod;
+        }
+
+        @Override
+        public void save() {
+            tile.commitIPod();
+        }
+
+        @Override
+        public void sendStatus(S2CIPodStatus status) {
+            status.at(tile.xCoord, tile.yCoord, tile.zCoord);
+            World w = tile.getWorldObj();
+            if (w == null) return;
+            double r2 = BLOCK_STATUS_RADIUS * BLOCK_STATUS_RADIUS;
+            for (Object o : w.playerEntities) {
+                if (!(o instanceof EntityPlayerMP) || o instanceof FakePlayer) continue;
+                EntityPlayerMP p = (EntityPlayerMP) o;
+                if (p.getDistanceSq(tile.xCoord + 0.5, tile.yCoord + 0.5, tile.zCoord + 0.5) <= r2)
+                    FmNetwork.sendTo(status, p);
+            }
+        }
+
+        @Override
+        public void showing(IPodTrack track, String status) {
+            if (tile.ipod.on) show(tile, track, status);
         }
     }
 

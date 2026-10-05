@@ -1,6 +1,7 @@
 package com.akashiic.fm.network;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,6 +31,45 @@ class IPodPacketTest {
         assertEquals(C2SIPodAction.Action.ADD, b.action);
         assertEquals(3, b.intArg);
         assertEquals("https://soundcloud.com/a/b", b.strArg);
+        assertEquals(0, buf.readableBytes());
+    }
+
+    @Test
+    void acaoDoBlocoIdaEVolta() {
+        C2SIPodAction a = C2SIPodAction.forBlock(-120, 64, 3_000_000, 42L, C2SIPodAction.Action.TOGGLE, 0, "");
+        ByteBuf buf = Unpooled.buffer();
+        a.toBytes(buf);
+        C2SIPodAction b = new C2SIPodAction();
+        b.fromBytes(buf);
+        assertTrue(b.block);
+        assertEquals(-120, b.x);
+        assertEquals(64, b.y);
+        assertEquals(3_000_000, b.z);
+        assertEquals(42L, b.id);
+        assertEquals(C2SIPodAction.Action.TOGGLE, b.action);
+        assertEquals(0, buf.readableBytes());
+        // Sem o campo do bloco (pacote truncado): é do item, sem exceção.
+        ByteBuf old = Unpooled.buffer();
+        new C2SIPodAction(3, 9L, C2SIPodAction.Action.NEXT, 0, "").toBytes(old);
+        old.writerIndex(old.writerIndex() - 1);
+        C2SIPodAction c = new C2SIPodAction();
+        c.fromBytes(old);
+        assertFalse(c.block);
+        assertEquals(C2SIPodAction.Action.NEXT, c.action);
+    }
+
+    @Test
+    void statusDoBlocoIdaEVolta() {
+        S2CIPodStatus a = new S2CIPodStatus(7L, S2CIPodStatus.Phase.PLAYING, 1500, 60_000, 2, "").at(5, 70, -9);
+        ByteBuf buf = Unpooled.buffer();
+        a.toBytes(buf);
+        S2CIPodStatus b = new S2CIPodStatus();
+        b.fromBytes(buf);
+        assertTrue(b.block);
+        assertEquals(5, b.x);
+        assertEquals(70, b.y);
+        assertEquals(-9, b.z);
+        assertEquals(1500, b.positionMs);
         assertEquals(0, buf.readableBytes());
     }
 

@@ -16,6 +16,9 @@ import com.akashiic.fm.audio.http.UrlPolicy;
  */
 public final class RadioState {
 
+    /** É o estado do bloco do iPod (fixo): o modo é sempre {@link TuneMode#IPOD}, sem URL, favoritas nem playlist. */
+    public final boolean ipodPlayer;
+
     public String url = "";
     /** URL escrita na rádio, ou a frequência sintonizada (a URL vem do transmissor mais forte). */
     public TuneMode mode = TuneMode.URL;
@@ -55,9 +58,21 @@ public final class RadioState {
     /** Sinal do transmissor ouvido, 0..100. */
     public int signal;
 
-    /** O que a rádio toca de fato: a própria URL, ou a do transmissor sintonizado. */
+    public RadioState() {
+        this(false);
+    }
+
+    public RadioState(boolean ipodPlayer) {
+        this.ipodPlayer = ipodPlayer;
+        if (ipodPlayer) mode = TuneMode.IPOD;
+    }
+
+    /**
+     * O que a rádio toca de fato: a própria URL, a do transmissor sintonizado ou, no bloco do iPod, a chave da
+     * estação dele (as duas últimas escritas pelo servidor em {@link #tunedUrl}).
+     */
     public String effectiveUrl() {
-        return mode == TuneMode.FREQUENCY ? tunedUrl : url;
+        return mode == TuneMode.URL ? url : tunedUrl;
     }
 
     /**
@@ -93,6 +108,15 @@ public final class RadioState {
         speakers.addAll(cleanSpeakers);
         if (transport == null) transport = Transport.NONE;
         if (mode == null) mode = TuneMode.URL;
+        if (ipodPlayer) {
+            // O bloco do iPod toca a própria fila: nada de URL, favoritas nem playlist (que só valem no modo URL).
+            mode = TuneMode.IPOD;
+            url = "";
+            stations.clear();
+            playlist = false;
+        } else if (mode == TuneMode.IPOD) {
+            mode = TuneMode.URL; // NBT de fora: uma rádio comum nunca toca a estação de um iPod
+        }
         frequency = Frequency.clamp(frequency);
         // Sintonizada numa frequência a rádio fica ligada sem sinal (pega quando um transmissor cobrir o lugar).
         if (mode == TuneMode.URL && url.isEmpty()) playing = false;

@@ -36,6 +36,7 @@ public final class FmContent {
     public static ItemPortableRadio portableRadio;
     public static ItemIPod ipod;
     public static ItemHeadphones headphones;
+    public static BlockIPodPlayer ipodPlayer;
 
     /** preInit: blocos e itens precisam existir antes do init. */
     public static void registerBlocksAndItems() {
@@ -58,6 +59,10 @@ public final class FmContent {
         GameRegistry.registerTileEntity(TileRadio.class, AkashicFM.MODID + ":radio");
         GameRegistry.registerTileEntity(TileSpeaker.class, AkashicFM.MODID + ":speaker");
         GameRegistry.registerTileEntity(TileTransmitter.class, AkashicFM.MODID + ":transmitter");
+        // Fase 9b (no fim: a ordem de registro não muda os ids dos blocos de antes).
+        ipodPlayer = new BlockIPodPlayer();
+        GameRegistry.registerBlock(ipodPlayer, ItemBlockIPodPlayer.class, "ipod_player");
+        GameRegistry.registerTileEntity(TileIPodPlayer.class, AkashicFM.MODID + ":ipod_player");
     }
 
     /** init: receitas padrão (o modpack pode desligar e definir as próprias). */
@@ -147,6 +152,21 @@ public final class FmContent {
                 "paneGlass",
                 'N',
                 Blocks.noteblock,
+                'R',
+                "dustRedstone"));
+        // O bloco do iPod: um iPod numa base com jukebox.
+        GameRegistry.addRecipe(
+            new ShapedOreRecipe(
+                new ItemStack(ipodPlayer),
+                "PIP",
+                "PJP",
+                "PRP",
+                'P',
+                "plankWood",
+                'I',
+                ipod,
+                'J',
+                Blocks.jukebox,
                 'R',
                 "dustRedstone"));
         GameRegistry.addRecipe(

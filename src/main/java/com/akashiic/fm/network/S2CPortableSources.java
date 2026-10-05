@@ -126,7 +126,7 @@ public final class S2CPortableSources implements IMessage {
             e.range = buf.readUnsignedShort();
             e.headphones = buf.readBoolean();
             e.title = ByteBufUtils.readUTF8String(buf);
-            e.mode = TuneMode.byOrdinal(buf.readUnsignedByte());
+            e.mode = TuneMode.tunable(buf.readUnsignedByte());
             e.frequency = buf.readShort();
             e.signal = buf.readUnsignedByte();
             e.station = ByteBufUtils.readUTF8String(buf);

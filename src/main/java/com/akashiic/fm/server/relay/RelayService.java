@@ -29,6 +29,7 @@ import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.RateLimiter;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.common.Transport;
+import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CAudio;
@@ -147,7 +148,7 @@ public final class RelayService {
     }
 
     /** Distância do jogador até a fonte mais próxima da rádio (ela mesma e as caixas, sem carregar chunk). */
-    static double nearestEmitter(TileRadio radio, double px, double py, double pz) {
+    public static double nearestEmitter(TileRadio radio, double px, double py, double pz) {
         double best = radio.pos()
             .distanceSqTo(px, py, pz);
         for (Pos p : radio.state.speakers) best = Math.min(best, p.distanceSqTo(px, py, pz));
@@ -287,7 +288,8 @@ public final class RelayService {
         for (WorldServer world : DimensionManager.getWorlds()) {
             if (world == null) continue;
             for (TileRadio r : ServerRadioRegistry.inDimension(world.provider.dimensionId)) {
-                if (!relayed(r)) continue;
+                // O bloco do iPod: faixa e motivo vêm do serviço do iPod (a estação com chave não tem título ICY).
+                if (!relayed(r) || r.state.mode == TuneMode.IPOD) continue;
                 PlaylistService.keep(r);
                 Station s = HUB.get(r.state.effectiveUrl());
                 if (s == null) continue;
@@ -375,7 +377,8 @@ public final class RelayService {
      * vaga do limite de estações volta na hora, sem esperar o prazo de expiração).
      */
     static void releaseIfUnused(String url) {
-        if (url == null || url.isEmpty() || HUB.get(url) == null) return;
+        // Estação com chave: quem abre e fecha é o iPod (restart desregistraria a chave).
+        if (url == null || url.isEmpty() || StationHub.isKey(url) || HUB.get(url) == null) return;
         for (TileRadio r : ServerRadioRegistry.snapshot()) if (relayed(r) && url.equals(r.state.effectiveUrl())) return;
         if (PortableSources.relayedUrls()
             .contains(url)) return;
@@ -384,6 +387,7 @@ public final class RelayService {
 
     /** A estação da URL terminou com erro ou fim: um novo "tocar" tenta de novo com outra conexão. */
     public static boolean retryIfFailed(String url) {
+        if (StationHub.isKey(url)) return false; // o iPod decide (avança ou mostra o erro)
         Station s = HUB.get(url);
         if (s == null || !s.failed()) return false;
         HUB.restart(url);

@@ -63,6 +63,9 @@ public final class C2SIPodAction implements IMessage {
     public Action action;
     public int intArg;
     public String strArg = "";
+    /** É para o bloco do iPod em (x, y, z), não para o item do slot. */
+    public boolean block;
+    public int x, y, z;
 
     public C2SIPodAction() {}
 
@@ -74,6 +77,16 @@ public final class C2SIPodAction implements IMessage {
         this.strArg = strArg == null ? "" : strArg;
     }
 
+    /** Para o bloco do iPod em (x, y, z). */
+    public static C2SIPodAction forBlock(int x, int y, int z, long id, Action action, int intArg, String strArg) {
+        C2SIPodAction m = new C2SIPodAction(0, id, action, intArg, strArg);
+        m.block = true;
+        m.x = x;
+        m.y = y;
+        m.z = z;
+        return m;
+    }
+
     @Override
     public void fromBytes(ByteBuf buf) {
         slot = buf.readUnsignedByte();
@@ -82,6 +95,13 @@ public final class C2SIPodAction implements IMessage {
         intArg = buf.readInt();
         String s = ByteBufUtils.readUTF8String(buf);
         strArg = s.length() > RadioLimits.MAX_URL_LENGTH ? s.substring(0, RadioLimits.MAX_URL_LENGTH) : s;
+        // Sem o campo, ou com as coordenadas cortadas (pacote truncado): é do item.
+        block = buf.isReadable() && buf.readBoolean() && buf.readableBytes() >= 12;
+        if (block) {
+            x = buf.readInt();
+            y = buf.readInt();
+            z = buf.readInt();
+        }
     }
 
     @Override
@@ -93,6 +113,12 @@ public final class C2SIPodAction implements IMessage {
         ByteBufUtils.writeUTF8String(
             buf,
             strArg.length() > RadioLimits.MAX_URL_LENGTH ? strArg.substring(0, RadioLimits.MAX_URL_LENGTH) : strArg);
+        buf.writeBoolean(block);
+        if (block) {
+            buf.writeInt(x);
+            buf.writeInt(y);
+            buf.writeInt(z);
+        }
     }
 
     /** Só enfileira (com o rate limit das ações); o processamento é no início do tick do servidor. */

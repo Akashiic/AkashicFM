@@ -35,10 +35,12 @@ public final class NowPlaying {
         return t.isEmpty() ? station(radio) : t;
     }
 
-    /** Nome da estação: o do transmissor sintonizado (se tiver), senão o host da URL tocada. */
+    /** Nome da estação: o do transmissor sintonizado (se tiver), "iPod" no bloco do iPod, senão o host da URL. */
     public static String station(TileRadio radio) {
         RadioState s = radio.state;
         if (s.mode == TuneMode.FREQUENCY && !s.tunedName.isEmpty()) return s.tunedName;
+        if (s.mode == TuneMode.IPOD)
+            return net.minecraft.util.StatCollector.translateToLocal("akashicfm.nowplaying.ipod");
         return hostOf(s.effectiveUrl());
     }
 

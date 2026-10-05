@@ -1,6 +1,7 @@
 package com.akashiic.fm.server.ipod;
 
 import com.akashiic.fm.common.IPodState;
+import com.akashiic.fm.common.IPodTrack;
 import com.akashiic.fm.network.S2CIPodStatus;
 
 /**
@@ -23,4 +24,7 @@ interface IPodHost {
 
     /** O status para quem vê a tela (fase, posição, motivo). */
     void sendStatus(S2CIPodStatus status);
+
+    /** O que mostrar fora da tela (a tela e o "tocando agora" do bloco): a faixa e o motivo. */
+    default void showing(IPodTrack track, String status) {}
 }

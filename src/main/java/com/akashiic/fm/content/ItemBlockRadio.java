@@ -46,11 +46,9 @@ public class ItemBlockRadio extends ItemBlock {
             TileRadio radio = (TileRadio) te;
             if (stack.hasTagCompound() && stack.getTagCompound()
                 .hasKey(BlockRadio.SETTINGS_KEY, 10)) {
-                radio.state.readSettings(
+                radio.readItemSettings(
                     stack.getTagCompound()
-                        .getCompoundTag(BlockRadio.SETTINGS_KEY),
-                    FmConfig.Limits.maxRange,
-                    FmConfig.Limits.maxSpeakersPerRadio);
+                        .getCompoundTag(BlockRadio.SETTINGS_KEY));
             }
             if (realPlayer) {
                 radio.state.owner = player.getUniqueID();
@@ -66,7 +64,7 @@ public class ItemBlockRadio extends ItemBlock {
         return true;
     }
 
-    private static boolean withinLimits(EntityPlayer player, boolean realPlayer, World world, int x, int z) {
+    static boolean withinLimits(EntityPlayer player, boolean realPlayer, World world, int x, int z) {
         Chunk chunk = world.getChunkFromBlockCoords(x, z);
         int inChunk = 0;
         for (Object o : chunk.chunkTileEntityMap.values()) {

@@ -11,6 +11,7 @@ import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.TuneMode;
+import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.content.TileTransmitter;
@@ -43,6 +44,8 @@ public final class RadioInfo {
         out.add(t("akashicfm.waila.access", t("akashicfm.gui.access." + s.access.name())) + " · " + owner);
         if (!s.speakers.isEmpty()) out.add(t("akashicfm.waila.speakers", s.speakers.size()));
         if (s.playlist && !tuned && !s.stations.isEmpty()) out.add(t("akashicfm.waila.playlist", s.stations.size()));
+        if (radio instanceof TileIPodPlayer)
+            out.add(t("akashicfm.ipod.queue", ((TileIPodPlayer) radio).ipod.queue.size()));
         if (!s.status.isEmpty()) out.add("§e" + status(s.status));
         if (ClientMutes.radioMuted(radio.dimension(), radio.pos(), s.effectiveUrl())) {
             out.add("§6" + t("akashicfm.waila.muted"));
@@ -97,7 +100,15 @@ public final class RadioInfo {
     /** Status no formato "chave|argumento" (o mesmo da GUI). */
     private static String status(String raw) {
         int bar = raw.indexOf('|');
-        return bar < 0 ? t(raw) : t(raw.substring(0, bar), raw.substring(bar + 1));
+        if (bar < 0) return t(raw);
+        // Os do iPod podem ter vários argumentos ("chave|a|b").
+        if (raw.startsWith("akashicfm.ipod.")) {
+            String[] parts = raw.split("\\|", -1);
+            Object[] args = new Object[parts.length - 1];
+            System.arraycopy(parts, 1, args, 0, args.length);
+            return t(parts[0], args);
+        }
+        return t(raw.substring(0, bar), raw.substring(bar + 1));
     }
 
     private static String t(String key, Object... args) {

@@ -72,8 +72,13 @@ public class BlockRadio extends BlockContainer {
         // faz o cliente balançar o braço e mandar o pacote, sem abrir a GUI.
         ItemStack held = player.getHeldItem();
         if (held != null && held.getItem() instanceof ItemTuner) return true;
-        if (world.isRemote) AkashicFM.proxy.openRadioGui(world, x, y, z);
+        if (world.isRemote) openGui(world, x, y, z);
         return true;
+    }
+
+    /** Cliente: a tela do bloco. */
+    protected void openGui(World world, int x, int y, int z) {
+        AkashicFM.proxy.openRadioGui(world, x, y, z);
     }
 
     @Override
@@ -122,7 +127,7 @@ public class BlockRadio extends BlockContainer {
         TileEntity te = world.getTileEntity(x, y, z);
         if (te instanceof TileRadio) {
             NBTTagCompound settings = new NBTTagCompound();
-            ((TileRadio) te).state.writeSettings(settings);
+            ((TileRadio) te).writeItemSettings(settings);
             NBTTagCompound root = new NBTTagCompound();
             root.setTag(SETTINGS_KEY, settings);
             stack.setTagCompound(root);

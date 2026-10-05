@@ -92,7 +92,7 @@ public final class PortableActionHandler {
                 s.on = false;
                 return true;
             case SET_MODE: {
-                TuneMode mode = TuneMode.byOrdinal(intArg);
+                TuneMode mode = TuneMode.tunable(intArg);
                 if (mode == s.mode) return false;
                 s.mode = mode;
                 if (s.on) {

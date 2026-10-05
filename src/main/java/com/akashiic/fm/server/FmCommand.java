@@ -35,6 +35,7 @@ import net.minecraftforge.common.DimensionManager;
 
 import com.akashiic.fm.common.Frequency;
 import com.akashiic.fm.common.IPodState;
+import com.akashiic.fm.common.IPodTrack;
 import com.akashiic.fm.common.PortableState;
 import com.akashiic.fm.common.Pos;
 import com.akashiic.fm.common.RadioState;
@@ -42,6 +43,7 @@ import com.akashiic.fm.common.TransmitterState;
 import com.akashiic.fm.common.TuneMode;
 import com.akashiic.fm.content.ItemIPod;
 import com.akashiic.fm.content.ItemPortableRadio;
+import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileTransmitter;
 import com.mojang.authlib.GameProfile;
@@ -213,6 +215,14 @@ public final class FmCommand extends CommandBase {
             String f = Frequency.format(s.frequency);
             source = s.tunedUrl.isEmpty() ? new ChatComponentTranslation("akashicfm.cmd.fm_no_signal", f)
                 : new ChatComponentTranslation("akashicfm.cmd.fm_tuned", f, s.tunedUrl);
+        } else if (r instanceof TileIPodPlayer) {
+            // O bloco do iPod: a faixa (a chave da estação não diz nada a quem lê) e o tamanho da fila.
+            IPodState q = ((TileIPodPlayer) r).ipod;
+            IPodTrack cur = q.on ? q.current() : null;
+            source = new ChatComponentTranslation(
+                "akashicfm.cmd.ipod_block",
+                cur == null ? "-" : cur.display(),
+                q.queue.size());
         }
         return new ChatComponentTranslation(
             "akashicfm.cmd.radio",

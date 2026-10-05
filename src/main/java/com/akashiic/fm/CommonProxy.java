@@ -128,6 +128,9 @@ public class CommonProxy {
     /** Tela do iPod do slot (cliente). */
     public void openIPodGui(int slot) {}
 
+    /** Tela do bloco do iPod (cliente). */
+    public void openIPodBlockGui(World world, int x, int y, int z) {}
+
     public void onIPodStatus(S2CIPodStatus message) {}
 
     public void onIPodSearchResults(S2CIPodSearchResults message) {}

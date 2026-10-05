@@ -25,7 +25,16 @@ public class TileRadio extends TileEntity {
 
     private static final String NBT_KEY = "radio";
 
-    public final RadioState state = new RadioState();
+    public final RadioState state;
+
+    public TileRadio() {
+        this(false);
+    }
+
+    /** {@code ipodPlayer}: o bloco do iPod (o estado fica preso no modo dele). */
+    protected TileRadio(boolean ipodPlayer) {
+        state = new RadioState(ipodPlayer);
+    }
 
     public Pos pos() {
         return new Pos(xCoord, yCoord, zCoord);
@@ -56,6 +65,7 @@ public class TileRadio extends TileEntity {
         NBTTagCompound radio = new NBTTagCompound();
         state.writeToNbt(radio, false);
         tag.setTag(NBT_KEY, radio);
+        writeExtra(tag, false);
     }
 
     @Override
@@ -66,20 +76,27 @@ public class TileRadio extends TileEntity {
         state.readFromNbt(radio, FmConfig.Limits.maxRange, FmConfig.Limits.maxSpeakersPerRadio);
         state.status = "";
         state.nowPlaying = "";
+        readExtra(tag, false);
     }
 
     @Override
     public Packet getDescriptionPacket() {
+        return new S35PacketUpdateTileEntity(xCoord, yCoord, zCoord, 0, descriptionTag());
+    }
+
+    /** O que vai para os clientes que veem o chunk. */
+    public NBTTagCompound descriptionTag() {
         NBTTagCompound tag = new NBTTagCompound();
         state.writeToNbt(tag, true);
-        return new S35PacketUpdateTileEntity(xCoord, yCoord, zCoord, 0, tag);
+        writeExtra(tag, true);
+        return tag;
     }
 
     @Override
     public void onDataPacket(NetworkManager net, S35PacketUpdateTileEntity pkt) {
         NBTTagCompound tag = pkt.func_148857_g();
         if (tag == null) return;
-        RadioState incoming = new RadioState();
+        RadioState incoming = new RadioState(state.ipodPlayer);
         // No cliente o limite é o rígido: o servidor já aplicou o config dele.
         incoming.readFromNbt(tag, RadioLimits.RANGE_HARD_MAX, RadioLimits.MAX_SPEAKERS_HARD);
         // TCP entrega em ordem, mas um TE recriado pode receber um estado mais velho guardado em cache.
@@ -87,7 +104,24 @@ public class TileRadio extends TileEntity {
         NBTTagCompound copy = new NBTTagCompound();
         incoming.writeToNbt(copy, true);
         state.readFromNbt(copy, RadioLimits.RANGE_HARD_MAX, RadioLimits.MAX_SPEAKERS_HARD);
+        readExtra(tag, true);
         AkashicFM.proxy.onClientRadioUpdated(this);
+    }
+
+    /** Dados além do estado da rádio (o bloco do iPod guarda a fila), no disco e no pacote de descrição. */
+    protected void writeExtra(NBTTagCompound tag, boolean forClient) {}
+
+    /** O contrário de {@link #writeExtra}; {@code fromServer}: veio no pacote de descrição. */
+    protected void readExtra(NBTTagCompound tag, boolean fromServer) {}
+
+    /** As configurações que viajam com o item quando o bloco é quebrado. */
+    public void writeItemSettings(NBTTagCompound settings) {
+        state.writeSettings(settings);
+    }
+
+    /** As configurações do item, ao colocar o bloco (já saneadas pelo config do servidor). */
+    public void readItemSettings(NBTTagCompound settings) {
+        state.readSettings(settings, FmConfig.Limits.maxRange, FmConfig.Limits.maxSpeakersPerRadio);
     }
 
     @Override

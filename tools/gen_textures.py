@@ -308,6 +308,65 @@ def ipod():
     return img
 
 
+def light_body(img, base=(232, 234, 238)):
+    """Plástico branco brilhante (o do iPod), com a moldura um pouco mais escura."""
+    for y in range(16):
+        for x in range(16):
+            img.putpixel((x, y), jitter(base, 3))
+    frame(img, (186, 190, 198))
+
+
+def ipod_player_front():
+    """Bloco do iPod: base branca com a tela (a TESR escreve nela), duas grades redondas e a roda de clique."""
+    img = Image.new("RGBA", (16, 16))
+    light_body(img)
+    # Tela (a TESR escreve aqui, como na rádio): x 2..13, y 4..7, com moldura escura em volta.
+    for x in range(1, 15):
+        img.putpixel((x, 3), (70, 72, 80, 255))
+        img.putpixel((x, 8), (54, 56, 62, 255))
+    for y in range(3, 9):
+        img.putpixel((1, y), (70, 72, 80, 255))
+        img.putpixel((14, y), (54, 56, 62, 255))
+    for y in range(4, 8):
+        for x in range(2, 14):
+            img.putpixel((x, y), (14, 22, 36, 255) if (x + y) % 2 else (18, 28, 44, 255))
+    # Duas grades redondas, uma de cada lado.
+    grill = [(1, 0), (2, 0), (0, 1), (1, 1), (2, 1), (3, 1), (0, 2), (1, 2), (2, 2), (3, 2), (1, 3), (2, 3)]
+    for x0 in (2, 10):
+        for dx, dy in grill:
+            img.putpixel((x0 + dx, 10 + dy), (72, 74, 82, 255) if (dx + dy) % 2 == 0 else (118, 120, 128, 255))
+    # Roda de clique no meio.
+    for p in ((7, 10), (8, 10), (6, 11), (9, 11), (6, 12), (9, 12), (7, 13), (8, 13)):
+        img.putpixel(p, (168, 172, 180, 255))
+    for p in ((7, 11), (8, 11), (7, 12), (8, 12)):
+        img.putpixel(p, (246, 247, 250, 255))
+    return img
+
+
+def ipod_player_side():
+    img = Image.new("RGBA", (16, 16))
+    light_body(img)
+    for x in range(1, 15):  # emendas do plástico
+        img.putpixel((x, 5), (204, 208, 214, 255))
+        img.putpixel((x, 11), (204, 208, 214, 255))
+    return img
+
+
+def ipod_player_top():
+    """Em cima, o encaixe com um iPod de pé."""
+    img = Image.new("RGBA", (16, 16))
+    light_body(img)
+    for y in range(5, 11):
+        for x in range(5, 11):
+            img.putpixel((x, y), (44, 46, 52, 255))
+    for y in range(6, 10):
+        for x in range(6, 10):
+            img.putpixel((x, y), (226, 228, 232, 255))
+    img.putpixel((7, 7), (90, 140, 210, 255))  # a tela do iPod
+    img.putpixel((8, 7), (90, 140, 210, 255))
+    return img
+
+
 def main():
     out = {
         "blocks/radio_front.png": radio_front(),
@@ -326,6 +385,10 @@ def main():
         "items/headphones.png": headphones_icon(),
         "models/armor/headphones.png": headphones_armor(),
         "items/ipod.png": ipod(),
+        # Fase 9b (no fim, pelo mesmo motivo).
+        "blocks/ipod_player_front.png": ipod_player_front(),
+        "blocks/ipod_player_side.png": ipod_player_side(),
+        "blocks/ipod_player_top.png": ipod_player_top(),
     }
     for rel, img in out.items():
         path = os.path.join(ROOT, rel)

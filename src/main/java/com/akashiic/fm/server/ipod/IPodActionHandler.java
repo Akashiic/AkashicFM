@@ -5,13 +5,18 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.ItemStack;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.world.World;
 
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.IPodState;
 import com.akashiic.fm.common.IPodTrack;
+import com.akashiic.fm.common.Permissions;
 import com.akashiic.fm.common.RadioLimits;
+import com.akashiic.fm.common.RadioState;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.content.ItemIPod;
+import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.network.C2SIPodAction;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CRadioNotice;
@@ -33,6 +38,10 @@ public final class IPodActionHandler {
 
     public static void handle(EntityPlayerMP player, C2SIPodAction msg) {
         if (player == null || player.isDead || player.playerNetServerHandler == null) return;
+        if (msg.block) {
+            handleBlock(player, msg);
+            return;
+        }
         if (msg.action == C2SIPodAction.Action.HELLO) { // só leitura: vale até com o iPod desligado no config
             IPodSearch.hello(player);
             return;
@@ -62,6 +71,112 @@ public final class IPodActionHandler {
             msg.intArg,
             msg.strArg);
         if (changed || assigned) ItemIPod.save(stack, s);
+    }
+
+    /** Até onde a tela do bloco alcança (como a da rádio). */
+    static final double MAX_USE_DISTANCE_SQ = 8 * 8;
+
+    /**
+     * Uma ação no bloco do iPod: como na rádio, o bloco tem de estar carregado, a até 8 blocos, e o jogador tem de
+     * poder controlá-lo (dono, ou bloco público/sem dono, ou op). O volume é o da rádio (o das caixas também).
+     */
+    static void handleBlock(EntityPlayerMP player, C2SIPodAction msg) {
+        World world = player.worldObj;
+        if (world == null || msg.y < 0 || msg.y > 255 || !world.blockExists(msg.x, msg.y, msg.z)) return;
+        TileEntity te = world.getTileEntity(msg.x, msg.y, msg.z);
+        if (!(te instanceof TileIPodPlayer)) return;
+        TileIPodPlayer tile = (TileIPodPlayer) te;
+        if (player.getDistanceSq(msg.x + 0.5, msg.y + 0.5, msg.z + 0.5) > MAX_USE_DISTANCE_SQ) {
+            notice(player, msg.x, msg.y, msg.z, true, "akashicfm.notice.too_far");
+            return;
+        }
+        if (msg.action == C2SIPodAction.Action.HELLO) {
+            IPodSearch.hello(player);
+            return;
+        }
+        if (Moderation.isBlocked(player)) {
+            notice(player, msg.x, msg.y, msg.z, true, "akashicfm.notice.blocked");
+            return;
+        }
+        if (!Permissions.canControl(tile.state, player)) {
+            notice(player, msg.x, msg.y, msg.z, true, "akashicfm.notice.no_permission");
+            return;
+        }
+        IPodState s = tile.ipod;
+        // Outro aparelho no lugar (quebrado e posto outro): ignora. Identidade 0 na tela: ela ainda não tinha chegado.
+        if (s.id != 0 && msg.id != 0 && s.id != msg.id) return;
+        boolean assigned = s.id == 0;
+        if (assigned) s.id = PortableActionHandler.newId();
+        if (!FmConfig.IPod.enabled && msg.action != C2SIPodAction.Action.STOP
+            && msg.action != C2SIPodAction.Action.VOLUME) {
+            notice(player, msg.x, msg.y, msg.z, true, IPodService.STATUS_DISABLED);
+            if (assigned) tile.commitIPod();
+            return;
+        }
+        if (msg.action == C2SIPodAction.Action.VOLUME) {
+            int v = RadioLimits.clamp(msg.intArg, RadioLimits.VOLUME_MIN, RadioLimits.VOLUME_MAX);
+            if (v != tile.state.volume || assigned) {
+                tile.state.volume = v;
+                if (assigned) tile.commitIPod();
+                else tile.markStateChanged();
+            }
+            return;
+        }
+        boolean changed = apply(
+            player,
+            IPodTarget.block(tile.dimension(), msg.x, msg.y, msg.z, s.id),
+            s,
+            msg.action,
+            msg.intArg,
+            msg.strArg);
+        if (changed || assigned) tile.commitIPod();
+    }
+
+    /**
+     * Redstone no bloco do iPod, nos modos da rádio: "tocar enquanto ligada" toca a fila (ou tira da pausa) e para sem
+     * sinal; "alternar no pulso" liga e desliga a cada pulso. Fila vazia nunca liga.
+     */
+    public static void onRedstone(TileIPodPlayer tile, boolean powered) {
+        RadioState rs = tile.state;
+        if (powered == rs.lastPowered) return;
+        boolean rising = powered && !rs.lastPowered;
+        rs.lastPowered = powered;
+        IPodState s = tile.ipod;
+        boolean changed = false;
+        if (FmConfig.IPod.enabled) {
+            switch (rs.redstoneMode) {
+                case WHILE_POWERED:
+                    if (powered) changed = startOrResume(s);
+                    else changed = stop(s);
+                    break;
+                case TOGGLE_ON_PULSE:
+                    if (rising) changed = s.on ? stop(s) : startOrResume(s);
+                    break;
+                default:
+                    break;
+            }
+        }
+        // Só lastPowered mudou: salva sem mandar pacote (um clock de redstone não pode inundar a rede).
+        if (changed) tile.commitIPod();
+        else tile.markDirty();
+    }
+
+    private static boolean startOrResume(IPodState s) {
+        if (s.queue.isEmpty()) return false;
+        if (!s.on) {
+            s.play(Math.max(0, s.index));
+            return true;
+        }
+        if (!s.paused) return false;
+        s.paused = false;
+        return true;
+    }
+
+    private static boolean stop(IPodState s) {
+        if (!s.on) return false;
+        s.on = false;
+        s.paused = false;
+        return true;
     }
 
     /** Agachado + botão direito com o iPod na mão: liga, pausa ou retoma. */
@@ -214,6 +329,11 @@ public final class IPodActionHandler {
 
     /** {@code status}: chave de tradução, com argumentos depois de '|'. */
     static void notice(EntityPlayerMP player, boolean error, String status) {
+        notice(player, 0, NOTICE_Y, 0, error, status);
+    }
+
+    /** Aviso para a tela do bloco em (x, y, z) (a do item usa {@link #NOTICE_Y}). */
+    static void notice(EntityPlayerMP player, int x, int y, int z, boolean error, String status) {
         if (player == null) return;
         String key = status, arg = "";
         int bar = status.indexOf('|');
@@ -221,6 +341,6 @@ public final class IPodActionHandler {
             key = status.substring(0, bar);
             arg = status.substring(bar + 1);
         }
-        FmNetwork.sendTo(new S2CRadioNotice(0, NOTICE_Y, 0, error, key, arg), player);
+        FmNetwork.sendTo(new S2CRadioNotice(x, y, z, error, key, arg), player);
     }
 }

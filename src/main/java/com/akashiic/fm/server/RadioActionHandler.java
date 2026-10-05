@@ -17,6 +17,7 @@ import com.akashiic.fm.common.RedstoneMode;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.common.Transport;
 import com.akashiic.fm.common.TuneMode;
+import com.akashiic.fm.content.TileIPodPlayer;
 import com.akashiic.fm.content.TileRadio;
 import com.akashiic.fm.content.TileSpeaker;
 import com.akashiic.fm.content.TileTransmitter;
@@ -24,6 +25,7 @@ import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CRadioNotice;
 import com.akashiic.fm.network.S2CRadioPerms;
+import com.akashiic.fm.server.ipod.IPodActionHandler;
 import com.akashiic.fm.server.relay.RelayService;
 
 /**
@@ -58,6 +60,8 @@ public final class RadioActionHandler {
         boolean blocked = Moderation.isBlocked(player);
         boolean control = !blocked && Permissions.canControl(s, player);
         boolean admin = !blocked && Permissions.canAdmin(s, player);
+        // O bloco do iPod toca a fila dele (ações do iPod): daqui, só as configurações da rádio que valem para ele.
+        if (radio instanceof TileIPodPlayer && !ipodPlayerAction(msg.action)) return;
 
         switch (msg.action) {
             case REQUEST_PERMS:
@@ -169,7 +173,7 @@ public final class RadioActionHandler {
                 return;
             case SET_MODE:
                 if (!control) break;
-                if (setMode(radio, TuneMode.byOrdinal(msg.intArg))) radio.markStateChanged();
+                if (setMode(radio, TuneMode.tunable(msg.intArg))) radio.markStateChanged();
                 return;
             case SET_FREQUENCY:
                 if (!control) break;
@@ -192,6 +196,25 @@ public final class RadioActionHandler {
                 return;
         }
         notice(player, radio, true, blocked ? "akashicfm.notice.blocked" : "akashicfm.notice.no_permission", "");
+    }
+
+    /** As ações de rádio que valem no bloco do iPod (o resto é dele: fila, tocar, parar). */
+    static boolean ipodPlayerAction(C2SRadioAction.Action a) {
+        switch (a) {
+            case REQUEST_PERMS:
+            case STOP:
+            case SET_VOLUME:
+            case SET_RANGE:
+            case SET_SCREEN_TEXT:
+            case SET_SCREEN_COLOR:
+            case SET_ACCESS:
+            case SET_REDSTONE_MODE:
+            case UNLINK_SPEAKER:
+            case UNLINK_ALL_SPEAKERS:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -217,6 +240,8 @@ public final class RadioActionHandler {
      * de frequência a rádio só liga "sem sinal": quem chama sintoniza em seguida ({@link #afterPlay}).
      */
     static PlayResult applyPlay(RadioState s) {
+        // O bloco do iPod só liga pela fila (IPodActionHandler): nenhum caminho de rádio o liga.
+        if (s.mode == TuneMode.IPOD) return PlayResult.UNCHANGED;
         if (s.mode == TuneMode.FREQUENCY) {
             if (s.playing) return PlayResult.UNCHANGED;
             s.playing = true;
@@ -288,7 +313,7 @@ public final class RadioActionHandler {
      */
     static boolean setMode(TileRadio radio, TuneMode mode) {
         RadioState s = radio.state;
-        if (mode == s.mode) return false;
+        if (mode == s.mode || s.ipodPlayer || mode == TuneMode.IPOD) return false;
         boolean wasPlaying = s.playing;
         s.mode = mode;
         s.status = "";
@@ -421,6 +446,10 @@ public final class RadioActionHandler {
 
     /** Sinal de redstone mudou (chamado pelo bloco). */
     public static void onRedstone(TileRadio radio, boolean powered) {
+        if (radio instanceof TileIPodPlayer) {
+            IPodActionHandler.onRedstone((TileIPodPlayer) radio, powered);
+            return;
+        }
         RadioState s = radio.state;
         boolean rising = powered && !s.lastPowered;
         if (powered == s.lastPowered) return;
