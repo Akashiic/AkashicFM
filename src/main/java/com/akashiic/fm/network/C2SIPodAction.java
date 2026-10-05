@@ -33,7 +33,23 @@ public final class C2SIPodAction implements IMessage {
         /** Passa para o próximo modo de repetição. */
         REPEAT,
         /** {@code intArg}: 0-100. */
-        VOLUME;
+        VOLUME,
+        /**
+         * Busca por nome: {@code strArg} o texto, {@code intArg} = {@code requestId << 4 | serviço} (ordinal de
+         * {@code IPodTrack.Source}). Um link colado vira {@link #ADD}.
+         */
+        SEARCH,
+        /** Põe um resultado da última busca na fila: {@code intArg} = {@code requestId << 4 | índice}. */
+        ADD_RESULT,
+        /** Toca um resultado agora (logo depois da atual): {@code intArg} como em {@link #ADD_RESULT}. */
+        PLAY_RESULT,
+        /** A tela abriu: o servidor responde o que ela pode oferecer (busca do Spotify etc.). */
+        HELLO;
+
+        /** {@code requestId << 4 | baixo}, com o pedido limitado a 27 bits. */
+        public static int pack(int requestId, int low) {
+            return (requestId & 0x7FFFFFF) << 4 | (low & 0xF);
+        }
 
         static Action byOrdinal(int o) {
             Action[] v = values();

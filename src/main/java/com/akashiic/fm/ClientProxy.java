@@ -33,6 +33,7 @@ import com.akashiic.fm.dev.E2EClient;
 import com.akashiic.fm.network.ClockStamps;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
+import com.akashiic.fm.network.S2CIPodSearchResults;
 import com.akashiic.fm.network.S2CIPodStatus;
 import com.akashiic.fm.network.S2CListen;
 import com.akashiic.fm.network.S2CPortableSources;
@@ -116,6 +117,11 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void onIPodStatus(S2CIPodStatus message) {
         ClientIPod.update(message, System.currentTimeMillis());
+    }
+
+    @Override
+    public void onIPodSearchResults(S2CIPodSearchResults message) {
+        ClientIPod.searchResults(message);
     }
 
     @Override

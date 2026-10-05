@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # yt-dlp falso para o E2E do iPod: a mesma linha de comando que o mod usa (opções, "--" e o alvo), respostas fixas e
 # áudio de arquivos públicos curtos já usados no E2E. Determinístico e sem depender do SoundCloud/YouTube.
-#   -J ... -- <link|scsearchN:texto>  metadados (set do SoundCloud, vídeo do YouTube, busca)
+#   -J ... -- <link|scsearchN:texto|ytsearchN:texto>  metadados (set do SoundCloud, vídeo do YouTube, buscas)
 #   -j -f <formato> ... -- <página>   a mídia: JSON com a URL direta em "url"
 # A primeira resolução da "faixa-a" devolve uma URL que dá 404 (como uma URL assinada que expirou): o mod tem que
 # renovar. A "faixa-drm" falha como faixa protegida. A "faixa-longa" (160 s) serve para a pausa. Cada chamada fica registrada em $TMPDIR/fake-yt-dlp.log.
@@ -46,6 +46,15 @@ EOF
       ;;
     https://www.youtube.com/watch\?v=e2eVideo001)
       echo '{"_type":"video","extractor_key":"Youtube","id":"e2eVideo001","title":"E2E Band - Song One (Official Video)","uploader":"E2E Band","channel":"E2E Band","duration":7,"live_status":"not_live"}'
+      ;;
+    ytsearch*)
+      cat <<'EOF'
+{"_type":"playlist","extractor_key":"YoutubeSearch","title":"busca","entries":[
+ {"_type":"url","ie_key":"Youtube","id":"e2eVideo001","url":"https://www.youtube.com/watch?v=e2eVideo001","title":"E2E Band - Song One (Official Video)","channel":"E2E Band","duration":7.0},
+ {"_type":"url","ie_key":"Youtube","id":"e2eVideo002","url":"https://www.youtube.com/watch?v=e2eVideo002","title":"E2E Band - Song One (1 hour loop)","channel":"Loops","duration":3600.0},
+ {"_type":"url","ie_key":"Youtube","id":"e2eVideo003","url":"https://www.youtube.com/watch?v=e2eVideo003","title":"E2E Band - Song Two","channel":"E2E Band","duration":5.0}
+]}
+EOF
       ;;
     scsearch*)
       cat <<'EOF'

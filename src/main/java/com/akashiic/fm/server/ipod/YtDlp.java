@@ -163,6 +163,14 @@ public final class YtDlp {
         return "scsearch" + results + ":" + query;
     }
 
+    /**
+     * Busca no YouTube (só metadados): {@code ytsearchN:texto}. Montada só aqui, para texto que {@link #classify} já
+     * deu como busca: o prefixo nunca vem do jogador (digitado, ele vira parte do texto buscado).
+     */
+    static String youtubeSearch(String query, int results) {
+        return "ytsearch" + results + ":" + query;
+    }
+
     /** Formato do SoundCloud: o MP3 progressivo (um arquivo comum, que o relay já toca e retoma por Range). */
     static final String SOUNDCLOUD_FORMAT = "bestaudio[protocol=http][acodec=mp3]/bestaudio[protocol=https][acodec=mp3]";
     /** Formato do YouTube direto: Opus em WebM, por HTTP. */

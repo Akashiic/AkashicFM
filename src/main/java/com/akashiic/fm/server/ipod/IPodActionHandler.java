@@ -1,5 +1,6 @@
 package com.akashiic.fm.server.ipod;
 
+import java.util.Collections;
 import java.util.concurrent.ThreadLocalRandom;
 
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -7,12 +8,14 @@ import net.minecraft.item.ItemStack;
 
 import com.akashiic.fm.common.FmConfig;
 import com.akashiic.fm.common.IPodState;
+import com.akashiic.fm.common.IPodTrack;
 import com.akashiic.fm.common.RadioLimits;
 import com.akashiic.fm.common.TextSanitizer;
 import com.akashiic.fm.content.ItemIPod;
 import com.akashiic.fm.network.C2SIPodAction;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CRadioNotice;
+import com.akashiic.fm.server.AuditLog;
 import com.akashiic.fm.server.Moderation;
 import com.akashiic.fm.server.PortableActionHandler;
 
@@ -30,6 +33,10 @@ public final class IPodActionHandler {
 
     public static void handle(EntityPlayerMP player, C2SIPodAction msg) {
         if (player == null || player.isDead || player.playerNetServerHandler == null) return;
+        if (msg.action == C2SIPodAction.Action.HELLO) { // só leitura: vale até com o iPod desligado no config
+            IPodSearch.hello(player);
+            return;
+        }
         ItemStack stack = ItemIPod.at(player, msg.slot);
         if (stack == null) return;
         if (Moderation.isBlocked(player)) {
@@ -155,6 +162,49 @@ public final class IPodActionHandler {
                 int v = RadioLimits.clamp(intArg, RadioLimits.VOLUME_MIN, RadioLimits.VOLUME_MAX);
                 if (v == s.volume) return false;
                 s.volume = v;
+                return true;
+            }
+            case SEARCH: {
+                String query = TextSanitizer.clean(strArg, RadioLimits.MAX_URL_LENGTH);
+                if (query.isEmpty() || player == null || target == null) return false;
+                // Um link colado numa aba entra na fila como no campo de adicionar (o do Spotify não precisa de chave).
+                if (YtDlp.classify(query) != YtDlp.Kind.SEARCH)
+                    return apply(player, target, s, C2SIPodAction.Action.ADD, 0, query);
+                int requestId = intArg >>> 4;
+                IPodTrack.Source source = IPodTrack.Source.byOrdinal(intArg & 0xF);
+                String refused = IPodSearch.start(player, requestId, source, query);
+                if (refused != null) IPodSearch.reply(player, requestId, source, refused);
+                return false;
+            }
+            case ADD_RESULT:
+            case PLAY_RESULT: {
+                if (player == null || target == null) return false;
+                IPodTrack t = IPodSearch.result(player.getUniqueID(), intArg >>> 4, intArg & 0xF);
+                if (t == null) {
+                    target.notice(player, true, "akashicfm.ipod.notice.result_gone");
+                    return false;
+                }
+                if (action == C2SIPodAction.Action.PLAY_RESULT) {
+                    if (!s.playNext(t, FmConfig.IPod.maxQueue)) {
+                        target.notice(player, true, "akashicfm.ipod.notice.queue_full");
+                        return false;
+                    }
+                } else {
+                    boolean wasEmpty = s.queue.isEmpty();
+                    int first = s.queue.size();
+                    if (s.append(Collections.singletonList(t), FmConfig.IPod.maxQueue) == 0) {
+                        target.notice(player, true, "akashicfm.ipod.notice.queue_full");
+                        return false;
+                    }
+                    if (!s.on) s.play(wasEmpty ? 0 : first); // fila parada: começa por ela
+                }
+                AuditLog.log(player.getCommandSenderName(), player.getUniqueID(), "ipod.add", t.link);
+                target.notice(
+                    player,
+                    false,
+                    (action == C2SIPodAction.Action.PLAY_RESULT ? "akashicfm.ipod.notice.playing_now|"
+                        : "akashicfm.ipod.notice.added_one|") + t.display()
+                            .replace('|', '/'));
                 return true;
             }
             default:

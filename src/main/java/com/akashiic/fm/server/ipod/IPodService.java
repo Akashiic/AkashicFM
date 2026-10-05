@@ -183,6 +183,7 @@ public final class IPodService {
         }
         if (ticks % (INTERVAL_TICKS * TOOLS_CYCLES) == INTERVAL_TICKS) ensureTools();
         finishAdds();
+        IPodSearch.finish();
         Set<String> alive = new HashSet<>();
         for (IPodHost host : hosts()) {
             Session ses = SESSIONS.get(host.key());
@@ -424,9 +425,8 @@ public final class IPodService {
         YtDlp.Kind kind = YtDlp.classify(input);
         if (kind == YtDlp.Kind.INVALID) return "akashicfm.ipod.err.invalid";
         if (kind == YtDlp.Kind.SPOTIFY && !FmConfig.IPod.spotify) return "akashicfm.ipod.err.spotify_off";
-        ensureTools();
-        if (tools.state() == ToolManager.State.FAILED) return "akashicfm.ipod.err.tools";
-        if (tools.ytDlp() == null) return "akashicfm.ipod.notice.installing";
+        String tool = toolsRefusal();
+        if (tool != null) return tool;
         Future<YtDlpJson.Listing> f = submit(() -> resolver.expand(input, Math.max(1, FmConfig.IPod.maxQueue)));
         if (f == null) return STATUS_BUSY;
         ADDS.put(id, new PendingAdd(id, target, input, f));
@@ -519,6 +519,19 @@ public final class IPodService {
 
     // ---- Ferramentas e pool ----
 
+    /** Null se o yt-dlp está pronto; senão a chave do aviso (falhou, ainda instalando). */
+    static String toolsRefusal() {
+        ensureTools();
+        if (tools.state() == ToolManager.State.FAILED) return "akashicfm.ipod.err.tools";
+        if (tools.ytDlp() == null) return "akashicfm.ipod.notice.installing";
+        return null;
+    }
+
+    /** O resolvedor (depois de {@link #toolsRefusal()}). */
+    static MediaResolver resolver() {
+        return resolver;
+    }
+
     private static void ensureTools() {
         if (tools == null) {
             MinecraftServer server = MinecraftServer.getServer();
@@ -536,7 +549,7 @@ public final class IPodService {
     }
 
     /** No pool do iPod; null se ele está cheio (o servidor está ocupado resolvendo). */
-    private static <T> Future<T> submit(Callable<T> task) {
+    static <T> Future<T> submit(Callable<T> task) {
         if (pool == null) {
             AtomicInteger n = new AtomicInteger();
             pool = new ThreadPoolExecutor(
@@ -583,9 +596,15 @@ public final class IPodService {
         SESSIONS.clear();
         for (PendingAdd a : ADDS.values()) a.future.cancel(true);
         ADDS.clear();
+        IPodSearch.clear();
     }
 
-    private static List<EntityPlayerMP> onlinePlayers() {
+    /** O jogador saiu: esquece as buscas dele. */
+    public static void forget(UUID player) {
+        IPodSearch.forget(player);
+    }
+
+    static List<EntityPlayerMP> onlinePlayers() {
         List<EntityPlayerMP> out = new ArrayList<>();
         MinecraftServer server = MinecraftServer.getServer();
         if (server == null || server.getConfigurationManager() == null) return out;

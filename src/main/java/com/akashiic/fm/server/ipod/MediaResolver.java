@@ -41,6 +41,12 @@ public final class MediaResolver {
         YtDlpJson.Listing fetch(SpotifyClient.Ref ref, int maxItems) throws IOException;
     }
 
+    /** Busca por nome no Spotify (só com a chave no config). Trocado nos testes. */
+    interface SpotifySearcher {
+
+        List<IPodTrack> search(String query, int max) throws ResolveException;
+    }
+
     /** Falha com motivo para a tela: {@code akashicfm.ipod.err.<key>}, com argumento opcional. */
     public static final class ResolveException extends Exception {
 
@@ -100,6 +106,10 @@ public final class MediaResolver {
     static final int INFO_MAX_OUT = 8 << 20;
     static final int MEDIA_MAX_OUT = 2 << 20;
     static final int SEARCH_RESULTS = 8;
+    /** Resultados da busca da tela (o Spotify dá no máximo 10). */
+    public static final int LIST_RESULTS = 10;
+    /** Prévias de faixas pagas no SoundCloud: um corte de 30 s (faixas curtas de verdade continuam). */
+    static final int PREVIEW_MIN_SEC = 29, PREVIEW_MAX_SEC = 31;
     /**
      * Candidatos do espelho testados por busca (cada teste é uma chamada ao yt-dlp, ~3 s). Os uploads oficiais de
      * gravadora costumam ter DRM e gastam tentativas.
@@ -111,6 +121,7 @@ public final class MediaResolver {
 
     private final Runner runner;
     private final Spotify spotify;
+    private final SpotifySearcher spotifySearch;
     private final Map<String, CacheEntry> mirrors = new LinkedHashMap<String, CacheEntry>(64, 0.75f, true) {
 
         @Override
@@ -132,13 +143,18 @@ public final class MediaResolver {
     }
 
     MediaResolver(Runner runner, Spotify spotify) {
+        this(runner, spotify, (q, max) -> { throw new ResolveException("spotify_nokey", ""); });
+    }
+
+    MediaResolver(Runner runner, Spotify spotify, SpotifySearcher spotifySearch) {
         this.runner = runner;
         this.spotify = spotify;
+        this.spotifySearch = spotifySearch;
     }
 
     /** O resolvedor de verdade: o yt-dlp do {@link ToolManager}, no máximo {@code ipod.maxResolves} por vez. */
     public static MediaResolver create(ToolManager tools) {
-        return new MediaResolver(new ProcessRunner(tools), SpotifyClient::fetch);
+        return new MediaResolver(new ProcessRunner(tools), SpotifyClient::fetch, new SpotifySearch()::search);
     }
 
     // ---- Expandir ----
@@ -205,6 +221,51 @@ public final class MediaResolver {
             INFO_MAX_OUT);
         try {
             return YtDlpJson.listing(r.out, SEARCH_RESULTS).tracks;
+        } catch (IOException e) {
+            throw new ResolveException("failed", e.getMessage());
+        }
+    }
+
+    // ---- Buscar (a lista de resultados da tela) ----
+
+    /**
+     * Até {@code max} (no máximo {@link #LIST_RESULTS}) faixas que batem com o texto, num serviço, só com metadados:
+     * SoundCloud (sem as prévias de 30 s), YouTube (que toca pelo espelho) ou Spotify (só com a chave no config). Tira
+     * as longas demais e as repetidas. Pode vir vazia. O texto tem de ser uma busca, nunca um link.
+     */
+    public List<IPodTrack> searchTracks(IPodTrack.Source source, String query, int max) throws ResolveException {
+        String q = query == null ? "" : query.trim();
+        if (source == null || YtDlp.classify(q) != YtDlp.Kind.SEARCH) throw new ResolveException("invalid", "");
+        int n = Math.max(1, Math.min(LIST_RESULTS, max));
+        List<IPodTrack> found;
+        switch (source) {
+            case SOUNDCLOUD:
+                found = searchList(YtDlp.soundcloudSearch(q, n), n);
+                break;
+            case YOUTUBE:
+                found = searchList(YtDlp.youtubeSearch(q, n), n);
+                break;
+            default:
+                found = spotifySearch.search(q, n);
+                break;
+        }
+        int maxSec = maxTrackSec();
+        Set<String> seen = new HashSet<>();
+        List<IPodTrack> out = new ArrayList<>(found.size());
+        for (IPodTrack t : found) {
+            if (t == null || !t.valid() || t.source != source || t.durationSec > maxSec || !seen.add(t.link)) continue;
+            if (source == IPodTrack.Source.SOUNDCLOUD && t.durationSec >= PREVIEW_MIN_SEC
+                && t.durationSec <= PREVIEW_MAX_SEC) continue; // prévia de faixa paga
+            out.add(t);
+            if (out.size() >= n) break;
+        }
+        return out;
+    }
+
+    private List<IPodTrack> searchList(String target, int n) throws ResolveException {
+        YtDlp.Result r = run(YtDlp.infoArgs(target, n), SEARCH_TIMEOUT_MS, INFO_MAX_OUT);
+        try {
+            return YtDlpJson.listing(r.out, n).tracks;
         } catch (IOException e) {
             throw new ResolveException("failed", e.getMessage());
         }

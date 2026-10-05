@@ -49,6 +49,8 @@ public final class FmNetwork {
         // Fase 8c.
         CHANNEL.registerMessage(C2SIPodAction.Handler.class, C2SIPodAction.class, id++, Side.SERVER);
         CHANNEL.registerMessage(S2CIPodStatus.Handler.class, S2CIPodStatus.class, id++, Side.CLIENT);
+        // Fase 9a.
+        CHANNEL.registerMessage(S2CIPodSearchResults.Handler.class, S2CIPodSearchResults.class, id++, Side.CLIENT);
     }
 
     public static void sendTo(IMessage message, EntityPlayerMP player) {

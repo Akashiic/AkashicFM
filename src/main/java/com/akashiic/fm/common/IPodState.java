@@ -103,6 +103,31 @@ public final class IPodState {
         return added;
     }
 
+    /**
+     * "Tocar agora": põe a faixa logo depois da atual e vai para ela. Se ela já é a atual, recomeça; se já está na
+     * fila depois da atual (mesmo link: posta antes por um clique), muda de lugar em vez de repetir. Devolve false se
+     * não coube (limite de faixas ou de texto).
+     */
+    public boolean playNext(IPodTrack t, int maxQueue) {
+        if (t == null || !t.valid()) return false;
+        if (index >= 0 && index < queue.size() && queue.get(index).link.equals(t.link)) {
+            play(index);
+            return true;
+        }
+        int at = queue.isEmpty() ? 0 : Math.max(0, index + 1);
+        for (int i = at; i < queue.size(); i++) {
+            if (!queue.get(i).link.equals(t.link)) continue;
+            queue.add(at, queue.remove(i));
+            play(at);
+            return true;
+        }
+        int limit = Math.max(1, Math.min(HARD_MAX_QUEUE, maxQueue));
+        if (queue.size() >= limit || textBytes() + textBytes(t) > MAX_TEXT_BYTES) return false;
+        queue.add(Math.min(at, queue.size()), t);
+        play(Math.min(at, queue.size() - 1));
+        return true;
+    }
+
     /** Tira a faixa {@code i}; a atual continua a mesma (o índice acompanha). Devolve true se tirou a atual. */
     public boolean remove(int i) {
         if (i < 0 || i >= queue.size()) return false;

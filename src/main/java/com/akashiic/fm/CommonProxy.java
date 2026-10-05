@@ -13,6 +13,7 @@ import com.akashiic.fm.dev.E2EServer;
 import com.akashiic.fm.network.FmNetwork;
 import com.akashiic.fm.network.S2CAudio;
 import com.akashiic.fm.network.S2CClockPong;
+import com.akashiic.fm.network.S2CIPodSearchResults;
 import com.akashiic.fm.network.S2CIPodStatus;
 import com.akashiic.fm.network.S2CListen;
 import com.akashiic.fm.network.S2CPortableSources;
@@ -128,6 +129,8 @@ public class CommonProxy {
     public void openIPodGui(int slot) {}
 
     public void onIPodStatus(S2CIPodStatus message) {}
+
+    public void onIPodSearchResults(S2CIPodSearchResults message) {}
 
     public void onPortableSources(S2CPortableSources message) {}
 

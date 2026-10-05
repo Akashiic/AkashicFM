@@ -32,6 +32,7 @@ class MediaResolverTest {
         final Map<String, Integer> durations = new HashMap<>();
         final Set<String> drm = new HashSet<>();
         String searchJson;
+        String ytSearchJson;
         YtDlp.Result next; // força um resultado (erro, timeout)
         MediaResolver.ResolveException fail;
 
@@ -46,6 +47,7 @@ class MediaResolverTest {
             if (args.get(0)
                 .equals("-J")) {
                 if (target.startsWith("scsearch")) return ok(searchJson);
+                if (target.startsWith("ytsearch")) return ok(ytSearchJson);
                 String json = info.get(target);
                 return json != null ? ok(json)
                     : new YtDlp.Result(1, "", "ERROR: [generic] Unsupported URL: " + target, false);
@@ -93,6 +95,7 @@ class MediaResolverTest {
         FmConfig.IPod.spotify = true;
         FmConfig.IPod.youtubeDirect = false;
         yt.searchJson = YtDlpJsonTest.fixture("sc-search.json");
+        yt.ytSearchJson = YtDlpJsonTest.fixture("yt-search.json");
         resolver = new MediaResolver(yt, (ref, max) -> {
             if (spotifyAnswer == null) throw new SpotifyClient.NotFoundException();
             return spotifyAnswer;
@@ -104,6 +107,121 @@ class MediaResolverTest {
         FmConfig.IPod.maxTrackMinutes = 0;
         FmConfig.IPod.spotify = false;
         FmConfig.IPod.youtubeDirect = false;
+    }
+
+    // ---- Buscar (a lista de resultados) ----
+
+    private String lastTarget() {
+        List<String> c = yt.calls.get(yt.calls.size() - 1);
+        return c.get(c.size() - 1);
+    }
+
+    @Test
+    void buscaDoSoundCloudSemAsPrevias() throws Exception {
+        // sc-search.json (gravado): 5 faixas, duas são prévias de 30 s de faixas pagas.
+        List<IPodTrack> r = resolver.searchTracks(IPodTrack.Source.SOUNDCLOUD, " daft punk get lucky ", 10);
+        assertEquals(3, r.size());
+        for (IPodTrack t : r) {
+            assertEquals(IPodTrack.Source.SOUNDCLOUD, t.source);
+            assertTrue(t.durationSec > MediaResolver.PREVIEW_MAX_SEC, t.toString());
+        }
+        assertEquals("scsearch10:daft punk get lucky", lastTarget());
+        List<String> call = yt.calls.get(0);
+        assertEquals("10", call.get(call.indexOf("--playlist-end") + 1));
+        // Faixa curta de verdade (não é o corte de 30 s) continua.
+        yt.searchJson = "{\"_type\":\"playlist\",\"entries\":[{\"_type\":\"url\",\"ie_key\":\"Soundcloud\","
+            + "\"webpage_url\":\"https://soundcloud.com/a/vinheta\",\"title\":\"Vinheta\",\"duration\":12.0},"
+            + "{\"_type\":\"url\",\"ie_key\":\"Soundcloud\",\"webpage_url\":\"https://soundcloud.com/a/paga\","
+            + "\"title\":\"Paga\",\"duration\":30.0}]}";
+        List<IPodTrack> shortOnes = resolver.searchTracks(IPodTrack.Source.SOUNDCLOUD, "vinheta", 10);
+        assertEquals(1, shortOnes.size());
+        assertEquals("Vinheta", shortOnes.get(0).title);
+    }
+
+    @Test
+    void buscaDoYouTubeTiraAsLongasDemais() throws Exception {
+        // yt-search.json (gravado com o yt-dlp de verdade, ytsearch10): 10 vídeos, um de 1 hora.
+        List<IPodTrack> r = resolver.searchTracks(IPodTrack.Source.YOUTUBE, "daft punk get lucky", 10);
+        assertEquals(9, r.size());
+        IPodTrack first = r.get(0);
+        assertEquals(IPodTrack.Source.YOUTUBE, first.source);
+        assertEquals("https://www.youtube.com/watch?v=5NV6Rdv1a3I", first.link);
+        assertEquals(249, first.durationSec);
+        assertTrue(first.title.startsWith("Daft Punk - Get Lucky"));
+        assertFalse(first.artist.isEmpty());
+        for (IPodTrack t : r) assertTrue(t.durationSec <= 20 * 60, t.toString());
+        assertEquals("ytsearch10:daft punk get lucky", lastTarget());
+    }
+
+    @Test
+    void buscaLimitadaADez() throws Exception {
+        resolver.searchTracks(IPodTrack.Source.YOUTUBE, "x", 50);
+        assertEquals("ytsearch10:x", lastTarget());
+        resolver.searchTracks(IPodTrack.Source.SOUNDCLOUD, "y", 0);
+        assertEquals("scsearch1:y", lastTarget());
+    }
+
+    @Test
+    void buscaSoComTextoNuncaComLinkOuPrefixo() {
+        for (String bad : new String[] { "", "   ", "https://soundcloud.com/a/b", "https://evil.example/x",
+            "spotify:track:4cOdK2wGLETKBW3PvgPWqT" }) {
+            MediaResolver.ResolveException e = assertThrows(
+                MediaResolver.ResolveException.class,
+                () -> resolver.searchTracks(IPodTrack.Source.YOUTUBE, bad, 10),
+                bad);
+            assertEquals("invalid", e.key);
+        }
+        assertTrue(yt.calls.isEmpty());
+    }
+
+    @Test
+    void prefixoDigitadoViraTextoBuscado() throws Exception {
+        // "ytsearch5:x" digitado é só texto: vai depois do prefixo do servidor, nunca vira outro extrator.
+        resolver.searchTracks(IPodTrack.Source.SOUNDCLOUD, "ytsearch5:x", 10);
+        assertEquals("scsearch10:ytsearch5:x", lastTarget());
+    }
+
+    @Test
+    void buscaDoSpotifyPelaChaveFiltraERemoveRepetidas() throws Exception {
+        List<IPodTrack> answer = new ArrayList<>();
+        answer.add(
+            new IPodTrack(
+                IPodTrack.Source.SPOTIFY,
+                SpotifyClient.trackLink("4cOdK2wGLETKBW3PvgPWqT"),
+                "Never Gonna Give You Up",
+                "Rick Astley",
+                213));
+        answer.add(
+            new IPodTrack(
+                IPodTrack.Source.SPOTIFY,
+                SpotifyClient.trackLink("4cOdK2wGLETKBW3PvgPWqT"),
+                "Never Gonna Give You Up",
+                "Rick Astley",
+                213));
+        answer.add(
+            new IPodTrack(
+                IPodTrack.Source.SPOTIFY,
+                SpotifyClient.trackLink("0000000000000000000001"),
+                "Mix de 2 horas",
+                "DJ",
+                7200));
+        MediaResolver r = new MediaResolver(yt, (ref, max) -> null, (q, max) -> {
+            assertEquals("rick astley", q);
+            assertEquals(10, max);
+            return answer;
+        });
+        List<IPodTrack> found = r.searchTracks(IPodTrack.Source.SPOTIFY, "rick astley", 10);
+        assertEquals(1, found.size());
+        assertEquals("Rick Astley", found.get(0).artist);
+        assertTrue(yt.calls.isEmpty());
+    }
+
+    @Test
+    void buscaDoSpotifySemChave() {
+        MediaResolver.ResolveException e = assertThrows(
+            MediaResolver.ResolveException.class,
+            () -> resolver.searchTracks(IPodTrack.Source.SPOTIFY, "rick astley", 10));
+        assertEquals("spotify_nokey", e.key);
     }
 
     // ---- Expandir ----

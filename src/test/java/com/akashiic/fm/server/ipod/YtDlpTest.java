@@ -79,6 +79,7 @@ class YtDlpTest {
         assertEquals("--exec=x", media.get(media.size() - 1));
         assertTrue(media.contains("--no-playlist"));
         assertEquals("scsearch8:daft punk", YtDlp.soundcloudSearch("daft punk", 8));
+        assertEquals("ytsearch10:daft punk", YtDlp.youtubeSearch("daft punk", 10));
     }
 
     @Test

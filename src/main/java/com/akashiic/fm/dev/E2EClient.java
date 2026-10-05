@@ -67,6 +67,7 @@ import com.akashiic.fm.network.C2SPortableAction;
 import com.akashiic.fm.network.C2SRadioAction;
 import com.akashiic.fm.network.C2SRadioAction.Action;
 import com.akashiic.fm.network.FmNetwork;
+import com.akashiic.fm.network.S2CIPodSearchResults;
 import com.akashiic.fm.network.S2CIPodStatus;
 import com.akashiic.fm.network.S2CPortableSources;
 import com.akashiic.fm.network.S2CRadioNotice;
@@ -1914,6 +1915,178 @@ public final class E2EClient {
         };
     }
 
+    /** O pedido de busca em andamento de cada passo de busca. */
+    private int ipodSearchRequest;
+
+    /**
+     * Busca no serviço depois de {@code SEARCH_SPACING_TICKS} (o servidor exige 2 s entre buscas) e espera os
+     * resultados; {@code check} recebe a resposta.
+     */
+    private Step ipodSearch(String name, IPodTrack.Source source, String query,
+        java.util.function.Function<S2CIPodSearchResults, String> check) {
+        return new Step(name, 30) {
+
+            @Override
+            String tick(int t) {
+                if (t == SEARCH_SPACING_TICKS) {
+                    ipodSearchRequest = ClientIPod.newRequest();
+                    sendIPod(
+                        C2SIPodAction.Action.SEARCH,
+                        C2SIPodAction.Action.pack(ipodSearchRequest, source.ordinal()),
+                        query);
+                }
+                if (t <= SEARCH_SPACING_TICKS) return null;
+                S2CIPodSearchResults r = ClientIPod.results(ipodSearchRequest);
+                if (r == null) return null;
+                StringBuilder sb = new StringBuilder();
+                for (S2CIPodSearchResults.Entry e : r.results) sb.append(" | ")
+                    .append(e.display())
+                    .append(" (")
+                    .append(e.durationSec)
+                    .append(" s)");
+                DevE2E.log("ipod: busca {} '{}': status='{}'{}", source, query, r.status, sb);
+                return check.apply(r);
+            }
+        };
+    }
+
+    private static final int SEARCH_SPACING_TICKS = 50;
+
+    private static int resultIndex(S2CIPodSearchResults r, String display) {
+        for (int i = 0; i < r.results.size(); i++) if (r.results.get(i)
+            .display()
+            .equals(display)) return i;
+        return -1;
+    }
+
+    private void addIPodSearchSteps() {
+        // SoundCloud: a prévia de 30 s fica de fora; escolher põe na fila sem chamar o yt-dlp de novo para os
+        // metadados (o servidor usa a faixa que guardou) e, com o iPod parado, começa por ela.
+        final int[] songOne = { -1 };
+        steps.add(ipodSearch("ipod-busca-soundcloud", IPodTrack.Source.SOUNDCLOUD, "song one", r -> {
+            songOne[0] = resultIndex(r, "E2E Band - Song One");
+            if (!r.status.isEmpty()) return "a busca falhou: " + r.status;
+            return r.results.size() == 2 && songOne[0] >= 0 && resultIndex(r, "Song One") < 0 ? ""
+                : "resultados fora do esperado (a prévia não podia aparecer)";
+        }));
+        final int[] infoBefore = { -1 };
+        steps.add(ipodCalls("ipod-busca-chamadas-antes", line -> {
+            infoBefore[0] = callCount(line, "song-one-info");
+            return infoBefore[0] >= 0;
+        }));
+        steps.add(new Step("ipod-busca-escolher-poe-na-fila-e-toca", 30) {
+
+            int size = -1;
+
+            @Override
+            void start() {
+                IPodState s = ipodState();
+                size = s == null ? -1 : s.queue.size();
+                sendIPod(C2SIPodAction.Action.ADD_RESULT, C2SIPodAction.Action.pack(ipodSearchRequest, songOne[0]), "");
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                if (s == null || size < 0 || s.queue.size() != size + 1) return null;
+                IPodTrack last = s.queue.get(s.queue.size() - 1);
+                if (!last.link.equals("https://soundcloud.com/e2e/song-one")) return "entrou outra faixa: " + last;
+                if (!last.title.equals("E2E Band - Song One")) return "sem os metadados da busca: " + last;
+                return s.on && s.index == s.queue.size() - 1 && ownIPodPlaying() ? "" : null;
+            }
+        });
+        steps.add(ipodCalls("ipod-busca-sem-chamada-extra-de-metadados", line -> {
+            int after = callCount(line, "song-one-info");
+            return after == infoBefore[0] && callCount(line, "search") >= 1;
+        }));
+        // YouTube: o vídeo de 1 hora (acima do limite de 20 min) fica de fora; "Tocar agora" toca na hora, pelo
+        // espelho no SoundCloud.
+        final int[] official = { -1 };
+        steps.add(ipodSearch("ipod-busca-youtube", IPodTrack.Source.YOUTUBE, "song one", r -> {
+            official[0] = resultIndex(r, "E2E Band - Song One (Official Video)");
+            if (!r.status.isEmpty()) return "a busca falhou: " + r.status;
+            return r.results.size() == 2 && official[0] >= 0 ? "" : "resultados fora do esperado";
+        }));
+        steps.add(new Step("ipod-busca-tocar-agora", 45) {
+
+            @Override
+            void start() {
+                sendIPod(
+                    C2SIPodAction.Action.PLAY_RESULT,
+                    C2SIPodAction.Action.pack(ipodSearchRequest, official[0]),
+                    "");
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                IPodTrack cur = s == null ? null : s.current();
+                if (cur == null || !cur.link.equals("https://www.youtube.com/watch?v=e2eVideo001")) return null;
+                return s.on && ownIPodPlaying() ? "" : null;
+            }
+        });
+        steps.add(ipodCalls("ipod-busca-chamadas-do-youtube", line -> callCount(line, "ytsearch") == 1));
+        // Spotify sem chave no servidor: a resposta explica, e nada é buscado.
+        steps.add(ipodSearch("ipod-busca-spotify-sem-chave", IPodTrack.Source.SPOTIFY, "rick astley", r -> {
+            if (r.has(S2CIPodSearchResults.FLAG_SPOTIFY_SEARCH)) return "o servidor diz que tem a busca do Spotify";
+            return r.status.equals("akashicfm.ipod.err.spotify_nokey") && r.results.isEmpty() ? ""
+                : "resposta inesperada: " + r.status;
+        }));
+        // A tela com as abas: uma busca pela própria tela e as capturas.
+        steps.add(new Step("gui-do-ipod-abas", 40) {
+
+            GuiIPod gui;
+
+            @Override
+            String tick(int t) {
+                if (t == 0) {
+                    gui = new GuiIPod(ipodSlot);
+                    mc().displayGuiScreen(gui);
+                }
+                if (t == 2) gui.selectTab(GuiIPod.Tab.YOUTUBE);
+                if (t == SEARCH_SPACING_TICKS) gui.submitText("song one");
+                if (t == SEARCH_SPACING_TICKS + 60) screenshot("e2e-gui-ipod-youtube.png");
+                if (t == SEARCH_SPACING_TICKS + 62) gui.selectTab(GuiIPod.Tab.SPOTIFY);
+                if (t == SEARCH_SPACING_TICKS + 70) screenshot("e2e-gui-ipod-spotify.png");
+                if (t == SEARCH_SPACING_TICKS + 72) gui.selectTab(GuiIPod.Tab.QUEUE);
+                if (t == SEARCH_SPACING_TICKS + 80) screenshot("e2e-gui-ipod-fila.png");
+                if (t < SEARCH_SPACING_TICKS + 82) return null;
+                boolean ok = mc().currentScreen == gui;
+                mc().displayGuiScreen(null);
+                return ok ? "" : "a tela do iPod fechou sozinha";
+            }
+        });
+        steps.add(new Step("ipod-busca-auditoria", 10) {
+
+            int seen;
+
+            @Override
+            void start() {
+                seen = countChat("e2e-result audit");
+                say("e2e:audit-tail");
+            }
+
+            @Override
+            String tick(int t) {
+                if (countChat("e2e-result audit") <= seen) return null;
+                return chatSaw("ipodsearch=true") ? "" : "a auditoria não registrou a busca";
+            }
+        });
+        steps.add(new Step("ipod-parar-depois-da-busca", 20) {
+
+            @Override
+            void start() {
+                sendIPod(C2SIPodAction.Action.STOP, 0, "");
+            }
+
+            @Override
+            String tick(int t) {
+                IPodState s = ipodState();
+                return s != null && !s.on && ipodEntry(true) == null ? "" : null;
+            }
+        });
+    }
+
     private void addIPodSteps(boolean expectPeer) {
         steps.add(ipodGive("ipod-pegar"));
         steps.add(new Step("ipod-link-de-outro-site-recusado", 10) {
@@ -2229,6 +2402,7 @@ public final class E2EClient {
                 return chatSaw("ipod=true") ? "" : "a auditoria não registrou o link do iPod";
             }
         });
+        addIPodSearchSteps();
         steps.add(new Step("ipod-guardar", 10) {
 
             @Override

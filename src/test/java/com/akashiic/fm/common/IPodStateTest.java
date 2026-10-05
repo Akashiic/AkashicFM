@@ -252,6 +252,67 @@ class IPodStateTest {
     }
 
     @Test
+    void tocarAgoraPoeLogoDepoisDaAtual() {
+        IPodState s = new IPodState();
+        assertTrue(s.playNext(sc(9), 50));
+        assertEquals(1, s.queue.size());
+        assertEquals(0, s.index);
+        assertTrue(s.on);
+
+        s = withQueue(4);
+        s.play(1);
+        int session = s.session;
+        assertTrue(s.playNext(sc(9), 50));
+        assertEquals(5, s.queue.size());
+        assertEquals(2, s.index);
+        assertEquals(sc(9).link, s.current().link);
+        assertEquals(sc(2).link, s.queue.get(3).link, "as seguintes andam uma casa");
+        assertTrue(s.session > session);
+
+        // Parado no começo da fila: entra depois da atual (a 0) e toca.
+        s = withQueue(3);
+        s.on = false;
+        s.index = 0;
+        assertTrue(s.playNext(sc(9), 50));
+        assertEquals(1, s.index);
+        assertTrue(s.on);
+    }
+
+    @Test
+    void tocarAgoraNaoRepeteNaFila() {
+        IPodState s = withQueue(5);
+        s.play(1);
+        // Já é a atual: recomeça.
+        int session = s.session;
+        assertTrue(s.playNext(sc(1), 50));
+        assertEquals(5, s.queue.size());
+        assertEquals(1, s.index);
+        assertTrue(s.session > session);
+        // Já está mais para a frente (posta por um clique): muda de lugar.
+        assertTrue(s.playNext(sc(4), 50));
+        assertEquals(5, s.queue.size());
+        assertEquals(2, s.index);
+        assertEquals(sc(4).link, s.current().link);
+        assertEquals(sc(2).link, s.queue.get(3).link);
+        assertEquals(sc(3).link, s.queue.get(4).link);
+        // Antes da atual não conta: entra uma cópia depois da atual.
+        assertTrue(s.playNext(sc(0), 50));
+        assertEquals(6, s.queue.size());
+        assertEquals(3, s.index);
+    }
+
+    @Test
+    void tocarAgoraRespeitaOLimite() {
+        IPodState s = withQueue(3);
+        s.play(0);
+        assertFalse(s.playNext(sc(9), 3));
+        assertEquals(3, s.queue.size());
+        assertEquals(0, s.index);
+        assertFalse(s.playNext(null, 50));
+        assertTrue(s.playNext(sc(2), 3), "mover não cresce a fila");
+    }
+
+    @Test
     void limparParaTudo() {
         IPodState s = withQueue(3);
         s.play(1);

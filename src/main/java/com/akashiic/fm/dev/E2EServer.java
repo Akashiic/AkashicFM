@@ -154,7 +154,9 @@ public final class E2EServer {
                         + " purge="
                         + text.contains("admin.purge")
                         + " ipod="
-                        + text.contains("ipod.add")));
+                        + text.contains("ipod.add")
+                        + " ipodsearch="
+                        + text.contains("ipod.search")));
         }
         if (event.message.startsWith("e2e:ipod-calls") && event.player != null) {
             // Quantas vezes o iPod chamou o yt-dlp falso para cada alvo (registro do próprio script).
@@ -165,10 +167,12 @@ public final class E2EServer {
             } catch (java.io.IOException e) {
                 DevE2E.log("registro do yt-dlp falso ilegível: {}", e.toString());
             }
-            int faixaA = 0, search = 0, songOne = 0, remix = 0, preview = 0;
+            int faixaA = 0, search = 0, songOne = 0, remix = 0, preview = 0, ytsearch = 0, songOneInfo = 0;
             for (String l : lines) {
                 if (l.endsWith("media https://soundcloud.com/e2e/faixa-a")) faixaA++;
                 if (l.contains(" info scsearch")) search++;
+                if (l.contains(" info ytsearch")) ytsearch++;
+                if (l.endsWith(" info https://soundcloud.com/e2e/song-one")) songOneInfo++;
                 if (l.endsWith("media https://soundcloud.com/e2e/song-one")) songOne++;
                 if (l.endsWith("media https://soundcloud.com/e2e/song-one-remix")) remix++;
                 if (l.endsWith("media https://soundcloud.com/e2e/song-one-preview")) preview++;
@@ -181,7 +185,12 @@ public final class E2EServer {
                 + " remix="
                 + remix
                 + " preview="
-                + preview;
+                + preview
+                + " ytsearch="
+                + ytsearch
+                + " song-one-info="
+                + songOneInfo
+                + " .";
             DevE2E.log("ipod: chamadas do yt-dlp falso: {}", r);
             event.player.addChatMessage(new ChatComponentText("e2e-result ipod-calls " + r));
         }

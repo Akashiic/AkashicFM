@@ -101,6 +101,20 @@ class YtDlpJsonTest {
     }
 
     @Test
+    void buscaDoYouTube() throws Exception {
+        // Gravado do yt-dlp de verdade (ytsearch10, --flat-playlist), sem as miniaturas.
+        YtDlpJson.Listing l = YtDlpJson.listing(fixture("yt-search.json"), 10);
+        assertEquals(10, l.tracks.size());
+        for (IPodTrack t : l.tracks) {
+            assertEquals(IPodTrack.Source.YOUTUBE, t.source);
+            assertTrue(t.link.startsWith("https://www.youtube.com/watch?v="), t.link);
+            assertTrue(t.durationSec > 0);
+        }
+        assertEquals("Daft Punk", l.tracks.get(0).artist);
+        assertEquals(3601, l.tracks.get(8).durationSec);
+    }
+
+    @Test
     void midiaTrazAUrlDoFormatoEOsMetadados() throws Exception {
         YtDlpJson.Media m = YtDlpJson.media(fixture("sc-media.json"));
         assertTrue(m.url.startsWith("https://cf-media.sndcdn.com/OxDntAhpwK1v.128.mp3?"));

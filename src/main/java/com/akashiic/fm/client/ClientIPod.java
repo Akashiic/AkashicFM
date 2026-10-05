@@ -1,5 +1,6 @@
 package com.akashiic.fm.client;
 
+import com.akashiic.fm.network.S2CIPodSearchResults;
 import com.akashiic.fm.network.S2CIPodStatus;
 
 /**
@@ -35,8 +36,38 @@ public final class ClientIPod {
         return s.durationMs > 0 ? Math.min(p, s.durationMs) : p;
     }
 
+    // ---- Busca ----
+
+    private static S2CIPodSearchResults lastSearch;
+    private static int flags;
+    private static int nextRequest = 1;
+
+    /** Um número novo para o próximo pedido de busca (a resposta de um pedido velho é ignorada). */
+    public static int newRequest() {
+        nextRequest = nextRequest >= 0x7FFFFFF ? 1 : nextRequest + 1;
+        return nextRequest;
+    }
+
+    public static void searchResults(S2CIPodSearchResults message) {
+        flags = message.flags;
+        if (message.requestId != 0) lastSearch = message;
+    }
+
+    /** O que a tela pode oferecer (flags de {@link S2CIPodSearchResults}), da última resposta do servidor. */
+    public static int flags() {
+        return flags;
+    }
+
+    /** Os resultados do pedido {@code requestId}, ou null se ainda não chegaram. */
+    public static S2CIPodSearchResults results(int requestId) {
+        S2CIPodSearchResults r = lastSearch;
+        return r != null && requestId != 0 && r.requestId == requestId ? r : null;
+    }
+
     public static void clear() {
         last = null;
         receivedAtMs = 0;
+        lastSearch = null;
+        flags = 0;
     }
 }

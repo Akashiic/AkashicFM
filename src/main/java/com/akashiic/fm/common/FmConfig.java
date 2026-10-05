@@ -261,6 +261,16 @@ public final class FmConfig {
         @Config.DefaultBoolean(true)
         @Config.Reloadable(RELOAD)
         public static boolean spotify;
+
+        @Config.Comment("Busca por nome na aba Spotify do iPod: o Client ID de um app do Spotify (developer.spotify.com). Vazio = a aba aceita só links. Desde fev/2026 o app exige Premium do dono e dá no máximo 10 resultados por busca.")
+        @Config.DefaultString("")
+        @Config.Reloadable(RELOAD)
+        public static String spotifyClientId;
+
+        @Config.Comment("O Client Secret do mesmo app. Fica em texto puro neste arquivo: não compartilhe o config. Nunca vai para o log nem para os jogadores.")
+        @Config.DefaultString("")
+        @Config.Reloadable(RELOAD)
+        public static String spotifyClientSecret;
     }
 
     @Config(modid = AkashicFM.MODID, category = "opencomputers")

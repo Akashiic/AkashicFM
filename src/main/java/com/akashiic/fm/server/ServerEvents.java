@@ -43,6 +43,7 @@ public final class ServerEvents {
         if (event.player == null) return;
         ServerActionQueue.LIMITER.forget(event.player.getUniqueID());
         RelayService.forget(event.player.getUniqueID());
+        IPodService.forget(event.player.getUniqueID());
     }
 
     /**
