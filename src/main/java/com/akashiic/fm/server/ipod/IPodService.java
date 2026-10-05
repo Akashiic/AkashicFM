@@ -95,9 +95,8 @@ public final class IPodService {
     /** O que um iPod está tocando agora. */
     static final class Session {
 
-        final long itemId;
         final String key;
-        final UUID owner;
+        final long id;
         int session = Integer.MIN_VALUE;
         String link = "";
         Resolve current;
@@ -113,10 +112,9 @@ public final class IPodService {
         long positionMs;
         int cycles;
 
-        Session(long itemId, UUID owner) {
-            this.itemId = itemId;
-            this.owner = owner;
-            this.key = keyOf(owner);
+        Session(String key, long id) {
+            this.key = key;
+            this.id = id;
         }
 
         S2CIPodStatus.Phase phase(IPodState s) {
@@ -131,23 +129,25 @@ public final class IPodService {
     private static final class PendingAdd {
 
         final UUID player;
-        final long itemId;
+        final IPodTarget target;
         final String input;
         final Future<YtDlpJson.Listing> future;
 
-        PendingAdd(UUID player, long itemId, String input, Future<YtDlpJson.Listing> future) {
+        PendingAdd(UUID player, IPodTarget target, String input, Future<YtDlpJson.Listing> future) {
             this.player = player;
-            this.itemId = itemId;
+            this.target = target;
             this.input = input;
             this.future = future;
         }
     }
 
     /**
-     * Por jogador (só um aparelho toca por jogador). Não pela identidade do item: copiar um iPod no criativo copia
-     * a identidade, e duas cópias tocando em jogadores diferentes não podem dividir a sessão nem a estação.
+     * Pela chave da estação do host: a do item é a do jogador (só um aparelho toca por jogador). Não pela identidade
+     * do item: copiar um iPod no criativo copia a identidade, e duas cópias tocando em jogadores diferentes não podem
+     * dividir a sessão nem a estação.
      */
-    private static final Map<UUID, Session> SESSIONS = new HashMap<>();
+    private static final Map<String, Session> SESSIONS = new HashMap<>();
+    /** Uma adição por vez por jogador. */
     private static final Map<UUID, PendingAdd> ADDS = new HashMap<>();
     private static ToolManager tools;
     /** Lido também pelas threads das estações (renovação da URL). */
@@ -163,10 +163,14 @@ public final class IPodService {
             .replace("-", "");
     }
 
-    /** A sessão do jogador, se ela é deste iPod. */
+    /** A sessão da chave, se ela é deste aparelho. */
+    private static Session sessionFor(String key, long id) {
+        Session ses = key == null ? null : SESSIONS.get(key);
+        return ses != null && ses.id == id ? ses : null;
+    }
+
     private static Session sessionFor(UUID owner, long itemId) {
-        Session ses = owner == null ? null : SESSIONS.get(owner);
-        return ses != null && ses.itemId == itemId ? ses : null;
+        return owner == null ? null : sessionFor(keyOf(owner), itemId);
     }
 
     // ---- Ciclo ----
@@ -179,7 +183,31 @@ public final class IPodService {
         }
         if (ticks % (INTERVAL_TICKS * TOOLS_CYCLES) == INTERVAL_TICKS) ensureTools();
         finishAdds();
-        Set<UUID> alive = new HashSet<>();
+        Set<String> alive = new HashSet<>();
+        for (IPodHost host : hosts()) {
+            Session ses = SESSIONS.get(host.key());
+            if (ses == null || ses.id != host.id()) { // outro aparelho na mesma chave: começa de novo
+                if (ses != null) close(ses);
+                ses = new Session(host.key(), host.id());
+                SESSIONS.put(host.key(), ses);
+            }
+            alive.add(host.key());
+            update(host, ses);
+        }
+        Iterator<Session> it = SESSIONS.values()
+            .iterator();
+        while (it.hasNext()) {
+            Session ses = it.next();
+            if (!alive.contains(ses.key)) {
+                close(ses);
+                it.remove();
+            }
+        }
+    }
+
+    /** Os iPods que tocam neste ciclo. */
+    private static List<IPodHost> hosts() {
+        List<IPodHost> out = new ArrayList<>();
         for (EntityPlayerMP p : onlinePlayers()) {
             // Morto ou bloqueado por um admin: mudo no PortableSources, e aqui nada resolve nem toca.
             if (p.isDead || p.getHealth() <= 0 || Moderation.isBlocked(p)) continue;
@@ -187,28 +215,13 @@ public final class IPodService {
             if (st == null) continue;
             IPodState s = ItemIPod.state(st);
             if (s.id == 0) continue; // a identidade chega no próximo onUpdate do item
-            UUID owner = p.getUniqueID();
-            Session ses = SESSIONS.get(owner);
-            if (ses == null || ses.itemId != s.id) { // outro iPod do mesmo jogador: começa de novo
-                if (ses != null) close(ses);
-                ses = new Session(s.id, owner);
-                SESSIONS.put(owner, ses);
-            }
-            alive.add(owner);
-            update(p, st, s, ses);
+            out.add(new ItemHost(p, st, s));
         }
-        Iterator<Session> it = SESSIONS.values()
-            .iterator();
-        while (it.hasNext()) {
-            Session ses = it.next();
-            if (!alive.contains(ses.owner)) {
-                close(ses);
-                it.remove();
-            }
-        }
+        return out;
     }
 
-    private static void update(EntityPlayerMP p, ItemStack st, IPodState s, Session ses) {
+    private static void update(IPodHost host, Session ses) {
+        IPodState s = host.state();
         long now = RelayService.nowMs();
         IPodTrack cur = s.current();
         if (cur == null) return;
@@ -217,7 +230,7 @@ public final class IPodService {
             close(ses);
             ses.session = Integer.MIN_VALUE;
             ses.status = STATUS_NO_RELAY;
-            sendStatus(p, s, ses);
+            sendStatus(host, ses);
             return;
         }
         if (s.session != ses.session || !cur.link.equals(ses.link)) startTrack(ses, s, cur);
@@ -228,7 +241,7 @@ public final class IPodService {
             if (now - ses.pausedSinceMs > FmConfig.IPod.pauseTimeoutMinutes * 60_000L) {
                 s.on = false;
                 s.paused = false;
-                ItemIPod.save(st, s);
+                host.save();
                 closeStation(ses);
                 return;
             }
@@ -238,13 +251,13 @@ public final class IPodService {
         if (ses.open) RelayService.setKeyedPaused(ses.key, s.paused);
 
         if (ses.failedAtMs >= 0) {
-            if (now - ses.failedAtMs >= SKIP_DELAY_MS) skipAfterFailure(st, s, ses);
+            if (now - ses.failedAtMs >= SKIP_DELAY_MS) skipAfterFailure(host, ses);
         } else if (!ses.open) {
-            awaitResolution(st, s, ses);
+            awaitResolution(host, ses);
         } else {
-            follow(st, s, ses, cur, now);
+            follow(host, ses, cur, now);
         }
-        if (++ses.cycles % STATUS_CYCLES == 0) sendStatus(p, s, ses);
+        if (++ses.cycles % STATUS_CYCLES == 0) sendStatus(host, ses);
     }
 
     /** A faixa mudou (pedido do jogador ou avanço): fecha a anterior e resolve a nova (ou usa a adiantada). */
@@ -276,8 +289,9 @@ public final class IPodService {
         }
     }
 
-    private static void awaitResolution(ItemStack st, IPodState s, Session ses) {
+    private static void awaitResolution(IPodHost host, Session ses) {
         if (ses.current == null || !ses.current.future.isDone()) return;
+        IPodState s = host.state();
         MediaResolver.Located located;
         try {
             located = ses.current.future.get();
@@ -298,7 +312,7 @@ public final class IPodService {
         // Metadados que faltavam (título de item de set, duração): ficam na fila.
         if (!sameMetadata(located.track, s.current())) {
             s.queue.set(s.index, located.track);
-            ItemIPod.save(st, s);
+            host.save();
         }
         ses.shown = located.track;
         if (!RelayService.openKeyed(ses.key, new TrackLocator(located))) {
@@ -316,7 +330,8 @@ public final class IPodService {
     }
 
     /** A estação está aberta: acompanha a posição, o fim, as falhas e adianta a próxima. */
-    private static void follow(ItemStack st, IPodState s, Session ses, IPodTrack cur, long now) {
+    private static void follow(IPodHost host, Session ses, IPodTrack cur, long now) {
+        IPodState s = host.state();
         RelayService.KeyedStatus ks = RelayService.keyedStatus(ses.key);
         if (ks == null) { // a estação sumiu (relay recarregado, limite): recomeça a faixa
             ses.open = false;
@@ -334,7 +349,7 @@ public final class IPodService {
             return;
         }
         if (ended && ks.endHeardAtMs >= 0 && now >= ks.endHeardAtMs) {
-            advance(st, s, ses, false);
+            advance(host, ses, false);
             return;
         }
         int durationSec = ses.shown != null && ses.shown.durationSec > 0 ? ses.shown.durationSec : cur.durationSec;
@@ -345,20 +360,22 @@ public final class IPodService {
     }
 
     /** Pula para a próxima depois de uma falha; falhas demais seguidas desligam o iPod (o motivo fica). */
-    private static void skipAfterFailure(ItemStack st, IPodState s, Session ses) {
+    private static void skipAfterFailure(IPodHost host, Session ses) {
+        IPodState s = host.state();
         ses.failures++;
         if (ses.failures >= Math.min(MAX_FAILURES_IN_ROW, s.queue.size())) {
             s.on = false;
             s.paused = false;
-            ItemIPod.save(st, s);
+            host.save();
             closeStation(ses);
             return;
         }
-        advance(st, s, ses, false);
+        advance(host, ses, false);
     }
 
     /** Vai para a próxima pela repetição; no fim da fila, desliga. */
-    private static void advance(ItemStack st, IPodState s, Session ses, boolean manual) {
+    private static void advance(IPodHost host, Session ses, boolean manual) {
+        IPodState s = host.state();
         int next = s.nextIndex(manual);
         AkashicFM.LOG.debug("iPod {}: avança de {} para {}", ses.key, s.index, next);
         if (next < 0) {
@@ -370,7 +387,7 @@ public final class IPodService {
             s.index = next;
             s.session++;
         }
-        ItemIPod.save(st, s);
+        host.save();
     }
 
     private static void fail(Session ses, String status) {
@@ -390,8 +407,8 @@ public final class IPodService {
     // ---- Ações (chamadas pelo IPodActionHandler, thread principal) ----
 
     /** Posição da faixa atual do iPod (0 se não está tocando). */
-    public static long positionMs(UUID owner, long itemId) {
-        Session ses = sessionFor(owner, itemId);
+    static long positionMs(String key, long id) {
+        Session ses = sessionFor(key, id);
         return ses == null || !ses.open ? 0 : ses.positionMs;
     }
 
@@ -399,7 +416,7 @@ public final class IPodService {
      * Expande um link ou busca para a fila do iPod (em segundo plano). Devolve a chave do aviso de recusa, ou null se
      * começou.
      */
-    public static String add(EntityPlayerMP p, long itemId, String input) {
+    static String add(EntityPlayerMP p, IPodTarget target, String input) {
         if (!FmConfig.IPod.enabled) return STATUS_DISABLED;
         UUID id = p.getUniqueID();
         PendingAdd pending = ADDS.get(id);
@@ -412,7 +429,7 @@ public final class IPodService {
         if (tools.ytDlp() == null) return "akashicfm.ipod.notice.installing";
         Future<YtDlpJson.Listing> f = submit(() -> resolver.expand(input, Math.max(1, FmConfig.IPod.maxQueue)));
         if (f == null) return STATUS_BUSY;
-        ADDS.put(id, new PendingAdd(id, itemId, input, f));
+        ADDS.put(id, new PendingAdd(id, target, input, f));
         AuditLog.log(p.getCommandSenderName(), id, "ipod.add", input);
         return null;
     }
@@ -438,26 +455,26 @@ public final class IPodService {
                 String status = c instanceof MediaResolver.ResolveException
                     ? ((MediaResolver.ResolveException) c).status()
                     : "akashicfm.ipod.err.failed|" + c;
-                IPodActionHandler.notice(p, true, status);
+                a.target.notice(p, true, status);
                 continue;
             } catch (Exception e) {
                 continue;
             }
-            ItemStack st = ItemIPod.findById(p, a.itemId);
-            if (st == null) continue; // o iPod saiu do inventário
-            IPodState s = ItemIPod.state(st);
+            IPodTarget.Binding b = a.target.bind(p);
+            if (b == null) continue; // o iPod saiu do alcance (do inventário)
+            IPodState s = b.state;
             boolean wasEmpty = s.queue.isEmpty();
             int first = s.queue.size();
             int added = s.append(listing.tracks, FmConfig.IPod.maxQueue);
             if (added == 0) {
-                IPodActionHandler.notice(p, true, "akashicfm.ipod.notice.queue_full");
+                a.target.notice(p, true, "akashicfm.ipod.notice.queue_full");
                 continue;
             }
             // Fila parada: começa pela primeira que entrou.
             if (!s.on) s.play(wasEmpty ? 0 : first);
-            ItemIPod.save(st, s);
+            b.save.run();
             int left = listing.tracks.size() - added;
-            IPodActionHandler.notice(
+            a.target.notice(
                 p,
                 false,
                 left > 0 ? "akashicfm.ipod.notice.added_partial|" + added + "|" + left
@@ -487,17 +504,17 @@ public final class IPodService {
         return ses == null ? STATUS_RESOLVING : ses.status;
     }
 
-    private static void sendStatus(EntityPlayerMP p, IPodState s, Session ses) {
+    private static void sendStatus(IPodHost host, Session ses) {
+        IPodState s = host.state();
         IPodTrack t = ses.shown != null ? ses.shown : s.current();
-        FmNetwork.sendTo(
+        host.sendStatus(
             new S2CIPodStatus(
-                ses.itemId,
+                ses.id,
                 ses.phase(s),
                 ses.positionMs,
                 t == null ? 0 : t.durationSec * 1000L,
                 s.index,
-                ses.status),
-            p);
+                ses.status));
     }
 
     // ---- Ferramentas e pool ----
@@ -586,6 +603,47 @@ public final class IPodService {
         tools = null;
         resolver = null;
         ticks = 0;
+    }
+
+    /** O iPod item no inventário de um jogador: estado no NBT do stack, status só para o dono. */
+    private static final class ItemHost implements IPodHost {
+
+        private final EntityPlayerMP player;
+        private final ItemStack stack;
+        private final IPodState state;
+        private final String key;
+
+        ItemHost(EntityPlayerMP player, ItemStack stack, IPodState state) {
+            this.player = player;
+            this.stack = stack;
+            this.state = state;
+            this.key = keyOf(player.getUniqueID());
+        }
+
+        @Override
+        public String key() {
+            return key;
+        }
+
+        @Override
+        public long id() {
+            return state.id;
+        }
+
+        @Override
+        public IPodState state() {
+            return state;
+        }
+
+        @Override
+        public void save() {
+            ItemIPod.save(stack, state);
+        }
+
+        @Override
+        public void sendStatus(S2CIPodStatus status) {
+            FmNetwork.sendTo(status, player);
+        }
     }
 
     /** O áudio de uma faixa para a estação: a URL resolvida e, se ela expirar, uma nova (na thread da estação). */

@@ -47,7 +47,13 @@ public final class IPodActionHandler {
             if (assigned) ItemIPod.save(stack, s);
             return;
         }
-        boolean changed = apply(player, s, msg.action, msg.intArg, msg.strArg);
+        boolean changed = apply(
+            player,
+            IPodTarget.item(player.getUniqueID(), s.id),
+            s,
+            msg.action,
+            msg.intArg,
+            msg.strArg);
         if (changed || assigned) ItemIPod.save(stack, s);
     }
 
@@ -67,18 +73,27 @@ public final class IPodActionHandler {
             if (assigned) ItemIPod.save(stack, s);
             return;
         }
-        if (apply(player, s, C2SIPodAction.Action.TOGGLE, 0, "") || assigned) ItemIPod.save(stack, s);
+        if (apply(player, IPodTarget.item(player.getUniqueID(), s.id), s, C2SIPodAction.Action.TOGGLE, 0, "")
+            || assigned) ItemIPod.save(stack, s);
     }
 
-    /** Muta o estado; devolve true se mudou. {@code player} pode ser null (testes): sem avisos nem adição. */
+    /** Sem jogador nem destino (testes): sem avisos nem adição. */
     static boolean apply(EntityPlayerMP player, IPodState s, C2SIPodAction.Action action, int intArg, String strArg) {
+        return apply(player, null, s, action, intArg, strArg);
+    }
+
+    /**
+     * Muta o estado; devolve true se mudou. {@code target} é o iPod da ação (para a adição em segundo plano, a
+     * posição da faixa e os avisos); {@code player} e {@code target} podem ser null (testes).
+     */
+    static boolean apply(EntityPlayerMP player, IPodTarget target, IPodState s, C2SIPodAction.Action action, int intArg,
+        String strArg) {
         switch (action) {
             case ADD: {
                 String input = TextSanitizer.clean(strArg, RadioLimits.MAX_URL_LENGTH);
-                if (input.isEmpty() || player == null) return false;
-                String refused = IPodService.add(player, s.id, input);
-                if (refused != null) notice(player, true, refused);
-                else notice(player, false, "akashicfm.ipod.notice.adding");
+                if (input.isEmpty() || player == null || target == null) return false;
+                String refused = IPodService.add(player, target, input);
+                target.notice(player, refused != null, refused != null ? refused : "akashicfm.ipod.notice.adding");
                 return false; // a fila muda quando a expansão terminar
             }
             case PLAY:
@@ -87,7 +102,7 @@ public final class IPodActionHandler {
                 return true;
             case TOGGLE:
                 if (s.queue.isEmpty()) {
-                    notice(player, true, "akashicfm.ipod.notice.empty");
+                    if (target != null) target.notice(player, true, "akashicfm.ipod.notice.empty");
                     return false;
                 }
                 if (!s.on) s.play(Math.max(0, s.index));
@@ -113,7 +128,7 @@ public final class IPodActionHandler {
             case PREVIOUS: {
                 if (s.queue.isEmpty()) return false;
                 // Com a faixa já andando, "anterior" volta para o começo dela (como os tocadores).
-                long position = player == null ? 0 : IPodService.positionMs(player.getUniqueID(), s.id);
+                long position = target == null ? 0 : IPodService.positionMs(target.key(), s.id);
                 if (s.on && position > IPodService.RESTART_THRESHOLD_MS) s.play(s.index);
                 else s.play(s.previousIndex());
                 return true;
